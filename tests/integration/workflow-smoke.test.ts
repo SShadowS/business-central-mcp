@@ -44,6 +44,9 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
   /** Set to true when the BC session dies (InvalidSessionException). Later tests skip. */
   let sessionDead = false;
 
+  /** Kept at describe scope so recreateSession() can use it. */
+  let sessionFactory: SessionFactory;
+
   beforeAll(async () => {
     const appConfig = loadConfig();
     const auth = new NTLMAuthProvider({
@@ -55,7 +58,7 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
     const connFactory = new ConnectionFactory(auth, appConfig.bc, logger);
     const decoder = new EventDecoder();
     const encoder = new InteractionEncoder(appConfig.bc.clientVersionString);
-    const sessionFactory = new SessionFactory(connFactory, decoder, encoder, logger, appConfig.bc.tenantId);
+    sessionFactory = new SessionFactory(connFactory, decoder, encoder, logger, appConfig.bc.tenantId);
 
     const result = await sessionFactory.create();
     expect(isOk(result)).toBe(true);
@@ -117,6 +120,50 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
     return result;
   }
 
+  /**
+   * Attempt to recreate the shared session and all services from scratch.
+   * Returns true if successful, false if BC refuses to accept a new session.
+   * BC with NTLM auth may refuse reconnections if the previous WebSocket connection
+   * hasn't been fully cleaned up on the server side.
+   */
+  async function recreateSession(): Promise<boolean> {
+    console.error('[SESSION] Recreating session (old one is dead)...');
+    try { session?.close(); } catch { /* ignore */ }
+
+    // BC may briefly reject logins right after a session is killed — retry with backoff
+    let result = await sessionFactory.create();
+    const delays = [3000, 5000, 10000, 15000];
+    for (let i = 0; isErr(result) && i < delays.length; i++) {
+      const delay = delays[i]!;
+      console.error(`[SESSION] Attempt ${i + 1} failed (${result.error.message}), retrying in ${delay / 1000}s...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      result = await sessionFactory.create();
+    }
+    if (isErr(result)) {
+      console.error(`[SESSION] Recreation failed after all retries: ${result.error.message}`);
+      console.error('[SESSION] BC server is likely holding the NTLM session slot — cannot reconnect in this test run');
+      return false;
+    }
+    session = unwrap(result);
+
+    const projection = new StateProjection();
+    const repo = new PageContextRepository(projection);
+    pageService = new PageService(session, repo, logger);
+    dataService = new DataService(session, repo, logger);
+    actionService = new ActionService(session, repo, logger);
+    filterService = new FilterService(session, repo, logger);
+    navigationService = new NavigationService(session, repo, logger);
+    searchService = new SearchService(session, logger);
+    sessionDead = false;
+    console.error('[SESSION] Recreated session successfully');
+    return true;
+  }
+
+  /** Log session health — call after each workflow completes. */
+  function logSessionHealth(tag: string): void {
+    console.error(`[SESSION][${tag}] alive=${session?.isAlive}, openForms=${session?.openFormIds.size}`);
+  }
+
   // ===========================================================================
   // Workflow 1: Customer List Browse
   // ===========================================================================
@@ -156,6 +203,7 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
     const closeResult = await closeAndUntrack(state.pageContextId);
     expect(isOk(closeResult)).toBe(true);
     console.error('[W1] PASSED');
+    logSessionHealth('W1');
   }, 30_000);
 
   // ===========================================================================
@@ -201,6 +249,7 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
     console.error('[W2] Closing page...');
     await closeAndUntrack(state.pageContextId);
     console.error('[W2] PASSED');
+    logSessionHealth('W2');
   }, 30_000);
 
   // ===========================================================================
@@ -262,6 +311,7 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
     console.error('[W3] Closing Customer List...');
     await closeAndUntrack(listState.pageContextId);
     console.error('[W3] DONE');
+    logSessionHealth('W3');
   }, 30_000);
 
   // ===========================================================================
@@ -324,6 +374,7 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
     console.error('[W4] Closing page...');
     await closeAndUntrack(state.pageContextId);
     console.error('[W4] DONE');
+    logSessionHealth('W4');
   }, 30_000);
 
   // ===========================================================================
@@ -401,6 +452,7 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
     console.error('[W5] Closing page...');
     await closeAndUntrack(state.pageContextId);
     console.error('[W5] DONE');
+    logSessionHealth('W5');
   }, 30_000);
 
   // ===========================================================================
@@ -457,6 +509,7 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
     console.error('[W6] Closing page...');
     await closeAndUntrack(state.pageContextId);
     console.error('[W6] DONE');
+    logSessionHealth('W6');
   }, 30_000);
 
   // ===========================================================================
@@ -464,7 +517,18 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
   // ===========================================================================
   it('Workflow 7: Open Multiple Pages — 22, 21, 30 simultaneously', async () => {
     console.error('\n--- Workflow 7: Open Multiple Pages ---');
-    if (sessionDead) { console.error('[W7] SKIPPED -- session dead'); return; }
+
+    // If the shared session died during W1-W6, spin up a fresh one for this test
+    if (!session.isAlive || sessionDead) {
+      console.error(`[W7] Session is dead (isAlive=${session.isAlive}, sessionDead=${sessionDead}) — recreating...`);
+      const recreated = await recreateSession();
+      if (!recreated) {
+        console.error('[W7] SKIPPED — could not recreate session (BC holding NTLM slot from crashed W3 drill-down)');
+        // This is a known BC limitation: the server holds the NTLM session after WebSocket crashes.
+        // Skip rather than fail — the isolation logging above reveals the root cause (W3 kills session).
+        return;
+      }
+    }
 
     const pageIds = ['22', '21', '30'];
     const pageContextIds: string[] = [];
@@ -524,7 +588,8 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
     console.error(`[W7] Result: ${pageContextIds.length}/3 pages opened`);
     expect(pageContextIds.length).toBeGreaterThan(0);
     console.error('[W7] DONE');
-  }, 60_000);
+    logSessionHealth('W7');
+  }, 120_000);
 
   // ===========================================================================
   // Workflow 8: Search Pages
@@ -556,6 +621,7 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
     }
 
     console.error('[W8] DONE');
+    logSessionHealth('W8');
   }, 30_000);
 
   // ===========================================================================
