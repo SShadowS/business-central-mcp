@@ -925,7 +925,7 @@ Not directly testable from the WebSocket client. The permissions service is an i
 | E | Unrestricted JSON deser | ~~HIGH~~ LOW | **NOT EXPLOITABLE** | BC rejected 100-level nested object with SerializationException. Implicit depth limit exists. |
 | F | No JSON depth/size limits | ~~HIGH~~ MEDIUM | **PARTIAL** | Depth 50 accepted, depth 100 rejected. Implicit limit between 50-100 (not infinite). |
 | G | $polyType injection | HIGH | **PARTIAL** | Request with $polyType accepted at protocol level. Instantiation depends on whitelist. |
-| H | No rate limiting | HIGH | **CONFIRMED** | 200/200 requests accepted at 6 req/s. Zero rejections. No throttling. |
+| H | No rate limiting | ~~HIGH~~ MEDIUM | **NOT a DoS** | 100 connections at 642 req/s: legit user unaffected. Code-level gap, server handles load. |
 | I | Permission token first-write-wins | HIGH | Skipped | Needs MetadataToken header. Code-level confirmed. |
 | J | 65KB password pre-auth | ~~MEDIUM~~ LOW | **NOT A DoS** | 30 concurrent 60KB requests: legitimate user unaffected (avg 133ms). Self-DoS only. |
 | K | Token replay across servers | MEDIUM | Skipped | Needs multi-server. Code-level confirmed. |
@@ -940,8 +940,8 @@ Stronger PoCs executed to demonstrate real-world harm:
 **Finding B -- Session takeover from single captured frame:**
 Posted 2 Sales Orders successfully (101001, 101001). The sequencing check is sequence-number-only -- no HMAC, no signature, no content hash, no timestamp. `sessionId` + `sessionKey` are static for the session lifetime and sent in every message. An attacker who captures ONE WebSocket frame can craft arbitrary new requests (not just replay): different interactions, different forms, different values. Severity is CRITICAL without TLS (plaintext capture on same network), HIGH with TLS (requires MITM/XSS/extension compromise). The `disableResponseSequencing` flag should never be client-controllable regardless of transport.
 
-**Finding H -- Parallel WebSocket flood:**
-5 concurrent WebSocket connections sent 250 total requests: all 250 accepted at 32 req/s. Zero rejections, zero throttling. No per-user connection limit, no per-connection message rate limit. A real attacker could open 50+ connections and sustain 300+ req/s.
+**Finding H -- Parallel WebSocket flood (NOT a DoS on well-resourced servers):**
+Escalation tested: 100 connections at 642 KeepAlive/s -- legitimate user unaffected (2.3s consistent). 50 connections opening Sales Order pages (heavy operation) for 45 seconds at 11.7 pages/s -- legitimate user unaffected (avg 2.3s, max 2.6s, baseline 2.6s, zero failures). BC's thread pool handles concurrency well. **Downgraded to MEDIUM** -- no rate limiting exists (code-level confirmed), but the server doesn't degrade under sustained authenticated flood on a production-class machine. May be exploitable on smaller deployments with constrained CPU/memory.
 
 **Finding J -- Pre-auth resource consumption (NOT a DoS):**
 30 concurrent 60KB password requests ran for 162 seconds. However, during the flood, a legitimate user logged in successfully 81 times with average latency 133ms and max 341ms. **Zero requests blocked.** The IIS/Kestrel thread pool handles the large-password requests without starving other users. Finding J causes the attacker's own requests to be slow (self-DoS) but does NOT deny service to legitimate users. **Downgraded to LOW** -- resource waste but no user-visible impact.
