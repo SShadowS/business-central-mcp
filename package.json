@@ -13,7 +13,8 @@
     "test:integration": "vitest run --config vitest.integration.config.ts tests/integration",
     "test:watch": "vitest",
     "start": "tsx src/server.ts",
-    "start:stdio": "tsx src/stdio-adapter.ts"
+    "start:stdio": "tsx src/stdio-adapter.ts",
+    "start:stdio-direct": "tsx src/stdio-server.ts"
   },
   "keywords": [],
   "author": "",
