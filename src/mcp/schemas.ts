@@ -1,7 +1,10 @@
 import { z } from 'zod';
 
-// MCP delivers params as strings or typed values — coerce everything
+// MCP delivers params as strings or typed values — coerce everything.
+// Note: .transform() breaks z.toJSONSchema(), so we keep a separate
+// JSON-schema-safe version (StringOrNumberInput) for schema generation.
 const StringOrNumber = z.union([z.string(), z.number()]).transform(v => String(v).trim());
+const StringOrNumberInput = z.union([z.string(), z.number()]);
 
 export const OpenPageSchema = z.object({
   pageId: StringOrNumber,
@@ -38,3 +41,21 @@ export const NavigateSchema = z.object({
   bookmark: z.string().min(1),
   action: z.enum(['drill_down', 'select']).optional(),
 });
+
+/**
+ * Generate MCP-compatible JSON schema from a Zod schema.
+ * Handles the OpenPageSchema specially since it uses .transform() which
+ * z.toJSONSchema() cannot represent. All other schemas pass through directly.
+ */
+export function toMcpJsonSchema(schema: z.ZodType): Record<string, unknown> {
+  // OpenPageSchema uses StringOrNumber with .transform() — use the safe variant
+  if (schema === OpenPageSchema) {
+    const safe = z.object({
+      pageId: StringOrNumberInput,
+      bookmark: z.string().optional(),
+      tenantId: z.string().optional(),
+    });
+    return z.toJSONSchema(safe) as Record<string, unknown>;
+  }
+  return z.toJSONSchema(schema) as Record<string, unknown>;
+}
