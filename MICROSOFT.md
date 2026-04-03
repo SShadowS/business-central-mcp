@@ -11,6 +11,32 @@ Requires `.env` with `BC_BASE_URL`, `BC_USERNAME`, `BC_PASSWORD`, `BC_TENANT_ID`
 
 ---
 
+## Authentication & Attack Surface Assessment
+
+**None of the 7 bugs are exploitable without valid credentials.**
+
+BC's `WebSocketController` has an `[Authorize]` attribute (`WebSocketController.cs:13`) that blocks unauthenticated WebSocket upgrades at the HTTP middleware layer. Clients must complete a full NTLM sign-in flow (POST to `/SignIn`) to obtain session cookies and a CSRF token (`CfDJ8...` antiforgery cookie) before the WebSocket upgrade at `/ws/connect` is accepted. All JSON-RPC interactions happen after authentication.
+
+**Cross-user impact assessment:**
+
+| # | Bug | Pre-Auth | Cross-User | Cross-Tenant |
+|---|---|---|---|---|
+| 1 | Modal Frame Leak | NO | **YES** -- ThreadStatic dispatcher shared across users on same thread | **YES** |
+| 2 | Sequence Overflow | NO | NO -- per-session tracking | NO |
+| 3 | InteractionSequencing Leak | NO | NO -- but cumulative server memory affects all | Indirect |
+| 4 | ResponseSequencing Growth | NO | NO -- per-session | Indirect |
+| 5 | Dispose Exception Handling | NO | MAYBE -- depends on shared resources | MAYBE |
+| 6 | Duplicate Form Registration | NO | NO -- per-session form registry | NO |
+| 7 | Static Cache Cross-Session | NO | **YES** -- static singleton shared across all sessions | **YES** |
+
+**Highest risk cross-user scenarios:**
+
+- **Bug #1 (DoS):** Authenticated User A opens a card page, triggers a save-changes dialog, and kills their WebSocket. The BC server thread's `LogicalDispatcher.Frames` stack retains the modal state. When User B's session is assigned to the same thread, they get `LogicalModalityViolationException` and cannot use BC until the service restarts. This is a **cross-user denial of service** exploitable by any authenticated user.
+
+- **Bug #7 (Info Disclosure):** In multi-tenant deployments sharing an AppDomain, `UISession.IconsAndImages` and `UISession.ResourceSets` are static singletons. Tenant A's cached resources (icons, images) persist and could be served to Tenant B's session on thread reuse. This is a **cross-tenant information disclosure**.
+
+---
+
 ## 1. LogicalDispatcher Modal Frame Leak
 
 **Severity:** HIGH -- blocks all new sessions for the same user until BC service restart.
@@ -477,12 +503,12 @@ await session.closeGracefully();
 
 ## Summary
 
-| # | Issue | Severity | Type | Practical Impact | PoC |
-|---|---|---|---|---|---|
-| 1 | ThreadStatic Modal Frame Leak | HIGH | State Leak | Blocks user sessions after disconnect | Yes -- reproducible |
-| 2 | Sequence Number Overflow | HIGH | Protocol | Session permanently unusable | Analysis only (client-supplied seqNo) |
-| 3 | InteractionSequencing Memory Leak | MEDIUM | DoS | Server memory growth | Yes -- session cycling |
-| 4 | ResponseSequencing Dict Growth | MEDIUM | DoS | Per-session memory leak | Same as #3 |
-| 5 | Dispose Without Exception Handling | MEDIUM | Resource Leak | DB/file handle leaks on teardown | Requires BC extension |
-| 6 | Duplicate Form Registration | MEDIUM | Data Integrity | Form state corruption on rapid close | Yes -- rapid open/close |
-| 7 | Static Cache Cross-Session | LOW | Info Disclosure | Theoretical tenant data leak | Requires multi-tenant |
+| # | Issue | Severity | Type | Pre-Auth | Cross-User | PoC |
+|---|---|---|---|---|---|---|
+| 1 | ThreadStatic Modal Frame Leak | HIGH | DoS | NO | **YES** | Reproducible |
+| 2 | Sequence Number Overflow | HIGH | Protocol | NO | NO | Analysis (client-supplied seqNo) |
+| 3 | InteractionSequencing Memory Leak | MEDIUM | DoS | NO | Indirect | Session cycling |
+| 4 | ResponseSequencing Dict Growth | MEDIUM | DoS | NO | Indirect | Same as #3 |
+| 5 | Dispose Without Exception Handling | MEDIUM | Resource Leak | NO | MAYBE | Requires BC extension |
+| 6 | Duplicate Form Registration | MEDIUM | Data Integrity | NO | NO | Rapid open/close |
+| 7 | Static Cache Cross-Session | MEDIUM | Info Disclosure | NO | **YES** (multi-tenant) | Requires multi-tenant |
