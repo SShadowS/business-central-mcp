@@ -17,12 +17,11 @@ export class SearchService {
   ) {}
 
   async search(query: string): Promise<Result<SearchResult[], ProtocolError>> {
-    // Step 1: Open Tell Me search via InvokeSessionAction
+    // Step 1: Open Tell Me search via InvokeSessionAction with SystemAction 220 (PageSearch)
     const openSearch: SessionActionInteraction = {
       type: 'SessionAction',
       actionName: 'InvokeSessionAction',
-      controlPath: 'server:c[0]',
-      namedParameters: { sessionAction: 'InvokeTellMe' },
+      namedParameters: { SystemAction: 220 },
     };
 
     const openResult = await this.session.invoke(

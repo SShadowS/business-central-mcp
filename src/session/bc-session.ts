@@ -151,8 +151,11 @@ export class BCSession {
       // Send and wait for synchronous response
       const rpcResult = await this.ws.sendRpc(encoded.method, encoded.params, timeoutMs);
       if (isErr(rpcResult)) {
-        // Check for fatal session errors
-        if (rpcResult.error.message.includes('InvalidSessionException')) {
+        // Check for fatal session errors:
+        // - InvalidSessionException in the message text
+        // - JSON-RPC error code 1 (InvalidSession) regardless of exception type
+        const msg = rpcResult.error.message;
+        if (msg.includes('InvalidSessionException') || msg.includes('"code":1')) {
           this.markDead();
         }
         return rpcResult;

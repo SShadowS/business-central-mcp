@@ -3,7 +3,14 @@ import { ProtocolError } from '../core/errors.js';
 import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { PageState, BCEvent, InvokeActionInteraction } from '../protocol/types.js';
+import { SystemAction } from '../protocol/types.js';
 import type { Logger } from '../core/logger.js';
+
+/** System actions that target a specific row via the repeater control. */
+const ROW_TARGETING_ACTIONS: Set<number> = new Set([
+  SystemAction.Delete, SystemAction.Edit, SystemAction.View,
+  SystemAction.DrillDown, SystemAction.New,
+]);
 
 export interface ActionResult {
   success: boolean;
@@ -44,9 +51,14 @@ export class ActionService {
     const state = this.repo.get(pageContextId);
     if (!state) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
 
-    // Find action by systemAction number
-    const action = state.actions.find(a => a.systemAction === systemAction);
-    const controlPath = action?.controlPath ?? 'server:c[0]';
+    // For row-targeting actions on pages with a repeater, use the repeater's controlPath
+    let controlPath: string;
+    if (state.repeater && ROW_TARGETING_ACTIONS.has(systemAction)) {
+      controlPath = state.repeater.controlPath + '/cr/c[0]';
+    } else {
+      const action = state.actions.find(a => a.systemAction === systemAction);
+      controlPath = action?.controlPath ?? 'server:c[0]';
+    }
 
     return this.invokeAction(pageContextId, state, controlPath, systemAction);
   }

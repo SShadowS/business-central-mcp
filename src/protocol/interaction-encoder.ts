@@ -133,8 +133,11 @@ export class InteractionEncoder {
         return { interactionName: 'InvokeAction', formId: interaction.formId, controlPath: interaction.controlPath, namedParameters: JSON.stringify({ systemAction: interaction.systemAction ?? 0, key: null, repeaterControlTarget: null, ...interaction.namedParameters }), callbackId };
       case 'SaveValue':
         return { interactionName: 'SaveValue', formId: interaction.formId, controlPath: interaction.controlPath, namedParameters: JSON.stringify({ newValue: interaction.newValue }), callbackId };
-      case 'Filter':
-        return { interactionName: 'Filter', formId: interaction.formId, controlPath: interaction.controlPath, namedParameters: JSON.stringify({ filterOperation: interaction.filterOperation, filterColumnId: interaction.filterColumnId }), callbackId };
+      case 'Filter': {
+        const filterParams: Record<string, unknown> = { filterOperation: interaction.filterOperation, filterColumnId: interaction.filterColumnId };
+        if (interaction.filterValue !== undefined) filterParams['FilterValue'] = interaction.filterValue;
+        return { interactionName: 'Filter', formId: interaction.formId, controlPath: interaction.controlPath, namedParameters: JSON.stringify(filterParams), callbackId };
+      }
       case 'SetCurrentRow':
         return { interactionName: 'SetCurrentRowAndRowsSelection', formId: interaction.formId, controlPath: interaction.controlPath, namedParameters: JSON.stringify({ key: interaction.key, selectAll: false, rowsToSelect: [interaction.key], unselectAll: true, rowsToUnselect: [] }), callbackId };
       case 'SessionAction':

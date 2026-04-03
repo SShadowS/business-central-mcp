@@ -2,7 +2,7 @@ import { ok, err, isErr, type Result } from '../core/result.js';
 import { ProtocolError } from '../core/errors.js';
 import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
-import type { PageState, FilterInteraction, SaveValueInteraction } from '../protocol/types.js';
+import type { PageState, FilterInteraction } from '../protocol/types.js';
 import { FilterOperation } from '../protocol/types.js';
 import type { Logger } from '../core/logger.js';
 
@@ -54,18 +54,18 @@ export class FilterService {
         return err(new ProtocolError(`Column ${filter.column} has no columnBinderPath for filtering`));
       }
 
-      // STEP 1: Filter(AddLine) — create filter row in BC UI
-      // This targets the FilterLogicalControl (filc), NOT the repeater
-      // filterValue is NOT included — that comes in step 2 via SaveValue
+      // Single-step: Filter(AddLine) with FilterValue included directly
+      // BC's Filter(AddLine) accepts FilterValue in namedParameters, no separate SaveValue needed
       const addLineInteraction: FilterInteraction = {
         type: 'Filter',
         formId: currentState.formId,
         controlPath: filterControlPath,
         filterOperation: FilterOperation.AddLine,
         filterColumnId: columnBinderPath,
+        filterValue: filter.value,
       };
 
-      this.logger.info(`[Filter] Step 1: Filter(AddLine) on ${filterControlPath}, column=${columnBinderPath}`);
+      this.logger.info(`[Filter] Filter(AddLine) on ${filterControlPath}, column=${columnBinderPath}, value="${filter.value}"`);
 
       const addResult = await this.session.invoke(
         addLineInteraction,
@@ -74,27 +74,6 @@ export class FilterService {
 
       if (isErr(addResult)) return addResult;
       this.repo.applyToPage(pageContextId, addResult.value);
-
-      // STEP 2: SaveValue — set the actual filter value
-      // After Filter(AddLine), BC creates a filter row. The SaveValue targets
-      // the filter value control at {filterControlPath}/c[0]/c[1]
-      const saveValueControlPath = `${filterControlPath}/c[0]/c[1]`;
-      const saveValueInteraction: SaveValueInteraction = {
-        type: 'SaveValue',
-        formId: currentState.formId,
-        controlPath: saveValueControlPath,
-        newValue: filter.value,
-      };
-
-      this.logger.info(`[Filter] Step 2: SaveValue on ${saveValueControlPath}, value="${filter.value}"`);
-
-      const saveResult = await this.session.invoke(
-        saveValueInteraction,
-        (event) => event.type === 'InvokeCompleted' || event.type === 'DataLoaded',
-      );
-
-      if (isErr(saveResult)) return saveResult;
-      this.repo.applyToPage(pageContextId, saveResult.value);
     }
 
     const updatedState = this.repo.get(pageContextId);
