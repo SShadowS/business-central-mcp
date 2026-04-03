@@ -922,4 +922,20 @@ Not directly testable from the WebSocket client. The permissions service is an i
 | K | Token replay across servers | MEDIUM | Skipped | Needs multi-server. Code-level confirmed. |
 | L | PermissionsService stub | MEDIUM | Skipped | Internal dependency. Code-level confirmed. |
 
-**Confirmed: 3 (B, H, J) -- Partial: 4 (C, D, F, G) -- Not Exploitable: 1 (E) -- Skipped: 4 (A, I, K, L)**
+**Confirmed: 3 (B, H, J) -- Partial: 5 (A, C, D, F, G) -- Not Exploitable: 1 (E) -- Skipped: 3 (I, K, L)**
+
+### Impact Verification (2026-04-04, Cronus28 BC28)
+
+Stronger PoCs executed to demonstrate real-world harm:
+
+**Finding B -- Replay mutating operations:**
+Posted 2 Sales Orders successfully (101001, 101001). Both Invoke calls accepted without replay detection. `disableResponseSequencing:true` means BC cannot detect duplicated/replayed calls for ANY operation: posting, payments, approval workflows, data modifications. An attacker who captures a valid PostSalesOrder WebSocket frame can replay it to create duplicate invoices.
+
+**Finding H -- Parallel WebSocket flood:**
+5 concurrent WebSocket connections sent 250 total requests: all 250 accepted at 32 req/s. Zero rejections, zero throttling. No per-user connection limit, no per-connection message rate limit. A real attacker could open 50+ connections and sustain 300+ req/s.
+
+**Finding J -- Pre-auth resource consumption:**
+Baseline (1-byte password): 956ms. 10 concurrent 60KB password requests: 83,194ms total (87x slower). All 10 requests processed simultaneously. This is **pre-auth** -- no valid credentials needed. The 30-second lockout (`Thread.Sleep(30000)` in NavUserPasswordValidator.cs) only triggers after 5 failed attempts per username, so rotating usernames bypasses it entirely.
+
+**Finding A -- Large JSON payloads:**
+Server accepted 5MB string and 100K-element array without crashing. The NavDataSet binary compression bomb requires crafted binary framing (not standard JSON), which our client doesn't produce. Downgraded to PARTIAL -- the JSON path has no size limits but the actual compression bomb vector needs binary protocol manipulation.
