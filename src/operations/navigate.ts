@@ -6,7 +6,9 @@ import { resolveSection } from '../protocol/section-resolver.js';
 export interface NavigateInput {
   pageContextId: string;
   bookmark: string;
-  action?: 'drill_down' | 'select';
+  action?: 'drill_down' | 'select' | 'lookup';
+  section?: string;
+  field?: string;
 }
 
 export interface NavigateOutput {
@@ -21,7 +23,7 @@ export class NavigateOperation {
 
   async execute(input: NavigateInput): Promise<Result<NavigateOutput, ProtocolError>> {
     if (input.action === 'drill_down') {
-      const result = await this.navigationService.drillDown(input.pageContextId, input.bookmark);
+      const result = await this.navigationService.drillDown(input.pageContextId, input.bookmark, input.section);
       return mapResult(result, (r) => {
         const resolved = resolveSection(r.targetPageContext, 'header');
         const form = 'error' in resolved ? undefined : resolved.form;
@@ -36,7 +38,7 @@ export class NavigateOperation {
     }
 
     // Default: select row
-    const result = await this.navigationService.selectRow(input.pageContextId, input.bookmark);
+    const result = await this.navigationService.selectRow(input.pageContextId, input.bookmark, input.section);
     if (isErr(result)) return result;
     return mapResult(result, (ctx) => {
       const resolved = resolveSection(ctx);

@@ -14,6 +14,7 @@ export const OpenPageSchema = z.object({
 
 export const ReadDataSchema = z.object({
   pageContextId: z.string().min(1),
+  section: z.string().optional(),
   filters: z.array(z.object({ column: z.string(), value: z.string() })).optional(),
   columns: z.array(z.string()).optional(),
 });
@@ -21,11 +22,17 @@ export const ReadDataSchema = z.object({
 export const WriteDataSchema = z.object({
   pageContextId: z.string().min(1),
   fields: z.record(z.string(), z.string()),
+  section: z.string().optional(),
+  rowIndex: z.number().optional(),
+  bookmark: z.string().optional(),
 });
 
 export const ExecuteActionSchema = z.object({
   pageContextId: z.string().min(1),
   action: z.string().min(1),
+  section: z.string().optional(),
+  rowIndex: z.number().optional(),
+  bookmark: z.string().optional(),
 });
 
 export const ClosePageSchema = z.object({
@@ -39,7 +46,9 @@ export const SearchPagesSchema = z.object({
 export const NavigateSchema = z.object({
   pageContextId: z.string().min(1),
   bookmark: z.string().min(1),
-  action: z.enum(['drill_down', 'select']).optional(),
+  action: z.enum(['drill_down', 'select', 'lookup']).optional(),
+  section: z.string().optional(),
+  field: z.string().optional(),
 });
 
 /**

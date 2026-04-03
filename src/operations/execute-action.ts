@@ -6,6 +6,9 @@ import { resolveSection } from '../protocol/section-resolver.js';
 export interface ExecuteActionInput {
   pageContextId: string;
   action: string;
+  section?: string;
+  rowIndex?: number;
+  bookmark?: string;
 }
 
 export interface ExecuteActionOutput {
@@ -18,7 +21,7 @@ export class ExecuteActionOperation {
   constructor(private readonly actionService: ActionService) {}
 
   async execute(input: ExecuteActionInput): Promise<Result<ExecuteActionOutput, ProtocolError>> {
-    const result = await this.actionService.executeAction(input.pageContextId, input.action);
+    const result = await this.actionService.executeAction(input.pageContextId, input.action, input.section);
     return mapResult(result, (ar) => {
       let updatedFields: Array<{ name: string; value?: string }> | undefined;
       if (ar.updatedState) {

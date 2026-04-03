@@ -5,6 +5,7 @@ import type { FilterService } from '../services/filter-service.js';
 
 export interface ReadDataInput {
   pageContextId: string;
+  section?: string;
   filters?: Array<{ column: string; value: string }>;
   columns?: string[];
 }
@@ -23,12 +24,12 @@ export class ReadDataOperation {
   async execute(input: ReadDataInput): Promise<Result<ReadDataOutput, ProtocolError>> {
     // Apply filters if provided
     if (input.filters && input.filters.length > 0) {
-      const filterResult = await this.filterService.applyFilters(input.pageContextId, input.filters);
+      const filterResult = await this.filterService.applyFilters(input.pageContextId, input.filters, input.section);
       if (isErr(filterResult)) return filterResult;
     }
 
     // Read rows (synchronous)
-    const rowsResult = this.dataService.readRows(input.pageContextId);
+    const rowsResult = this.dataService.readRows(input.pageContextId, input.section);
     if (!isOk(rowsResult)) return rowsResult;
 
     let rows = rowsResult.value.map(r => ({ bookmark: r.bookmark, cells: r.cells }));

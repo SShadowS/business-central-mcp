@@ -49,11 +49,11 @@ export class DataService {
     pageContextId: string,
     fieldName: string,
     value: string,
-    sectionId?: string,
+    options?: { sectionId?: string; bookmark?: string; rowIndex?: number },
   ): Promise<Result<FieldWriteResult, ProtocolError>> {
     const ctx = this.repo.get(pageContextId);
     if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
-    const resolved = resolveSection(ctx, sectionId, 'header');
+    const resolved = resolveSection(ctx, options?.sectionId, 'header');
     if ('error' in resolved) return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
 
     const { form } = resolved;
@@ -99,11 +99,11 @@ export class DataService {
   async writeFields(
     pageContextId: string,
     fields: Record<string, string>,
-    sectionId?: string,
+    options?: { sectionId?: string; bookmark?: string; rowIndex?: number },
   ): Promise<Result<FieldWriteResult[], ProtocolError>> {
     const results: FieldWriteResult[] = [];
     for (const [name, value] of Object.entries(fields)) {
-      const result = await this.writeField(pageContextId, name, value, sectionId);
+      const result = await this.writeField(pageContextId, name, value, options);
       if (isErr(result)) {
         results.push({ fieldName: name, controlPath: '', success: false, error: result.error.message });
       } else {
