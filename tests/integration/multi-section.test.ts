@@ -11,6 +11,7 @@ import { SessionFactory } from '../../src/session/session-factory.js';
 import { BCSession } from '../../src/session/bc-session.js';
 import { PageService } from '../../src/services/page-service.js';
 import { DataService } from '../../src/services/data-service.js';
+import { ActionService } from '../../src/services/action-service.js';
 import { isOk, unwrap } from '../../src/core/result.js';
 import { RespondDialogOperation } from '../../src/operations/respond-dialog.js';
 import type { PageContext } from '../../src/protocol/page-context.js';
@@ -22,6 +23,7 @@ describe.sequential('Multi-Section: Sales Order (page 42)', () => {
   let session: BCSession;
   let pageService: PageService;
   let dataService: DataService;
+  let actionService: ActionService;
   let respondDialog: RespondDialogOperation;
   let repo: PageContextRepository;
   let pageContextId: string;
@@ -47,6 +49,7 @@ describe.sequential('Multi-Section: Sales Order (page 42)', () => {
     repo = new PageContextRepository();
     pageService = new PageService(session, repo, logger);
     dataService = new DataService(session, repo, logger);
+    actionService = new ActionService(session, repo, logger);
     respondDialog = new RespondDialogOperation(session, repo);
   });
 
@@ -280,6 +283,27 @@ describe.sequential('Multi-Section: Sales Order (page 42)', () => {
     );
     expect(isOk(delResult)).toBe(true);
     console.error('Delete line result:', isOk(delResult) ? 'SUCCESS' : 'FAILED');
+  });
+
+  it('adds a new line via bc_execute_action(New) and sets item', async () => {
+    if (!ctx) { console.error('Skipping: no page context'); return; }
+
+    // Execute "New" action on lines section
+    const newResult = await actionService.executeAction(pageContextId, 'New', 'lines');
+    console.error('New line result:', isOk(newResult) ? 'SUCCESS' : newResult.error.message);
+    expect(isOk(newResult)).toBe(true);
+
+    // Write Type = "Item" on the new line (current row)
+    const typeResult = await dataService.writeField(
+      pageContextId, 'Type', '2',  // 2 = Item in BC enum
+      { sectionId: 'lines', rowIndex: 0 },  // new row is now at index 0 or last
+    );
+    console.error('Type write:', isOk(typeResult) ? 'SUCCESS' : typeResult.error.message);
+
+    // Delete the new line to clean up
+    const delResult = await actionService.executeAction(pageContextId, 'Delete', 'lines');
+    console.error('Delete result:', isOk(delResult) ? 'SUCCESS' : delResult.error.message);
+    expect(isOk(delResult)).toBe(true);
   });
 
   it('writes to a header field (External Document No.)', async () => {

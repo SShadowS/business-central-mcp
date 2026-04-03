@@ -15,6 +15,15 @@ const ROW_TARGETING_ACTIONS: Set<number> = new Set([
   SystemAction.DrillDown, SystemAction.New,
 ]);
 
+/** Map well-known action names to their system action codes. */
+const SYSTEM_ACTION_NAMES: Map<string, number> = new Map([
+  ['new', SystemAction.New],
+  ['delete', SystemAction.Delete],
+  ['refresh', SystemAction.Refresh],
+  ['edit', SystemAction.Edit],
+  ['view', SystemAction.View],
+]);
+
 export interface ActionResult {
   success: boolean;
   events: BCEvent[];
@@ -38,6 +47,12 @@ export class ActionService {
     if ('error' in resolved) return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
 
     const { form } = resolved;
+
+    // Check if the action name is a well-known system action (New, Delete, Refresh, etc.)
+    const systemActionByName = SYSTEM_ACTION_NAMES.get(actionName.toLowerCase());
+    if (systemActionByName !== undefined) {
+      return this.executeSystemAction(pageContextId, systemActionByName, sectionId);
+    }
 
     // Find action by caption (case-insensitive)
     const action = form.actions.find(a =>
