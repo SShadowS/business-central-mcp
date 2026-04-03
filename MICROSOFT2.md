@@ -905,17 +905,21 @@ Not directly testable from the WebSocket client. The permissions service is an i
 
 ## Summary
 
-| # | Issue | Severity | Pre-Auth | Cross-User | PoC |
-|---|---|---|---|---|---|
-| A | Compression bomb | CRITICAL | NO | YES (crash) | Analysis (destructive) |
-| B | Client disables replay protection | CRITICAL | NO | NO | **Runnable** |
-| C | Session fixation | HIGH | NO | YES (hijack) | Analysis |
-| D | Path traversal file deletion | MEDIUM (downgraded) | NO | Requires NavSession | Analysis -- endpoint not directly callable |
-| E | Unrestricted JSON deser | HIGH | NO | NO | **Runnable** |
-| F | No JSON depth/size limits | HIGH | NO | YES (crash) | **Runnable** (careful) |
-| G | Polymorphic type instantiation | HIGH | NO | NO | **Runnable** |
-| H | No rate limiting | HIGH | NO | YES (DoS) | **Runnable** |
-| I | Permission token first-write-wins | HIGH | NO | NO | Analysis |
-| J | 65KB password pre-auth | MEDIUM | **YES** | NO | **Runnable** |
-| K | Token replay across servers | MEDIUM | NO | YES | Requires multi-server |
-| L | PermissionsService stub | MEDIUM | NO | Depends | Not client-testable |
+## Verified Results (2026-04-04, Cronus28 BC28)
+
+| # | Issue | Severity | Verified | Result |
+|---|---|---|---|---|
+| A | Compression bomb | CRITICAL | Skipped | Would crash server. Code-level confirmed. |
+| B | Client disables replay protection | CRITICAL | **CONFIRMED** | Both duplicate requests accepted. Replay protection bypassed. |
+| C | Session fixation | HIGH | **PARTIAL** | Form IDs sequential (hex, diff=24). UISessionManager accepts client-supplied IDs. |
+| D | Path traversal file deletion | MEDIUM | **PARTIAL** | Endpoint exists (port 7046) but needs NavSession. Not directly callable. |
+| E | Unrestricted JSON deser | ~~HIGH~~ LOW | **NOT EXPLOITABLE** | BC rejected 100-level nested object with SerializationException. Implicit depth limit exists. |
+| F | No JSON depth/size limits | ~~HIGH~~ MEDIUM | **PARTIAL** | Depth 50 accepted, depth 100 rejected. Implicit limit between 50-100 (not infinite). |
+| G | $polyType injection | HIGH | **PARTIAL** | Request with $polyType accepted at protocol level. Instantiation depends on whitelist. |
+| H | No rate limiting | HIGH | **CONFIRMED** | 200/200 requests accepted at 6 req/s. Zero rejections. No throttling. |
+| I | Permission token first-write-wins | HIGH | Skipped | Needs MetadataToken header. Code-level confirmed. |
+| J | 65KB password pre-auth | MEDIUM | **CONFIRMED** | 1KB=363ms, 10KB=3020ms, 60KB=9351ms. Linear resource consumption. Pre-auth. |
+| K | Token replay across servers | MEDIUM | Skipped | Needs multi-server. Code-level confirmed. |
+| L | PermissionsService stub | MEDIUM | Skipped | Internal dependency. Code-level confirmed. |
+
+**Confirmed: 3 (B, H, J) -- Partial: 4 (C, D, F, G) -- Not Exploitable: 1 (E) -- Skipped: 4 (A, I, K, L)**
