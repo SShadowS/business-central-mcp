@@ -4,7 +4,7 @@ export interface ParsedControlTree {
   caption: string;
   pageType: 'Card' | 'List' | 'Document' | 'Unknown';
   fields: ControlField[];
-  repeater: RepeaterState | null;
+  repeaters: ReadonlyMap<string, RepeaterState>;
   filterControlPath: string | null;
   actions: ActionInfo[];
   metadata?: { id: number; sourceTableId: number };
@@ -28,7 +28,7 @@ export function parseControlTree(controlTree: unknown): ParsedControlTree {
     caption: '',
     pageType: 'Unknown',
     fields: [],
-    repeater: null,
+    repeaters: new Map(),
     filterControlPath: null,
     actions: [],
   };
@@ -56,13 +56,18 @@ export function parseControlTree(controlTree: unknown): ParsedControlTree {
   // (not server:c[0]/c[0], server:c[0]/c[1] — the lf node is implicit)
   const children = root.Children as unknown[] | undefined;
   if (Array.isArray(children)) {
-    walkChildren(children, 'server', result);
+    walkChildren(children, 'server', result, false);
   }
 
   return result;
 }
 
-function walkChildren(children: unknown[], parentPath: string, result: ParsedControlTree): void {
+function walkChildren(
+  children: unknown[],
+  parentPath: string,
+  result: ParsedControlTree,
+  insideRepeater: boolean,
+): void {
   for (let i = 0; i < children.length; i++) {
     const child = children[i];
     if (!child || typeof child !== 'object') continue;
@@ -77,11 +82,16 @@ function walkChildren(children: unknown[], parentPath: string, result: ParsedCon
     if (FIELD_TYPES.has(t)) {
       extractField(node, t, controlPath, result);
     } else if (t === 'ac') {
-      extractAction(node, controlPath, result);
-    } else if (t === 'rc' && result.repeater === null) {
-      // Use the first repeater found (the main page repeater).
-      // Subsequent rc nodes are typically from embedded sub-pages.
+      extractAction(node, controlPath, result, insideRepeater);
+    } else if (t === 'rc') {
+      // Collect ALL repeaters (not just the first)
       extractRepeater(node, controlPath, result);
+      // Recurse into repeater's children with insideRepeater = true
+      const subChildren = node.Children as unknown[] | undefined;
+      if (Array.isArray(subChildren)) {
+        walkChildren(subChildren, controlPath, result, true);
+      }
+      continue; // skip the general recursion below
     } else if (t === 'filc' && result.filterControlPath === null) {
       // FilterLogicalControl — used for Filter(AddLine) interactions
       result.filterControlPath = controlPath;
@@ -90,7 +100,7 @@ function walkChildren(children: unknown[], parentPath: string, result: ParsedCon
     // Recurse into Children (gc groups, etc.)
     const subChildren = node.Children as unknown[] | undefined;
     if (Array.isArray(subChildren)) {
-      walkChildren(subChildren, controlPath, result);
+      walkChildren(subChildren, controlPath, result, insideRepeater);
     }
   }
 }
@@ -133,6 +143,7 @@ function extractAction(
   node: Record<string, unknown>,
   controlPath: string,
   result: ParsedControlTree,
+  isLineScoped = false,
 ): void {
   result.actions.push({
     controlPath,
@@ -140,6 +151,7 @@ function extractAction(
     systemAction: (node.SystemAction as number) ?? 0,
     enabled: (node.Enabled as boolean) ?? true,
     visible: (node.Visible as boolean) ?? true,
+    isLineScoped,
   });
 }
 
@@ -157,19 +169,22 @@ function extractRepeater(
       // Skip placeholder columns
       if (col.MappingHint === 'PlaceholderField') continue;
 
+      const binder = col.ColumnBinder as { Name?: string; Path?: string } | undefined;
       columns.push({
         controlPath: `${controlPath}/co[${j}]`,
         caption: (col.Caption as string) ?? '',
         type: 'rcc',
-        columnBinderPath: (col.ColumnBinderPath as string) || undefined,
+        columnBinderName: binder?.Name || undefined,
+        columnBinderPath: (col.ColumnBinderPath as string) || binder?.Path || undefined,
       });
     }
   }
 
-  result.repeater = {
+  (result.repeaters as Map<string, RepeaterState>).set(controlPath, {
     controlPath,
     columns,
     rows: [],       // Rows come from DataLoaded events, not the control tree
-    totalRowCount: 0,
-  };
+    totalRowCount: null,
+    currentBookmark: null,
+  });
 }

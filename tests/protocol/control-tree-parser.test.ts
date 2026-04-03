@@ -59,21 +59,26 @@ describe('parseControlTree', () => {
 
     expect(parsed.caption).toBe('Customers');
     expect(parsed.pageType).toBe('List');
-    expect(parsed.repeater).not.toBeNull();
-    expect(parsed.repeater!.columns.length).toBeGreaterThanOrEqual(5);
+    expect(parsed.repeaters.size).toBeGreaterThan(0);
+
+    // Get the first (main) repeater
+    const repeater = parsed.repeaters.values().next().value!;
+    expect(repeater.columns.length).toBeGreaterThanOrEqual(5);
     expect(parsed.actions.length).toBeGreaterThan(0);
 
     // Repeater columns should have captions
-    const noCol = parsed.repeater!.columns.find(c => c.caption === 'No.');
+    const noCol = repeater.columns.find((c: { caption: string }) => c.caption === 'No.');
     expect(noCol).toBeDefined();
     expect(noCol!.columnBinderPath).toBe('18_Customer.1');
 
-    const nameCol = parsed.repeater!.columns.find(c => c.caption === 'Name');
+    const nameCol = repeater.columns.find((c: { caption: string }) => c.caption === 'Name');
     expect(nameCol).toBeDefined();
     expect(nameCol!.columnBinderPath).toBe('18_Customer.2');
 
     // Should not include placeholder columns
-    const placeholderCols = parsed.repeater!.columns.filter(c => c.caption === '' && !c.columnBinderPath);
+    const placeholderCols = repeater.columns.filter(
+      (c: { caption: string; columnBinderPath?: string }) => c.caption === '' && !c.columnBinderPath,
+    );
     expect(placeholderCols.length).toBe(0);
 
     // Metadata
@@ -81,14 +86,14 @@ describe('parseControlTree', () => {
     expect(parsed.metadata!.id).toBe(22);
     expect(parsed.metadata!.sourceTableId).toBe(18);
 
-    console.error(`Page 22: ${parsed.repeater!.columns.length} columns, ${parsed.actions.length} actions`);
-    console.error('Sample columns:', parsed.repeater!.columns.slice(0, 10).map(c => c.caption));
+    console.error(`Page 22: ${repeater.columns.length} columns, ${parsed.actions.length} actions`);
+    console.error('Sample columns:', repeater.columns.slice(0, 10).map((c: { caption: string }) => c.caption));
   });
 
   it('handles null control tree', () => {
     const parsed = parseControlTree(null);
     expect(parsed.fields).toEqual([]);
-    expect(parsed.repeater).toBeNull();
+    expect(parsed.repeaters.size).toBe(0);
     expect(parsed.actions).toEqual([]);
     expect(parsed.caption).toBe('');
     expect(parsed.pageType).toBe('Unknown');
@@ -97,7 +102,7 @@ describe('parseControlTree', () => {
   it('handles empty object control tree', () => {
     const parsed = parseControlTree({});
     expect(parsed.fields).toEqual([]);
-    expect(parsed.repeater).toBeNull();
+    expect(parsed.repeaters.size).toBe(0);
     expect(parsed.caption).toBe('');
   });
 
@@ -119,5 +124,32 @@ describe('parseControlTree', () => {
     const viewAction = parsed.actions.find(a => a.caption === 'View');
     expect(viewAction).toBeDefined();
     expect(viewAction!.systemAction).toBe(60);
+  });
+
+  it('all actions have isLineScoped property', () => {
+    const controlTree21 = loadControlTree('page21-control-tree.json');
+    const parsed21 = parseControlTree(controlTree21);
+    expect(parsed21.actions.every(a => typeof a.isLineScoped === 'boolean')).toBe(true);
+
+    const controlTree22 = loadControlTree('page22-control-tree.json');
+    const parsed22 = parseControlTree(controlTree22);
+    expect(parsed22.actions.every(a => typeof a.isLineScoped === 'boolean')).toBe(true);
+  });
+
+  it('extracts columnBinderName on repeater columns for page 22', () => {
+    const controlTree = loadControlTree('page22-control-tree.json');
+    const parsed = parseControlTree(controlTree);
+
+    expect(parsed.repeaters.size).toBeGreaterThan(0);
+    const repeater = parsed.repeaters.values().next().value!;
+
+    // The No. column should have a columnBinderName if BC provides ColumnBinder.Name
+    const noCol = repeater.columns.find((c: { caption: string }) => c.caption === 'No.');
+    expect(noCol).toBeDefined();
+    // columnBinderName may be undefined if the recording doesn't include ColumnBinder.Name,
+    // but the property should exist on the object (not throw)
+    expect('columnBinderName' in noCol!).toBe(true);
+
+    console.error('No. column:', noCol);
   });
 });
