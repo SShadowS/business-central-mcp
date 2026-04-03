@@ -150,6 +150,48 @@ describe.sequential('Multi-Section: Sales Order (page 42)', () => {
     }
   });
 
+  it('writes to a line cell (Line Discount %)', async () => {
+    if (!ctx) { console.error('Skipping: no page context'); return; }
+
+    const linesSectionId = Array.from(ctx.sections.entries())
+      .find(([, s]) => s.kind === 'lines')?.[0];
+    if (!linesSectionId) { console.error('Skipping: no lines section'); return; }
+
+    // Read current rows to get a bookmark
+    const rowsResult = dataService.readRows(pageContextId, linesSectionId);
+    expect(isOk(rowsResult)).toBe(true);
+    if (!isOk(rowsResult) || rowsResult.value.length === 0) {
+      console.error('Skipping: no line rows');
+      return;
+    }
+
+    const firstRow = rowsResult.value[0]!;
+    const originalDiscount = firstRow.cells['Line Discount %'];
+    console.error(`Line Discount % before write: ${originalDiscount}`);
+
+    // Write Line Discount % = 5 using rowIndex
+    const writeResult = await dataService.writeField(
+      pageContextId, 'Line Discount %', '5',
+      { sectionId: linesSectionId, rowIndex: 0 },
+    );
+    console.error('Write result:', isOk(writeResult) ? writeResult.value : writeResult.error);
+    expect(isOk(writeResult)).toBe(true);
+
+    // The write succeeded -- verify the FieldWriteResult
+    if (isOk(writeResult)) {
+      expect(writeResult.value.success).toBe(true);
+      expect(writeResult.value.fieldName).toBe('Line Discount %');
+    }
+
+    // Restore original value
+    const restoreValue = String(originalDiscount ?? '0');
+    await dataService.writeField(
+      pageContextId, 'Line Discount %', restoreValue,
+      { sectionId: linesSectionId, rowIndex: 0 },
+    );
+    console.error(`Line Discount % restored to: ${restoreValue}`);
+  });
+
   it('verifies multi-section architecture: section count and form count are consistent', async () => {
     if (!ctx) { console.error('Skipping: no page context'); return; }
 

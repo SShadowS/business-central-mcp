@@ -2,7 +2,7 @@ import { ok, err, isErr, type Result } from '../core/result.js';
 import { ProtocolError } from '../core/errors.js';
 import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
-import type { RepeaterRow, RepeaterColumn, ControlField, SaveValueInteraction } from '../protocol/types.js';
+import type { RepeaterRow, RepeaterColumn, RepeaterState, ControlField, SaveValueInteraction, SetCurrentRowInteraction } from '../protocol/types.js';
 import type { Logger } from '../core/logger.js';
 import { resolveSection } from '../protocol/section-resolver.js';
 
@@ -57,7 +57,18 @@ export class DataService {
     const resolved = resolveSection(ctx, options?.sectionId, 'header');
     if ('error' in resolved) return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
 
-    const { form } = resolved;
+    const { form, repeater } = resolved;
+
+    // Line cell write: when targeting a specific row in a repeater section
+    if (repeater && (options?.bookmark !== undefined || options?.rowIndex !== undefined)) {
+      // Line interactions use the CHILD form's formId (the subpage form).
+      // BC sends DataLoaded with root formId but SetCurrentRow/SaveValue use child formId.
+      // Verified: SetCurrentRow with root formId -> InvalidBookmarkException;
+      //           SetCurrentRow with child formId -> SUCCESS.
+      return this.writeLineCell(pageContextId, form.formId, repeater, fieldName, value, options);
+    }
+
+    // Header/card field write
     const field = this.resolveField(form.controlTree, fieldName);
     if (!field) {
       return err(new ProtocolError(`Field not found: ${fieldName}`, {
@@ -81,8 +92,6 @@ export class DataService {
     );
 
     if (isErr(result)) return result;
-
-    // Apply events to update state
     this.repo.applyToPage(pageContextId, result.value);
 
     const updatedCtx = this.repo.get(pageContextId);
@@ -112,6 +121,77 @@ export class DataService {
       }
     }
     return ok(results);
+  }
+
+  private async writeLineCell(
+    pageContextId: string,
+    formId: string,
+    repeater: RepeaterState,
+    fieldName: string,
+    value: string,
+    options: { bookmark?: string; rowIndex?: number },
+  ): Promise<Result<FieldWriteResult, ProtocolError>> {
+    // Resolve bookmark from rowIndex if needed
+    let bookmark = options.bookmark;
+    if (!bookmark && options.rowIndex !== undefined) {
+      const row = repeater.rows[options.rowIndex];
+      if (!row) {
+        return err(new ProtocolError(
+          `Row index ${options.rowIndex} out of range. Loaded rows: 0-${repeater.rows.length - 1}.`,
+        ));
+      }
+      bookmark = row.bookmark;
+    }
+    if (!bookmark) return err(new ProtocolError('No bookmark or rowIndex provided for line cell write'));
+
+    // Step 1: Select the row (on the ROOT form -- BC routes line interactions through root)
+    const selectInteraction: SetCurrentRowInteraction = {
+      type: 'SetCurrentRow',
+      formId,
+      controlPath: repeater.controlPath,
+      key: bookmark,
+    };
+    const selectResult = await this.session.invoke(selectInteraction, (event) =>
+      event.type === 'InvokeCompleted' || event.type === 'BookmarkChanged',
+    );
+    if (isErr(selectResult)) return selectResult;
+    this.repo.applyToPage(pageContextId, selectResult.value);
+
+    // Step 2: Find column by caption
+    const col = repeater.columns.find(c => c.caption.toLowerCase() === fieldName.toLowerCase());
+    if (!col) {
+      return err(new ProtocolError(`Column '${fieldName}' not found in repeater.`, {
+        availableColumns: repeater.columns.map(c => c.caption).filter(Boolean),
+      }));
+    }
+
+    // Extract column index from controlPath (e.g., ".../co[2]" -> 2)
+    const match = col.controlPath.match(/co\[(\d+)\]/);
+    if (!match) return err(new ProtocolError(`Cannot determine column index from ${col.controlPath}`));
+    const colIndex = parseInt(match[1]!, 10);
+
+    // Step 3: SaveValue on the cell via {repeater}/cr/c[N]
+    // cr -> CurrentRowViewport.Children[0] (the current data row)
+    // c[N] -> data row's Children[N] (the cell control at column index N)
+    // Note: NOT cr/co[N] -- co resolves on the RepeaterControl to DefaultRowTemplate,
+    // but we need the CURRENT row's cell. Verified from decompiled LogicalControl.ResolvePathName.
+    const cellPath = `${repeater.controlPath}/cr/c[${colIndex}]`;
+    const saveInteraction: SaveValueInteraction = {
+      type: 'SaveValue',
+      formId,
+      controlPath: cellPath,
+      newValue: value,
+    };
+
+    this.logger.info(`writeLineCell: ${fieldName} = ${value} at ${cellPath} (formId=${formId})`);
+
+    const saveResult = await this.session.invoke(saveInteraction, (event) =>
+      event.type === 'InvokeCompleted' || event.type === 'PropertyChanged',
+    );
+    if (isErr(saveResult)) return saveResult;
+    this.repo.applyToPage(pageContextId, saveResult.value);
+
+    return ok({ fieldName, controlPath: cellPath, success: true, newValue: value });
   }
 
   private resolveField(controlTree: ControlField[], fieldName: string): ControlField | undefined {
