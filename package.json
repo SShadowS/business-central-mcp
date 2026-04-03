@@ -11,7 +11,9 @@
     "test:unit": "vitest run tests/unit",
     "test:protocol": "vitest run tests/protocol",
     "test:integration": "vitest run --config vitest.integration.config.ts tests/integration",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "start": "tsx src/server.ts",
+    "start:stdio": "tsx src/stdio-adapter.ts"
   },
   "keywords": [],
   "author": "",
