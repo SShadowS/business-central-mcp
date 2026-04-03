@@ -228,3 +228,36 @@ export interface DialogInfo {
   readonly ownerFormId?: string;
   readonly controlTree: unknown;
 }
+
+// -- Backward compatibility --
+
+import type { PageContext } from './page-context.js';
+import type { FormState } from './form-state.js';
+
+/**
+ * DEPRECATED: Use PageContext for new code.
+ * Converts a PageContext back to a PageState for consumers that haven't been migrated yet.
+ */
+export function derivePageState(ctx: PageContext): PageState {
+  const rootForm = ctx.forms.get(ctx.rootFormId);
+  const rep = rootForm ? primaryRepeaterFromCtx(rootForm) : null;
+  return {
+    pageContextId: ctx.pageContextId,
+    formId: ctx.rootFormId,
+    pageType: ctx.pageType,
+    controlTree: rootForm?.controlTree ?? [],
+    repeater: rep,
+    filterControlPath: rootForm?.filterControlPath ?? null,
+    actions: rootForm?.actions ?? [],
+    childForms: Array.from(ctx.forms.entries())
+      .filter(([fId]) => fId !== ctx.rootFormId)
+      .map(([fId]) => ({ formId: fId, caption: '' })),
+    dialogs: ctx.dialogs,
+    openFormIds: ctx.ownedFormIds,
+  };
+}
+
+function primaryRepeaterFromCtx(form: FormState): RepeaterState | null {
+  const first = form.repeaters.values().next();
+  return first.done ? null : first.value;
+}
