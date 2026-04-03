@@ -304,7 +304,7 @@ session.close();
 
 ## D. Path Traversal in File Deletion
 
-**Severity:** HIGH -- authenticated arbitrary file deletion (subject to GuardedDelete implementation).
+**Severity:** MEDIUM (downgraded from HIGH) -- code-level path traversal, but endpoint requires active NavSession context, not directly callable via HTTP.
 
 **File:** `Microsoft.Dynamics.Nav.Service.ClientService/UploadDownloadController.cs:150-172`
 
@@ -463,6 +463,24 @@ console.log('  If traversal payloads return 403 or specific path errors:');
 console.log('    -> GuardedDelete or middleware blocks the traversal');
 console.log('    -> Finding D has lower severity than assessed');
 ```
+
+### Live Testing Results (2026-04-04)
+
+**Endpoint accessibility tested against BC27 container (Cronus27):**
+
+| URL | Result |
+|---|---|
+| `DELETE http://cronus27/BC/uploadDownload/deleteTemp` (port 80, web client) | 404 -- web client process does NOT proxy these routes |
+| `DELETE http://cronus27:7046/BC/client/uploadDownload/deleteTemp` (port 7046, service) | 401 "Missing headers" -- endpoint EXISTS but requires active NavSession |
+| `DELETE http://cronus27:7046/BC/uploadDownload/deleteTemp` (port 7046, no prefix) | 503 Service Unavailable |
+
+**Key finding:** The `deleteTemp` endpoint is NOT accessible as a standalone HTTP request. It requires an active `NavSession` object bound to the HTTP context via `context.HttpContext.GetNavSession()` (`ClientOperationBehaviorAttribute.cs:44`), which is only available through the BC web client's JavaScript framework running inside the browser. The `[ClientOperationBehavior(SessionUsage.UseCurrentSession)]` attribute enforces this.
+
+**Severity downgraded to MEDIUM** because:
+1. The endpoint is not directly callable via HTTP (needs NavSession context from WebSocket)
+2. It's only reachable through the BC web client JavaScript, which controls the filenames
+3. `NavFile.GuardedDelete(enforceUserPath: true)` is compiled-only and may provide additional path validation
+4. The `TEMP\\` stripping logic is still a code-level vulnerability (mixed separator bypass confirmed), but exploitation requires either compromising the BC web client JavaScript or finding another code path that calls `DeleteTempFiles`
 
 ---
 
@@ -892,7 +910,7 @@ Not directly testable from the WebSocket client. The permissions service is an i
 | A | Compression bomb | CRITICAL | NO | YES (crash) | Analysis (destructive) |
 | B | Client disables replay protection | CRITICAL | NO | NO | **Runnable** |
 | C | Session fixation | HIGH | NO | YES (hijack) | Analysis |
-| D | Path traversal file deletion | HIGH | NO | YES (server) | Analysis (destructive) |
+| D | Path traversal file deletion | MEDIUM (downgraded) | NO | Requires NavSession | Analysis -- endpoint not directly callable |
 | E | Unrestricted JSON deser | HIGH | NO | NO | **Runnable** |
 | F | No JSON depth/size limits | HIGH | NO | YES (crash) | **Runnable** (careful) |
 | G | Polymorphic type instantiation | HIGH | NO | NO | **Runnable** |
