@@ -193,6 +193,89 @@ describe.sequential('Multi-Section: Sales Order (page 42)', () => {
     console.error(`Line Discount % restored to: ${restoreValue}`);
   });
 
+  it('drills down from a line cell (No. field)', async () => {
+    if (!ctx) { console.error('Skipping: no page context'); return; }
+
+    const linesSectionId = Array.from(ctx.sections.entries())
+      .find(([, s]) => s.kind === 'lines')?.[0];
+    if (!linesSectionId) { console.error('Skipping: no lines section'); return; }
+
+    const rowsResult = dataService.readRows(pageContextId, linesSectionId);
+    if (!isOk(rowsResult) || rowsResult.value.length === 0) { console.error('Skipping: no rows'); return; }
+
+    const bookmark = rowsResult.value[0]!.bookmark;
+    const linesSection = ctx.sections.get(linesSectionId)!;
+    const linesForm = ctx.forms.get(linesSection.formId)!;
+    const repeater = linesForm.repeaters.values().next().value!;
+
+    // Select the row first
+    await session.invoke(
+      { type: 'SetCurrentRow' as const, formId: linesSection.formId, controlPath: repeater.controlPath, key: bookmark },
+      (event: any) => event.type === 'InvokeCompleted' || event.type === 'BookmarkChanged',
+    );
+
+    // Find "No." column index
+    const noCol = repeater.columns.find((c: any) => c.caption === 'No.');
+    expect(noCol).toBeDefined();
+    const colIdx = noCol!.controlPath.match(/co\[(\d+)\]/)![1];
+
+    // DrillDown (SystemAction 120) on the cell
+    const drillPath = `${repeater.controlPath}/cr/c[${colIdx}]`;
+    const drillResult = await session.invoke(
+      { type: 'InvokeAction' as const, formId: linesSection.formId, controlPath: drillPath, systemAction: 120 },
+      (event: any) => event.type === 'InvokeCompleted' || event.type === 'FormCreated' || event.type === 'DialogOpened',
+    );
+    expect(isOk(drillResult)).toBe(true);
+    if (!isOk(drillResult)) return;
+
+    // DrillDown on a line item No. opens a dialog (Item Card as modal)
+    const events = drillResult.value;
+    const dialogOpened = events.find((e: any) => e.type === 'DialogOpened');
+    const formCreated = events.find((e: any) => e.type === 'FormCreated');
+    const opened = dialogOpened || formCreated;
+    console.error('DrillDown opened:', opened?.type, 'formId:', (opened as any)?.formId);
+    expect(opened).toBeDefined();
+
+    // Close the opened form/dialog
+    if (opened) {
+      await session.invoke(
+        { type: 'CloseForm' as const, formId: (opened as any).formId },
+        (event: any) => event.type === 'InvokeCompleted',
+      );
+      console.error('DrillDown form closed.');
+    }
+  });
+
+  it('executes New + Delete on lines section (section-scoped action)', async () => {
+    if (!ctx) { console.error('Skipping: no page context'); return; }
+
+    const linesSectionId = Array.from(ctx.sections.entries())
+      .find(([, s]) => s.kind === 'lines')?.[0];
+    if (!linesSectionId) { console.error('Skipping: no lines section'); return; }
+
+    const linesSection = ctx.sections.get(linesSectionId)!;
+    const linesForm = ctx.forms.get(linesSection.formId)!;
+    const repeater = linesForm.repeaters.values().next().value!;
+    const rowsBefore = repeater.rows.length;
+    console.error('Lines before New:', rowsBefore);
+
+    // New line: SystemAction 10 on repeater cr/c[0] with child formId
+    const newResult = await session.invoke(
+      { type: 'InvokeAction' as const, formId: linesSection.formId, controlPath: `${repeater.controlPath}/cr/c[0]`, systemAction: 10 },
+      (event: any) => event.type === 'InvokeCompleted' || event.type === 'DataLoaded' || event.type === 'BookmarkChanged',
+    );
+    expect(isOk(newResult)).toBe(true);
+    console.error('New line result:', isOk(newResult) ? 'SUCCESS' : 'FAILED');
+
+    // Delete the new line: SystemAction 20 (current row is the new line)
+    const delResult = await session.invoke(
+      { type: 'InvokeAction' as const, formId: linesSection.formId, controlPath: `${repeater.controlPath}/cr/c[0]`, systemAction: 20 },
+      (event: any) => event.type === 'InvokeCompleted' || event.type === 'DataLoaded',
+    );
+    expect(isOk(delResult)).toBe(true);
+    console.error('Delete line result:', isOk(delResult) ? 'SUCCESS' : 'FAILED');
+  });
+
   it('writes to a header field (External Document No.)', async () => {
     if (!ctx) { console.error('Skipping: no page context'); return; }
 
