@@ -9,7 +9,7 @@ export interface ClosePageInput {
 
 export interface ClosePageOutput {
   success: boolean;
-  dialogsOpened: Array<{ formId: string; message?: string }>;
+  dialogsOpened: Array<{ formId: string; message?: string; fields?: import('../protocol/types.js').ControlField[] }>;
   requiresDialogResponse: boolean;
 }
 

@@ -2,6 +2,7 @@
 
 export type BCEvent =
   | FormCreatedEvent
+  | FormClosedEvent
   | DialogOpenedEvent
   | DataLoadedEvent
   | PropertyChangedEvent
@@ -15,6 +16,11 @@ export interface FormCreatedEvent {
   readonly parentFormId?: string;
   readonly isReload?: boolean;
   readonly controlTree: unknown;
+}
+
+export interface FormClosedEvent {
+  readonly type: 'FormClosed';
+  readonly formId: string;
 }
 
 export interface DialogOpenedEvent {

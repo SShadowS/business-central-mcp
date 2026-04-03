@@ -8,6 +8,7 @@ import { EventDecoder } from './protocol/event-decoder.js';
 import { InteractionEncoder } from './protocol/interaction-encoder.js';
 import { PageContextRepository } from './protocol/page-context-repo.js';
 import { SessionFactory } from './session/session-factory.js';
+import { SessionManager } from './session/session-manager.js';
 import type { BCSession } from './session/bc-session.js';
 import { PageService } from './services/page-service.js';
 import { DataService } from './services/data-service.js';
@@ -27,7 +28,7 @@ import { buildToolRegistry, type Operations } from './mcp/tool-registry.js';
 import { MCPHandler } from './mcp/handler.js';
 import { createApiRoutes } from './api/routes.js';
 import { parseJsonBody, checkApiToken } from './api/middleware.js';
-import { isErr } from './core/result.js';
+// isErr no longer needed — SessionManager handles session creation errors internally
 
 dotenvConfig();
 
@@ -51,21 +52,11 @@ async function main() {
   const encoder = new InteractionEncoder(config.bc.clientVersionString);
   const pageContextRepo = new PageContextRepository();
 
-  // Session — created lazily on first request
+  // Session — created lazily on first request, with automatic recovery
   const sessionFactory = new SessionFactory(
     connectionFactory, decoder, encoder, logger, config.bc.tenantId,
   );
-
-  let session: BCSession | null = null;
-
-  async function getSession(): Promise<BCSession> {
-    if (session !== null) return session;
-    const result = await sessionFactory.create();
-    if (isErr(result)) throw new Error(`Session creation failed: ${result.error.message}`);
-    session = result.value;
-    logger.info('BC session established');
-    return session;
-  }
+  const sessionManager = new SessionManager(sessionFactory, pageContextRepo, logger);
 
   // Services — built once after session is available
   function buildServices(s: BCSession): { operations: Operations; tools: ReturnType<typeof buildToolRegistry> } {
@@ -94,11 +85,14 @@ async function main() {
   let apiRoutes: ReturnType<typeof createApiRoutes> | null = null;
 
   async function ensureReady(): Promise<void> {
-    if (mcpHandler !== null) return;
-    const s = await getSession();
-    const { operations, tools } = buildServices(s);
-    mcpHandler = new MCPHandler(tools, logger);
-    apiRoutes = createApiRoutes(operations, logger);
+    const s = await sessionManager.getSession();
+    // Rebuild services if session was recreated or first call
+    if (mcpHandler === null || sessionManager.needsServiceRebuild) {
+      const { operations, tools } = buildServices(s);
+      mcpHandler = new MCPHandler(tools, logger);
+      apiRoutes = createApiRoutes(operations, logger);
+      sessionManager.markServicesRebuilt();
+    }
   }
 
   // HTTP Server
@@ -117,7 +111,7 @@ async function main() {
       if (url === '/health' && method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
-          status: session !== null ? 'healthy' : 'starting',
+          status: sessionManager.currentSession !== null ? 'healthy' : 'starting',
           version: '2.0.0',
           bc: { baseUrl: config.bc.baseUrl, tenantId: config.bc.tenantId },
         }));
@@ -163,9 +157,7 @@ async function main() {
 
   function shutdown(): void {
     logger.info('Shutting down...');
-    if (session !== null) {
-      session.close();
-    }
+    sessionManager.close();
     server.close();
     process.exit(0);
   }

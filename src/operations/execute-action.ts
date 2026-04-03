@@ -2,6 +2,7 @@ import { mapResult, type Result } from '../core/result.js';
 import type { ProtocolError } from '../core/errors.js';
 import type { ActionService } from '../services/action-service.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
+import type { ControlField } from '../protocol/types.js';
 import { resolveSection } from '../protocol/section-resolver.js';
 import { detectChangedSections, detectDialogs } from '../protocol/mutation-result.js';
 
@@ -15,11 +16,11 @@ export interface ExecuteActionInput {
 
 export interface ExecuteActionOutput {
   success: boolean;
-  dialog?: { formId: string; message?: string };
+  dialog?: { formId: string; message?: string; fields?: ControlField[] };
   updatedFields?: Array<{ name: string; value?: string }>;
   changedSections: string[];
   openedPages: Array<{ pageContextId: string; caption: string }>;
-  dialogsOpened: Array<{ formId: string; message?: string }>;
+  dialogsOpened: Array<{ formId: string; message?: string; fields?: ControlField[] }>;
   requiresDialogResponse: boolean;
 }
 
@@ -60,7 +61,11 @@ export class ExecuteActionOperation {
 
       return {
         success: ar.success,
-        dialog: ar.dialog ? { formId: ar.dialog.formId, message: dialogsOpened.find(d => d.formId === ar.dialog!.formId)?.message } : undefined,
+        dialog: ar.dialog ? {
+          formId: ar.dialog.formId,
+          message: dialogsOpened.find(d => d.formId === ar.dialog!.formId)?.message,
+          fields: dialogsOpened.find(d => d.formId === ar.dialog!.formId)?.fields,
+        } : undefined,
         updatedFields,
         changedSections,
         openedPages,

@@ -1,6 +1,7 @@
 // src/protocol/mutation-result.ts
-import type { BCEvent, DialogOpenedEvent } from './types.js';
+import type { BCEvent, DialogOpenedEvent, ControlField } from './types.js';
 import type { PageContext } from './page-context.js';
+import { parseControlTree } from './control-tree-parser.js';
 
 /**
  * Shared envelope returned by all mutating operations (write-data, execute-action,
@@ -12,7 +13,7 @@ export interface MutationResult<T = void> {
   readonly value?: T;
   readonly changedSections: string[];
   readonly openedPages: Array<{ pageContextId: string; caption: string }>;
-  readonly dialogsOpened: Array<{ formId: string; message?: string }>;
+  readonly dialogsOpened: Array<{ formId: string; message?: string; fields?: ControlField[] }>;
   readonly requiresDialogResponse: boolean;
 }
 
@@ -54,12 +55,22 @@ export function detectChangedSections(
  * Extract dialog information from events. Tries to pull a human-readable
  * message from the dialog control tree (Caption or Message property).
  */
-export function detectDialogs(events: BCEvent[]): Array<{ formId: string; message?: string }> {
+export function detectDialogs(events: BCEvent[]): Array<{ formId: string; message?: string; fields?: ControlField[] }> {
   return events
     .filter((e): e is DialogOpenedEvent => e.type === 'DialogOpened')
     .map(e => {
       const tree = e.controlTree as Record<string, unknown> | undefined;
       const message = (tree?.Caption as string) || (tree?.Message as string) || undefined;
-      return { formId: e.formId, message };
+
+      // Parse the dialog's control tree to extract structured fields
+      let fields: ControlField[] | undefined;
+      if (tree) {
+        const parsed = parseControlTree(tree);
+        if (parsed.fields.length > 0) {
+          fields = parsed.fields;
+        }
+      }
+
+      return { formId: e.formId, message, fields };
     });
 }

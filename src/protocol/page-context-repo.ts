@@ -77,6 +77,15 @@ export class PageContextRepository {
       return;
     }
 
+    // FormClosed: mark sections referencing this form as invalid
+    if (event.type === 'FormClosed') {
+      const pcId = targetPcId ?? this.formIdIndex.get(formId);
+      if (pcId) {
+        this.markFormClosed(pcId, formId);
+      }
+      return;
+    }
+
     // Dialog: route by ownerFormId
     if (event.type === 'DialogOpened' && event.ownerFormId) {
       const ownerPcId = targetPcId ?? this.formIdIndex.get(event.ownerFormId);
@@ -192,6 +201,24 @@ export class PageContextRepository {
     });
   }
 
+  private markFormClosed(pcId: string, formId: string): void {
+    const page = this.pages.get(pcId);
+    if (!page) return;
+
+    // Mark any sections that reference this formId as invalid
+    let changed = false;
+    const sections = new Map(page.sections);
+    for (const [sectionId, section] of sections) {
+      if (section.formId === formId && section.valid) {
+        sections.set(sectionId, { ...section, valid: false });
+        changed = true;
+      }
+    }
+    if (!changed) return;
+
+    this.pages.set(pcId, { ...page, sections });
+  }
+
   private addDialog(pcId: string, event: BCEvent & { type: 'DialogOpened' }): void {
     const page = this.pages.get(pcId);
     if (!page) return;
@@ -273,6 +300,7 @@ export class PageContextRepository {
       kind: 'factbox' as const,
       caption,
       formId: child.serverId,
+      valid: true,
     };
   }
 
@@ -282,6 +310,12 @@ export class PageContextRepository {
       for (const fId of page.ownedFormIds) this.formIdIndex.delete(fId);
     }
     this.pages.delete(pageContextId);
+  }
+
+  /** Remove all page contexts (e.g., after session recovery). */
+  clearAll(): void {
+    this.pages.clear();
+    this.formIdIndex.clear();
   }
 
   listPageContextIds(): string[] { return Array.from(this.pages.keys()); }

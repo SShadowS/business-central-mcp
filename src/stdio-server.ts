@@ -8,6 +8,7 @@ import { EventDecoder } from './protocol/event-decoder.js';
 import { InteractionEncoder } from './protocol/interaction-encoder.js';
 import { PageContextRepository } from './protocol/page-context-repo.js';
 import { SessionFactory } from './session/session-factory.js';
+import { SessionManager } from './session/session-manager.js';
 import type { BCSession } from './session/bc-session.js';
 import { PageService } from './services/page-service.js';
 import { DataService } from './services/data-service.js';
@@ -25,7 +26,7 @@ import { NavigateOperation } from './operations/navigate.js';
 import { RespondDialogOperation } from './operations/respond-dialog.js';
 import { buildToolRegistry, type Operations } from './mcp/tool-registry.js';
 import { MCPHandler } from './mcp/handler.js';
-import { isErr } from './core/result.js';
+// isErr no longer needed — SessionManager handles session creation errors internally
 
 dotenvConfig();
 
@@ -50,32 +51,13 @@ async function main() {
   const encoder = new InteractionEncoder(config.bc.clientVersionString);
   const pageContextRepo = new PageContextRepository();
 
-  // Session — created lazily on first tools/call
+  // Session — created lazily on first tools/call, with automatic recovery
   const sessionFactory = new SessionFactory(
     connectionFactory, decoder, encoder, logger, config.bc.tenantId,
   );
+  const sessionManager = new SessionManager(sessionFactory, pageContextRepo, logger);
 
-  let session: BCSession | null = null;
   let realTools: ReturnType<typeof buildToolRegistry> | null = null;
-
-  async function getSession(): Promise<BCSession> {
-    // If session exists and is alive, reuse it
-    if (session !== null && session.isAlive) return session;
-
-    // Session is dead or doesn't exist — tear down and recreate
-    if (session !== null) {
-      logger.info('Session is dead, closing and recreating...');
-      session.close();
-      session = null;
-      realTools = null;  // Services reference the old session — must rebuild
-    }
-
-    const result = await sessionFactory.create();
-    if (isErr(result)) throw new Error(`Session creation failed: ${result.error.message}`);
-    session = result.value;
-    logger.info('BC session established');
-    return session;
-  }
 
   // Services — built once after session is available
   function buildServices(s: BCSession): ReturnType<typeof buildToolRegistry> {
@@ -104,12 +86,14 @@ async function main() {
   // Tool definitions (name, description, inputSchema, zodSchema) are static and
   // available immediately so initialize/tools/list work before any BC connection.
   // The execute functions call ensureSession() on first invocation.
+  // SessionManager throws SessionLostError on recovery — MCPHandler catches it.
 
   async function ensureSession(): Promise<ReturnType<typeof buildToolRegistry>> {
-    const s = await getSession();
-    // Rebuild services if session was recreated (realTools nulled in getSession)
-    if (realTools === null) {
+    const s = await sessionManager.getSession();
+    // Rebuild services if session was recreated
+    if (realTools === null || sessionManager.needsServiceRebuild) {
       realTools = buildServices(s);
+      sessionManager.markServicesRebuilt();
     }
     return realTools;
   }
@@ -160,13 +144,13 @@ async function main() {
 
   rl.on('close', () => {
     logger.info('stdin closed, shutting down');
-    session?.close();
+    sessionManager.close();
     process.exit(0);
   });
 
   function shutdown(): void {
     logger.info('Shutting down...');
-    session?.close();
+    sessionManager.close();
     process.exit(0);
   }
 

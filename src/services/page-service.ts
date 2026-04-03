@@ -10,17 +10,26 @@ import type {
 import { parseControlTree } from '../protocol/control-tree-parser.js';
 // DiscoveredChildForm is used by repo.registerDiscoveredChildForm, not directly here
 import type { Logger } from '../core/logger.js';
+import type { SectionKind } from '../protocol/section-resolver.js';
 
 export interface ClosePageResult {
   events: BCEvent[];
 }
 
+/** Default section kinds that are auto-loaded when a page is opened. */
+export const DEFAULT_AUTO_LOAD_SECTIONS: readonly SectionKind[] = ['header', 'lines', 'subpage'];
+
 export class PageService {
+  private readonly autoLoadSections: readonly SectionKind[];
+
   constructor(
     private readonly session: BCSession,
     private readonly repo: PageContextRepository,
     private readonly logger: Logger,
-  ) {}
+    options?: { autoLoadSections?: readonly SectionKind[] },
+  ) {
+    this.autoLoadSections = options?.autoLoadSections ?? DEFAULT_AUTO_LOAD_SECTIONS;
+  }
 
   async openPage(pageId: string, options?: { bookmark?: string; tenantId?: string }): Promise<Result<PageContext, ProtocolError>> {
     const tenantId = options?.tenantId ?? 'default';
@@ -99,10 +108,10 @@ export class PageService {
     if (!updatedCtx) return;
 
     for (const childFormId of childFormIds) {
-      // Only load data for forms that are sections we care about (lines subpage)
+      // Only load data for sections whose kind is in the auto-load list
       const section = Array.from(updatedCtx.sections.values()).find(s => s.formId === childFormId);
       if (!section) continue;
-      if (section.kind === 'factbox') continue;
+      if (!this.autoLoadSections.includes(section.kind)) continue;
 
       // Step 1: LoadForm to initialize the child form on the server
       const loadInteraction: LoadFormInteraction = {

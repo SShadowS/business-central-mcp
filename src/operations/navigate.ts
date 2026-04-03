@@ -18,7 +18,7 @@ export interface NavigateOutput {
   fields?: Array<{ name: string; value?: string; editable: boolean }>;
   rows?: Array<{ bookmark: string; cells: Record<string, unknown> }>;
   changedSections: string[];
-  dialogsOpened: Array<{ formId: string; message?: string }>;
+  dialogsOpened: Array<{ formId: string; message?: string; fields?: import('../protocol/types.js').ControlField[] }>;
   requiresDialogResponse: boolean;
 }
 

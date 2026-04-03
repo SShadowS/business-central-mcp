@@ -1,7 +1,7 @@
 import { HANDLER_TYPES } from './handler-types.js';
 import { resolveChangeType, SESSION_EVENTS } from './wire-types.js';
 import type {
-  BCEvent, FormCreatedEvent, DialogOpenedEvent, DataLoadedEvent,
+  BCEvent, FormCreatedEvent, FormClosedEvent, DialogOpenedEvent, DataLoadedEvent,
   PropertyChangedEvent, BookmarkChangedEvent, InvokeCompletedEvent, SessionInfoEvent,
 } from './types.js';
 
@@ -80,6 +80,9 @@ export class EventDecoder {
         break;
       case SESSION_EVENTS.DialogToShow:
         events.push({ type: 'DialogOpened', formId: (eventData.ServerId ?? eventData.formId ?? eventData.FormId ?? '') as string, ownerFormId: (eventData.OwnerForm ?? eventData.ownerForm) as string | undefined, controlTree: eventData } satisfies DialogOpenedEvent);
+        break;
+      case SESSION_EVENTS.ClosePendingForm:
+        events.push({ type: 'FormClosed', formId: (eventData.ServerId ?? eventData.formId ?? eventData.FormId ?? '') as string } satisfies FormClosedEvent);
         break;
     }
     return events;

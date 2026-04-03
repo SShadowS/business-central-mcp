@@ -82,10 +82,10 @@ describe('MCP Endpoint (integration)', () => {
     expect(result.result.capabilities.tools).toBeDefined();
   }, 60_000);
 
-  it('lists 7 tools', async () => {
+  it('lists 8 tools', async () => {
     const result = await mcpCall('tools/list') as any;
     const tools = result.result.tools;
-    expect(tools).toHaveLength(7);
+    expect(tools).toHaveLength(8);
 
     const names = tools.map((t: any) => t.name);
     expect(names).toContain('bc_open_page');
@@ -95,6 +95,7 @@ describe('MCP Endpoint (integration)', () => {
     expect(names).toContain('bc_close_page');
     expect(names).toContain('bc_search_pages');
     expect(names).toContain('bc_navigate');
+    expect(names).toContain('bc_respond_dialog');
 
     console.error('Tools:', names.join(', '));
   });

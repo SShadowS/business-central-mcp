@@ -153,4 +153,17 @@ describe('EventDecoder', () => {
     expect(prop).toBeDefined();
     if (prop?.type === 'PropertyChanged') expect(prop.changes['Visible']).toBe(false);
   });
+
+  it('decodes ClosePendingForm as FormClosed event', () => {
+    const handlers = [{
+      handlerType: HANDLER_TYPES.LogicalClientEventRaising,
+      parameters: ['ClosePendingForm', { ServerId: 'closedForm123' }, {}],
+    }];
+    const events = decoder.decode(handlers);
+    const closed = events.find(e => e.type === 'FormClosed');
+    expect(closed).toBeDefined();
+    if (closed?.type === 'FormClosed') {
+      expect(closed.formId).toBe('closedForm123');
+    }
+  });
 });

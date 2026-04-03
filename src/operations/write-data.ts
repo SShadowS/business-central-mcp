@@ -16,7 +16,7 @@ export interface WriteDataOutput {
   results: FieldWriteResult[];
   allSucceeded: boolean;
   changedSections: string[];
-  dialogsOpened: Array<{ formId: string; message?: string }>;
+  dialogsOpened: Array<{ formId: string; message?: string; fields?: import('../protocol/types.js').ControlField[] }>;
   requiresDialogResponse: boolean;
 }
 

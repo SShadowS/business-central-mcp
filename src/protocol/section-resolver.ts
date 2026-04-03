@@ -13,6 +13,7 @@ export interface SectionDescriptor {
   readonly caption: string;
   readonly formId: string;
   readonly repeaterControlPath?: string;
+  readonly valid: boolean;
 }
 
 export interface ResolvedSection {
@@ -28,6 +29,7 @@ export class SectionResolver {
       kind: 'header',
       caption: 'Header',
       formId: rootFormId,
+      valid: true,
     };
   }
 
@@ -47,6 +49,7 @@ export class SectionResolver {
         caption: parsed.caption || 'Lines',
         formId: childFormId,
         repeaterControlPath: repeaterPath,
+        valid: true,
       };
     }
 
@@ -57,6 +60,7 @@ export class SectionResolver {
       kind: 'subpage',
       caption,
       formId: childFormId,
+      valid: true,
     };
   }
 
@@ -81,6 +85,12 @@ export function resolveSection(
     return {
       error: `Section '${id}' not found.`,
       availableSections: Array.from(ctx.sections.keys()),
+    };
+  }
+  if (!section.valid) {
+    return {
+      error: `Section '${id}' is no longer available. The page may have been modified. Try re-opening the page.`,
+      availableSections: Array.from(ctx.sections.keys()).filter(s => ctx.sections.get(s)?.valid !== false),
     };
   }
   const form = ctx.forms.get(section.formId);

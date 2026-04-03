@@ -1,5 +1,6 @@
 import type { ToolDefinition } from './tool-registry.js';
 import type { Logger } from '../core/logger.js';
+import { SessionLostError } from '../core/errors.js';
 
 interface JsonRpcRequest {
   jsonrpc: string;
@@ -139,6 +140,19 @@ export class MCPHandler {
         };
       }
     } catch (e) {
+      // Session recovery: return a clear message so the LLM knows to re-open pages
+      if (e instanceof SessionLostError) {
+        this.logger.info(`Session recovered during ${params.name}. Impacted contexts: ${e.impactedPageContextIds.join(', ') || 'none'}`);
+        return {
+          jsonrpc: '2.0',
+          id: request.id,
+          result: {
+            content: [{ type: 'text', text: e.message }],
+            isError: true,
+          },
+        };
+      }
+
       this.logger.error(`Tool ${params.name} failed: ${e instanceof Error ? e.message : String(e)}`);
       return {
         jsonrpc: '2.0',

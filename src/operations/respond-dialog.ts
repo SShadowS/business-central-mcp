@@ -14,7 +14,7 @@ export interface RespondDialogInput {
 export interface RespondDialogOutput {
   success: boolean;
   changedSections: string[];
-  dialogsOpened: Array<{ formId: string; message?: string }>;
+  dialogsOpened: Array<{ formId: string; message?: string; fields?: import('../protocol/types.js').ControlField[] }>;
   requiresDialogResponse: boolean;
   openedPages: Array<{ pageContextId: string; caption: string }>;
 }
