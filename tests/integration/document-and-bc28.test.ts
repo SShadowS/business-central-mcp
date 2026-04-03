@@ -14,8 +14,8 @@ import { NTLMAuthProvider } from '../../src/connection/auth/ntlm-provider.js';
 import { ConnectionFactory } from '../../src/connection/connection-factory.js';
 import { EventDecoder } from '../../src/protocol/event-decoder.js';
 import { InteractionEncoder } from '../../src/protocol/interaction-encoder.js';
-import { StateProjection } from '../../src/protocol/state-projection.js';
 import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
+import { derivePageState } from '../../src/protocol/types.js';
 import { SessionFactory } from '../../src/session/session-factory.js';
 import type { BCSession } from '../../src/session/bc-session.js';
 import { PageService } from '../../src/services/page-service.js';
@@ -75,8 +75,7 @@ describe('Document Page Workflows (BC27)', () => {
   });
 
   function rebuildServices(): void {
-    const projection = new StateProjection();
-    const repo = new PageContextRepository(projection);
+    const repo = new PageContextRepository();
     pageService = new PageService(session, repo, logger);
     dataService = new DataService(session, repo, logger);
     actionService = new ActionService(session, repo, logger);
@@ -159,7 +158,7 @@ describe('Document Page Workflows (BC27)', () => {
       console.error(`[D1] Open FAILED: ${openResult.error.message}`);
       return;
     }
-    const state = unwrap(openResult);
+    const state = derivePageState(unwrap(openResult));
 
     console.error(`[D1] pageType=${state.pageType}, formId=${state.formId}`);
     console.error(`[D1] controlTree: ${state.controlTree.length} fields`);
@@ -181,7 +180,8 @@ describe('Document Page Workflows (BC27)', () => {
         try {
           const drillResult = await navigationService.drillDown(state.pageContextId, bookmark);
           if (isOk(drillResult)) {
-            const { targetPageState } = unwrap(drillResult);
+            const { targetPageContext } = unwrap(drillResult);
+            const targetPageState = derivePageState(targetPageContext);
             openedPages.push(targetPageState.pageContextId);
             console.error(`[D1] Drill down SUCCESS! target pageContextId=${targetPageState.pageContextId}`);
             console.error(`[D1] target pageType=${targetPageState.pageType}, formId=${targetPageState.formId}`);
@@ -247,7 +247,7 @@ describe('Document Page Workflows (BC27)', () => {
       console.error(`[D2] Open FAILED: ${openResult.error.message}`);
       return;
     }
-    const state = unwrap(openResult);
+    const state = derivePageState(unwrap(openResult));
 
     console.error(`[D2] pageType=${state.pageType}, formId=${state.formId}`);
     console.error(`[D2] controlTree: ${state.controlTree.length} fields`);
@@ -308,7 +308,7 @@ describe('Document Page Workflows (BC27)', () => {
       console.error(`[D3] Open FAILED: ${openResult.error.message}`);
       return;
     }
-    const state = unwrap(openResult);
+    const state = derivePageState(unwrap(openResult));
 
     console.error(`[D3] pageType=${state.pageType}, fields=${state.controlTree.length}`);
     if (state.repeater) {
@@ -321,7 +321,7 @@ describe('Document Page Workflows (BC27)', () => {
     try {
       const filterResult = await filterService.applyFilter(state.pageContextId, 'No.', '1000..2000');
       if (isOk(filterResult)) {
-        const filtered = unwrap(filterResult);
+        const filtered = derivePageState(unwrap(filterResult));
         const rowCount = filtered.repeater?.rows.length ?? 0;
         console.error(`[D3] Filter success! Rows after filter: ${rowCount}`);
         if (filtered.repeater && filtered.repeater.rows.length > 0) {
@@ -335,7 +335,8 @@ describe('Document Page Workflows (BC27)', () => {
           try {
             const drillResult = await navigationService.drillDown(state.pageContextId, bookmark);
             if (isOk(drillResult)) {
-              const { targetPageState } = unwrap(drillResult);
+              const { targetPageContext } = unwrap(drillResult);
+              const targetPageState = derivePageState(targetPageContext);
               openedPages.push(targetPageState.pageContextId);
               console.error(`[D3] Drill down SUCCESS! pageType=${targetPageState.pageType}`);
 
@@ -387,7 +388,7 @@ describe('Document Page Workflows (BC27)', () => {
       console.error(`[D4] Open FAILED: ${openResult.error.message}`);
       return;
     }
-    const listState = unwrap(openResult);
+    const listState = derivePageState(unwrap(openResult));
 
     if (!listState.repeater || listState.repeater.rows.length === 0) {
       console.error('[D4] No customers found -- SKIPPED');
@@ -405,10 +406,10 @@ describe('Document Page Workflows (BC27)', () => {
     try {
       const drillResult = await navigationService.drillDown(listState.pageContextId, bookmark);
       if (isOk(drillResult)) {
-        const { targetPageState } = unwrap(drillResult);
-        cardCtx = targetPageState.pageContextId;
+        const { targetPageContext } = unwrap(drillResult);
+        cardCtx = targetPageContext.pageContextId;
         openedPages.push(cardCtx);
-        console.error(`[D4] Drill down SUCCESS! pageType=${targetPageState.pageType}`);
+        console.error(`[D4] Drill down SUCCESS! pageType=${derivePageState(targetPageContext).pageType}`);
 
         // Read Phone No. field
         const phoneResult = dataService.readField(cardCtx, 'Phone No.');
@@ -549,8 +550,7 @@ describe('BC28 Cross-Version Tests', () => {
   });
 
   function rebuildServices(): void {
-    const projection = new StateProjection();
-    const repo = new PageContextRepository(projection);
+    const repo = new PageContextRepository();
     pageService = new PageService(session, repo, logger);
     dataService = new DataService(session, repo, logger);
     actionService = new ActionService(session, repo, logger);
@@ -635,7 +635,7 @@ describe('BC28 Cross-Version Tests', () => {
       console.error(`[B1] Open FAILED: ${openResult.error.message}`);
       return;
     }
-    const listState = unwrap(openResult);
+    const listState = derivePageState(unwrap(openResult));
 
     console.error(`[B1] pageType=${listState.pageType}, fields=${listState.controlTree.length}`);
     console.error(`[B1] childForms: ${listState.childForms.length}`);
@@ -657,7 +657,8 @@ describe('BC28 Cross-Version Tests', () => {
     try {
       const drillResult = await navigationService.drillDown(listState.pageContextId, bookmark);
       if (isOk(drillResult)) {
-        const { targetPageState } = unwrap(drillResult);
+        const { targetPageContext } = unwrap(drillResult);
+        const targetPageState = derivePageState(targetPageContext);
         openedPages.push(targetPageState.pageContextId);
         console.error(`[B1] Drill down SUCCESS! pageType=${targetPageState.pageType}`);
         console.error(`[B1] target fields: ${targetPageState.controlTree.length}`);
@@ -706,7 +707,7 @@ describe('BC28 Cross-Version Tests', () => {
       console.error(`[B2] Open FAILED: ${openResult.error.message}`);
       return;
     }
-    const state = unwrap(openResult);
+    const state = derivePageState(unwrap(openResult));
 
     console.error(`[B2] filterControlPath: ${state.filterControlPath ?? 'NONE'}`);
     if (state.repeater) {
@@ -719,7 +720,7 @@ describe('BC28 Cross-Version Tests', () => {
     try {
       const filterResult = await filterService.applyFilter(state.pageContextId, 'No.', '10000');
       if (isOk(filterResult)) {
-        const filtered = unwrap(filterResult);
+        const filtered = derivePageState(unwrap(filterResult));
         const rowCount = filtered.repeater?.rows.length ?? 0;
         console.error(`[B2] Filter success! Rows after filter: ${rowCount}`);
         if (filtered.repeater && filtered.repeater.rows.length > 0) {
@@ -787,7 +788,7 @@ describe('BC28 Cross-Version Tests', () => {
       console.error(`[B4] Open FAILED: ${openResult.error.message}`);
       return;
     }
-    const listState = unwrap(openResult);
+    const listState = derivePageState(unwrap(openResult));
 
     if (!listState.repeater || listState.repeater.rows.length === 0) {
       console.error('[B4] No customers -- SKIPPED');
@@ -802,8 +803,8 @@ describe('BC28 Cross-Version Tests', () => {
     try {
       const drillResult = await navigationService.drillDown(listState.pageContextId, bookmark);
       if (isOk(drillResult)) {
-        const { targetPageState } = unwrap(drillResult);
-        cardCtx = targetPageState.pageContextId;
+        const { targetPageContext } = unwrap(drillResult);
+        cardCtx = targetPageContext.pageContextId;
         openedPages.push(cardCtx);
         console.error(`[B4] Drill down SUCCESS!`);
 

@@ -6,7 +6,6 @@ import { NTLMAuthProvider } from '../../src/connection/auth/ntlm-provider.js';
 import { ConnectionFactory } from '../../src/connection/connection-factory.js';
 import { EventDecoder } from '../../src/protocol/event-decoder.js';
 import { InteractionEncoder } from '../../src/protocol/interaction-encoder.js';
-import { StateProjection } from '../../src/protocol/state-projection.js';
 import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
 import { SessionFactory } from '../../src/session/session-factory.js';
 import { BCSession } from '../../src/session/bc-session.js';
@@ -38,8 +37,7 @@ describe('DataService (integration)', () => {
     const result = await sessionFactory.create();
     session = unwrap(result);
 
-    const projection = new StateProjection();
-    const repo = new PageContextRepository(projection);
+    const repo = new PageContextRepository();
     pageService = new PageService(session, repo, logger);
     dataService = new DataService(session, repo, logger);
   });

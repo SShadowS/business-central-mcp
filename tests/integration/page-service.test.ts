@@ -6,8 +6,8 @@ import { NTLMAuthProvider } from '../../src/connection/auth/ntlm-provider.js';
 import { ConnectionFactory } from '../../src/connection/connection-factory.js';
 import { EventDecoder } from '../../src/protocol/event-decoder.js';
 import { InteractionEncoder } from '../../src/protocol/interaction-encoder.js';
-import { StateProjection } from '../../src/protocol/state-projection.js';
 import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
+import { derivePageState } from '../../src/protocol/types.js';
 import { SessionFactory } from '../../src/session/session-factory.js';
 import { BCSession } from '../../src/session/bc-session.js';
 import { PageService } from '../../src/services/page-service.js';
@@ -36,8 +36,7 @@ describe('PageService (integration)', () => {
     const result = await sessionFactory.create();
     session = unwrap(result);
 
-    const projection = new StateProjection();
-    const repo = new PageContextRepository(projection);
+    const repo = new PageContextRepository();
     pageService = new PageService(session, repo, logger);
   });
 
@@ -49,7 +48,7 @@ describe('PageService (integration)', () => {
     const result = await pageService.openPage('22');
     expect(isOk(result)).toBe(true);
     if (isOk(result)) {
-      const state = result.value;
+      const state = derivePageState(result.value);
       console.error('Page 22 PageState:', JSON.stringify({
         pageContextId: state.pageContextId,
         formId: state.formId,
@@ -71,7 +70,7 @@ describe('PageService (integration)', () => {
     const result = await pageService.openPage('21');
     expect(isOk(result)).toBe(true);
     if (isOk(result)) {
-      const state = result.value;
+      const state = derivePageState(result.value);
       console.error('Page 21 PageState:', JSON.stringify({
         pageContextId: state.pageContextId,
         formId: state.formId,

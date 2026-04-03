@@ -15,8 +15,8 @@ import { NTLMAuthProvider } from '../../src/connection/auth/ntlm-provider.js';
 import { ConnectionFactory } from '../../src/connection/connection-factory.js';
 import { EventDecoder } from '../../src/protocol/event-decoder.js';
 import { InteractionEncoder } from '../../src/protocol/interaction-encoder.js';
-import { StateProjection } from '../../src/protocol/state-projection.js';
 import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
+import { derivePageState } from '../../src/protocol/types.js';
 import { SessionFactory } from '../../src/session/session-factory.js';
 import type { BCSession } from '../../src/session/bc-session.js';
 import { PageService } from '../../src/services/page-service.js';
@@ -77,8 +77,7 @@ describe('Edge Case & Stress Tests', () => {
   // ---------------------------------------------------------------------------
 
   function rebuildServices(): void {
-    const projection = new StateProjection();
-    const repo = new PageContextRepository(projection);
+    const repo = new PageContextRepository();
     pageService = new PageService(session, repo, logger);
     dataService = new DataService(session, repo, logger);
     actionService = new ActionService(session, repo, logger);
@@ -165,7 +164,7 @@ describe('Edge Case & Stress Tests', () => {
       console.error(`[EC4] Open FAILED: ${openResult.error.message}`);
       return;
     }
-    const state = unwrap(openResult);
+    const state = derivePageState(unwrap(openResult));
 
     if (!state.repeater) {
       console.error('[EC4] No repeater -- SKIPPED');
@@ -212,7 +211,7 @@ describe('Edge Case & Stress Tests', () => {
       console.error(`[EC6] Instance 1 FAILED: ${r1.error.message}`);
       return;
     }
-    const state1 = unwrap(r1);
+    const state1 = derivePageState(unwrap(r1));
     console.error(`[EC6] Instance 1: pageContextId=${state1.pageContextId}, rows=${state1.repeater?.rows.length ?? 0}`);
 
     console.error('[EC6] Opening Customer List (page 22) -- instance 2...');
@@ -223,7 +222,7 @@ describe('Edge Case & Stress Tests', () => {
       await closeAndUntrack(state1.pageContextId);
       return;
     }
-    const state2 = unwrap(r2);
+    const state2 = derivePageState(unwrap(r2));
     console.error(`[EC6] Instance 2: pageContextId=${state2.pageContextId}, rows=${state2.repeater?.rows.length ?? 0}`);
 
     console.error(`[EC6] pageContextId 1: ${state1.pageContextId}`);
@@ -269,7 +268,7 @@ describe('Edge Case & Stress Tests', () => {
         console.error(`[EC9] Opening search result: "${openable.name}" (page ${openable.pageId})...`);
         const openResult = await openAndTrack(openable.pageId);
         if (isOk(openResult)) {
-          const state = unwrap(openResult);
+          const state = derivePageState(unwrap(openResult));
           console.error(`[EC9] Opened successfully: pageType=${state.pageType}, fields=${state.controlTree.length}`);
           console.error(`[EC9] repeater: ${state.repeater ? `${state.repeater.rows.length} rows` : 'NONE'}`);
           await closeAndUntrack(state.pageContextId);
@@ -307,7 +306,7 @@ describe('Edge Case & Stress Tests', () => {
       try {
         const openResult = await openAndTrack(cycle.pageId);
         if (isOk(openResult)) {
-          const state = unwrap(openResult);
+          const state = derivePageState(unwrap(openResult));
           console.error(`[EC10]   Opened: ${state.pageContextId}, type=${state.pageType}`);
           console.error(`[EC10]   Closing immediately...`);
           await closeAndUntrack(state.pageContextId);
@@ -332,7 +331,7 @@ describe('Edge Case & Stress Tests', () => {
       try {
         const finalResult = await openAndTrack('22');
         if (isOk(finalResult)) {
-          const state = unwrap(finalResult);
+          const state = derivePageState(unwrap(finalResult));
           console.error(`[EC10] Final open OK: ${state.repeater?.rows.length ?? 0} rows`);
           expect(state.repeater).toBeTruthy();
           expect(state.repeater!.rows.length).toBeGreaterThan(0);
@@ -369,7 +368,7 @@ describe('Edge Case & Stress Tests', () => {
       console.error(`[EC3] Open list FAILED: ${listResult.error.message}`);
       return;
     }
-    const listState = unwrap(listResult);
+    const listState = derivePageState(unwrap(listResult));
     console.error(`[EC3] List pageType=${listState.pageType}, rows=${listState.repeater?.rows.length ?? 0}`);
 
     if (!listState.repeater || listState.repeater.rows.length === 0) {
@@ -390,7 +389,8 @@ describe('Edge Case & Stress Tests', () => {
         await closeAndUntrack(listState.pageContextId);
         return;
       }
-      const { targetPageState } = unwrap(drillResult);
+      const { targetPageContext } = unwrap(drillResult);
+      const targetPageState = derivePageState(targetPageContext);
       orderCtx = targetPageState.pageContextId;
       openedPages.push(orderCtx);
 
@@ -450,7 +450,7 @@ describe('Edge Case & Stress Tests', () => {
       console.error(`[EC7] Open list FAILED: ${listResult.error.message}`);
       return;
     }
-    const listState = unwrap(listResult);
+    const listState = derivePageState(unwrap(listResult));
     expect(listState.repeater).toBeTruthy();
 
     const bookmark = listState.repeater!.rows[0]!.bookmark;
@@ -462,7 +462,8 @@ describe('Edge Case & Stress Tests', () => {
         await closeAndUntrack(listState.pageContextId);
         return;
       }
-      const { targetPageState } = unwrap(drillResult);
+      const { targetPageContext } = unwrap(drillResult);
+      const targetPageState = derivePageState(targetPageContext);
       cardCtx = targetPageState.pageContextId;
       openedPages.push(cardCtx);
 
@@ -546,7 +547,7 @@ describe('Edge Case & Stress Tests', () => {
       console.error(`[EC1] Open list FAILED: ${listResult.error.message}`);
       return;
     }
-    const listState = unwrap(listResult);
+    const listState = derivePageState(unwrap(listResult));
     expect(listState.repeater).toBeTruthy();
     expect(listState.repeater!.rows.length).toBeGreaterThan(0);
 
@@ -561,7 +562,8 @@ describe('Edge Case & Stress Tests', () => {
         await closeAndUntrack(listState.pageContextId);
         return;
       }
-      const { targetPageState } = unwrap(drillResult);
+      const { targetPageContext } = unwrap(drillResult);
+      const targetPageState = derivePageState(targetPageContext);
       cardCtx = targetPageState.pageContextId;
       openedPages.push(cardCtx);
       console.error(`[EC1] Drilled to card: ${cardCtx}, pageType=${targetPageState.pageType}`);
@@ -638,7 +640,7 @@ describe('Edge Case & Stress Tests', () => {
       console.error(`[EC5] Open list FAILED: ${listResult.error.message}`);
       return;
     }
-    const listState = unwrap(listResult);
+    const listState = derivePageState(unwrap(listResult));
     expect(listState.repeater).toBeTruthy();
 
     const bookmark = listState.repeater!.rows[0]!.bookmark;
@@ -650,8 +652,8 @@ describe('Edge Case & Stress Tests', () => {
         await closeAndUntrack(listState.pageContextId);
         return;
       }
-      const { targetPageState } = unwrap(drillResult);
-      cardCtx = targetPageState.pageContextId;
+      const { targetPageContext } = unwrap(drillResult);
+      cardCtx = targetPageContext.pageContextId;
       openedPages.push(cardCtx);
 
       const fieldsResult = dataService.getFields(cardCtx);
@@ -779,7 +781,7 @@ describe('Edge Case & Stress Tests', () => {
       console.error(`[EC8] Open FAILED: ${openResult.error.message}`);
       return;
     }
-    const state = unwrap(openResult);
+    const state = derivePageState(unwrap(openResult));
 
     const unfilteredCount = state.repeater?.rows.length ?? 0;
     console.error(`[EC8] Unfiltered rows: ${unfilteredCount}`);
@@ -788,7 +790,7 @@ describe('Edge Case & Stress Tests', () => {
     try {
       const filterResult = await filterService.applyFilter(state.pageContextId, 'Name', '*a*');
       if (isOk(filterResult)) {
-        const filtered = unwrap(filterResult);
+        const filtered = derivePageState(unwrap(filterResult));
         const filteredCount = filtered.repeater?.rows.length ?? 0;
         console.error(`[EC8] Filtered rows: ${filteredCount} (was ${unfilteredCount})`);
 
@@ -850,7 +852,7 @@ describe('Edge Case & Stress Tests', () => {
       console.error(`[EC2] Open FAILED: ${openResult.error.message}`);
       return;
     }
-    const state = unwrap(openResult);
+    const state = derivePageState(unwrap(openResult));
 
     expect(state.repeater).toBeTruthy();
     const rowCountBefore = state.repeater!.rows.length;

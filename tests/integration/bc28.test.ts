@@ -4,8 +4,8 @@ import { NTLMAuthProvider } from '../../src/connection/auth/ntlm-provider.js';
 import { ConnectionFactory } from '../../src/connection/connection-factory.js';
 import { EventDecoder } from '../../src/protocol/event-decoder.js';
 import { InteractionEncoder } from '../../src/protocol/interaction-encoder.js';
-import { StateProjection } from '../../src/protocol/state-projection.js';
 import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
+import { derivePageState } from '../../src/protocol/types.js';
 import { SessionFactory } from '../../src/session/session-factory.js';
 import { BCSession } from '../../src/session/bc-session.js';
 import { PageService } from '../../src/services/page-service.js';
@@ -45,8 +45,7 @@ describe('BC28 Compatibility (integration)', () => {
     expect(isOk(result)).toBe(true);
     session = unwrap(result);
 
-    const projection = new StateProjection();
-    const repo = new PageContextRepository(projection);
+    const repo = new PageContextRepository();
     pageService = new PageService(session, repo, logger);
     dataService = new DataService(session, repo, logger);
   }, 60000);
@@ -63,7 +62,7 @@ describe('BC28 Compatibility (integration)', () => {
   it('opens Customer List (page 22) with fields and rows', async () => {
     const result = await pageService.openPage('22', { tenantId: BC28_CONFIG.tenantId });
     expect(isOk(result)).toBe(true);
-    const state = unwrap(result);
+    const state = derivePageState(unwrap(result));
 
     console.error('[BC28] Page 22:', {
       pageType: state.pageType,
@@ -81,7 +80,7 @@ describe('BC28 Compatibility (integration)', () => {
   it('opens Customer Card (page 21) with fields', async () => {
     const result = await pageService.openPage('21', { tenantId: BC28_CONFIG.tenantId });
     expect(isOk(result)).toBe(true);
-    const state = unwrap(result);
+    const state = derivePageState(unwrap(result));
 
     console.error('[BC28] Page 21:', {
       pageType: state.pageType,
@@ -101,7 +100,7 @@ describe('BC28 Compatibility (integration)', () => {
   it('reads data rows from Customer List', async () => {
     const openResult = await pageService.openPage('22', { tenantId: BC28_CONFIG.tenantId });
     expect(isOk(openResult)).toBe(true);
-    const state = unwrap(openResult);
+    const state = derivePageState(unwrap(openResult));
 
     const rowsResult = dataService.readRows(state.pageContextId);
     expect(isOk(rowsResult)).toBe(true);

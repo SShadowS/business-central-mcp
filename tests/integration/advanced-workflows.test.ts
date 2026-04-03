@@ -18,8 +18,8 @@ import { NTLMAuthProvider } from '../../src/connection/auth/ntlm-provider.js';
 import { ConnectionFactory } from '../../src/connection/connection-factory.js';
 import { EventDecoder } from '../../src/protocol/event-decoder.js';
 import { InteractionEncoder } from '../../src/protocol/interaction-encoder.js';
-import { StateProjection } from '../../src/protocol/state-projection.js';
 import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
+import { derivePageState } from '../../src/protocol/types.js';
 import { SessionFactory } from '../../src/session/session-factory.js';
 import type { BCSession } from '../../src/session/bc-session.js';
 import { PageService } from '../../src/services/page-service.js';
@@ -79,8 +79,7 @@ describe('Advanced Workflow Tests (v2)', () => {
   // ---------------------------------------------------------------------------
 
   function rebuildServices(): void {
-    const projection = new StateProjection();
-    const repo = new PageContextRepository(projection);
+    const repo = new PageContextRepository();
     pageService = new PageService(session, repo, logger);
     dataService = new DataService(session, repo, logger);
     actionService = new ActionService(session, repo, logger);
@@ -164,7 +163,7 @@ describe('Advanced Workflow Tests (v2)', () => {
       console.error(`[A1] Open FAILED: ${openResult.error.message}`);
       expect.fail('Could not open Sales Order page 42');
     }
-    const state = unwrap(openResult);
+    const state = derivePageState(unwrap(openResult));
     console.error(`[A1] pageType=${state.pageType}, formId=${state.formId}`);
     console.error(`[A1] controlTree fields: ${state.controlTree.length}`);
     console.error(`[A1] actions: ${state.actions.length} total`);
@@ -211,7 +210,7 @@ describe('Advanced Workflow Tests (v2)', () => {
       console.error(`[A2] Open FAILED: ${openResult.error.message}`);
       expect.fail('Could not open Item Card page 30');
     }
-    const state = unwrap(openResult);
+    const state = derivePageState(unwrap(openResult));
     console.error(`[A2] pageType=${state.pageType}, ${state.controlTree.length} fields`);
 
     const itemFields = ['No.', 'Description', 'Unit Price', 'Inventory', 'Base Unit of Measure'];
@@ -245,7 +244,7 @@ describe('Advanced Workflow Tests (v2)', () => {
       console.error(`[A3] Open FAILED: ${openResult.error.message}`);
       expect.fail('Could not open Vendor List page 27');
     }
-    const state = unwrap(openResult);
+    const state = derivePageState(unwrap(openResult));
 
     console.error(`[A3] pageType=${state.pageType}, formId=${state.formId}`);
     console.error(`[A3] fields: ${state.controlTree.length}, actions: ${state.actions.length}`);
@@ -278,7 +277,7 @@ describe('Advanced Workflow Tests (v2)', () => {
       console.error('[A4] Note: page 20 might not be G/L Entries in this BC version');
       return;
     }
-    const state = unwrap(openResult);
+    const state = derivePageState(unwrap(openResult));
 
     console.error(`[A4] pageType=${state.pageType}, formId=${state.formId}`);
     console.error(`[A4] fields: ${state.controlTree.length}`);
@@ -335,7 +334,7 @@ describe('Advanced Workflow Tests (v2)', () => {
       console.error(`[A5] Reopen 22 FAILED: ${r3.error.message}`);
       expect.fail('Session did not survive open/close/reopen cycle');
     }
-    const state3 = unwrap(r3);
+    const state3 = derivePageState(unwrap(r3));
     console.error(`[A5] Page 22 reopened: ${state3.pageContextId}, ${state3.repeater?.rows.length ?? 0} rows`);
     expect(state3.repeater).toBeTruthy();
     expect(state3.repeater!.rows.length).toBeGreaterThan(0);
@@ -355,7 +354,7 @@ describe('Advanced Workflow Tests (v2)', () => {
       console.error(`[A6] Open FAILED: ${openResult.error.message}`);
       expect.fail('Could not open Customer List');
     }
-    const state = unwrap(openResult);
+    const state = derivePageState(unwrap(openResult));
 
     expect(state.repeater).toBeTruthy();
     const rows = state.repeater!.rows;
@@ -375,7 +374,7 @@ describe('Advanced Workflow Tests (v2)', () => {
       const selectResult = await navigationService.selectRow(state.pageContextId, secondBookmark);
       if (isOk(selectResult)) {
         console.error('[A6] SelectRow succeeded');
-        const updatedState = unwrap(selectResult);
+        const updatedState = derivePageState(unwrap(selectResult));
         console.error(`[A6] Updated state fields: ${updatedState.controlTree.length}`);
       } else {
         console.error(`[A6] SelectRow FAILED: ${selectResult.error.message}`);
@@ -403,7 +402,7 @@ describe('Advanced Workflow Tests (v2)', () => {
       console.error(`[A7] Open list FAILED: ${openResult.error.message}`);
       expect.fail('Could not open Customer List page 22');
     }
-    const listState = unwrap(openResult);
+    const listState = derivePageState(unwrap(openResult));
 
     expect(listState.repeater).toBeTruthy();
     expect(listState.repeater!.rows.length).toBeGreaterThan(0);
@@ -413,7 +412,8 @@ describe('Advanced Workflow Tests (v2)', () => {
     try {
       const drillResult = await navigationService.drillDown(listState.pageContextId, bookmark);
       if (isOk(drillResult)) {
-        const { targetPageState } = unwrap(drillResult);
+        const { targetPageContext } = unwrap(drillResult);
+        const targetPageState = derivePageState(targetPageContext);
         openedPages.push(targetPageState.pageContextId);
         console.error(`[A7] Drilled to card: ${targetPageState.pageContextId}, ${targetPageState.controlTree.length} fields`);
 
@@ -461,7 +461,7 @@ describe('Advanced Workflow Tests (v2)', () => {
       console.error(`[A8] Open list FAILED: ${listResult.error.message}`);
       expect.fail('Could not open Customer List');
     }
-    const listState = unwrap(listResult);
+    const listState = derivePageState(unwrap(listResult));
     expect(listState.repeater).toBeTruthy();
     const bookmark = listState.repeater!.rows[0]!.bookmark;
 
@@ -473,8 +473,8 @@ describe('Advanced Workflow Tests (v2)', () => {
         await closeAndUntrack(listState.pageContextId);
         return;
       }
-      const { targetPageState } = unwrap(drillResult);
-      cardCtx = targetPageState.pageContextId;
+      const { targetPageContext } = unwrap(drillResult);
+      cardCtx = targetPageContext.pageContextId;
       openedPages.push(cardCtx);
       console.error(`[A8] Drilled to card: ${cardCtx}`);
 
@@ -564,7 +564,7 @@ describe('Advanced Workflow Tests (v2)', () => {
       console.error(`[A9] Open FAILED: ${openResult.error.message}`);
       expect.fail('Could not open Customer List');
     }
-    const state = unwrap(openResult);
+    const state = derivePageState(unwrap(openResult));
 
     const unfilteredCount = state.repeater?.rows.length ?? 0;
     console.error(`[A9] Unfiltered rows: ${unfilteredCount}`);
@@ -574,7 +574,7 @@ describe('Advanced Workflow Tests (v2)', () => {
     try {
       const filterResult = await filterService.applyFilter(state.pageContextId, 'No.', '10000..30000');
       if (isOk(filterResult)) {
-        const filtered = unwrap(filterResult);
+        const filtered = derivePageState(unwrap(filterResult));
         const filteredCount = filtered.repeater?.rows.length ?? 0;
         console.error(`[A9] Filtered rows: ${filteredCount}`);
         if (filtered.repeater) {
@@ -596,7 +596,7 @@ describe('Advanced Workflow Tests (v2)', () => {
     try {
       const clearResult = await filterService.clearFilters(state.pageContextId);
       if (isOk(clearResult)) {
-        const restoredCount = clearResult.value.repeater?.rows.length ?? 0;
+        const restoredCount = derivePageState(clearResult.value).repeater?.rows.length ?? 0;
         console.error(`[A9] Restored rows: ${restoredCount}`);
       } else {
         console.error(`[A9] Clear FAILED: ${clearResult.error.message}`);
@@ -620,7 +620,7 @@ describe('Advanced Workflow Tests (v2)', () => {
       console.error(`[A10] Open FAILED: ${openResult.error.message}`);
       expect.fail('Could not open Customer List');
     }
-    const state = unwrap(openResult);
+    const state = derivePageState(unwrap(openResult));
 
     console.error('[A10] Executing SystemAction.New (10)...');
     try {

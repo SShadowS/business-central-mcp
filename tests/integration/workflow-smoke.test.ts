@@ -14,8 +14,8 @@ import { NTLMAuthProvider } from '../../src/connection/auth/ntlm-provider.js';
 import { ConnectionFactory } from '../../src/connection/connection-factory.js';
 import { EventDecoder } from '../../src/protocol/event-decoder.js';
 import { InteractionEncoder } from '../../src/protocol/interaction-encoder.js';
-import { StateProjection } from '../../src/protocol/state-projection.js';
 import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
+import { derivePageState } from '../../src/protocol/types.js';
 import { SessionFactory } from '../../src/session/session-factory.js';
 import type { BCSession } from '../../src/session/bc-session.js';
 import { PageService } from '../../src/services/page-service.js';
@@ -64,8 +64,7 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
     expect(isOk(result)).toBe(true);
     session = unwrap(result);
 
-    const projection = new StateProjection();
-    const repo = new PageContextRepository(projection);
+    const repo = new PageContextRepository();
     pageService = new PageService(session, repo, logger);
     dataService = new DataService(session, repo, logger);
     actionService = new ActionService(session, repo, logger);
@@ -146,8 +145,7 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
     }
     session = unwrap(result);
 
-    const projection = new StateProjection();
-    const repo = new PageContextRepository(projection);
+    const repo = new PageContextRepository();
     pageService = new PageService(session, repo, logger);
     dataService = new DataService(session, repo, logger);
     actionService = new ActionService(session, repo, logger);
@@ -174,7 +172,7 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
     console.error('[W1] Opening Customer List (page 22)...');
     const openResult = await openAndTrack('22');
     expect(isOk(openResult)).toBe(true);
-    const state = unwrap(openResult);
+    const state = derivePageState(unwrap(openResult));
 
     console.error(`[W1] Page opened: pageContextId=${state.pageContextId}, formId=${state.formId}`);
     console.error(`[W1] pageType=${state.pageType}, controlTree=${state.controlTree.length} fields`);
@@ -216,7 +214,7 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
     console.error('[W2] Opening Customer Card (page 21)...');
     const openResult = await openAndTrack('21');
     expect(isOk(openResult)).toBe(true);
-    const state = unwrap(openResult);
+    const state = derivePageState(unwrap(openResult));
 
     console.error(`[W2] pageType=${state.pageType}, ${state.controlTree.length} fields`);
 
@@ -262,7 +260,7 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
     console.error('[W3] Opening Customer List (page 22)...');
     const openResult = await openAndTrack('22');
     expect(isOk(openResult)).toBe(true);
-    const listState = unwrap(openResult);
+    const listState = derivePageState(unwrap(openResult));
 
     // Step 2: Get first row bookmark
     expect(listState.repeater).toBeTruthy();
@@ -276,7 +274,8 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
     try {
       const drillResult = await navigationService.drillDown(listState.pageContextId, bookmark);
       if (isOk(drillResult)) {
-        const { sourcePageContextId, targetPageState } = unwrap(drillResult);
+        const { sourcePageContextId, targetPageContext } = unwrap(drillResult);
+        const targetPageState = derivePageState(targetPageContext);
         openedPages.push(targetPageState.pageContextId);
         console.error(`[W3] Drill down success! target pageContextId=${targetPageState.pageContextId}`);
         console.error(`[W3] target formId=${targetPageState.formId}, pageType=${targetPageState.pageType}`);
@@ -325,7 +324,7 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
     console.error('[W4] Opening Customer List (page 22)...');
     const openResult = await openAndTrack('22');
     if (isErr(openResult)) { console.error(`[W4] Open FAILED: ${openResult.error.message}`); return; }
-    const state = unwrap(openResult);
+    const state = derivePageState(unwrap(openResult));
 
     // Step 2: List available actions
     const visibleActions = state.actions.filter(a => a.visible && a.enabled);
@@ -388,7 +387,7 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
     console.error('[W5] Opening Customer Card (page 21)...');
     const openResult = await openAndTrack('21');
     if (isErr(openResult)) { console.error(`[W5] Open FAILED: ${openResult.error.message}`); return; }
-    const state = unwrap(openResult);
+    const state = derivePageState(unwrap(openResult));
 
     // Step 2: Read current value of "Phone No."
     const fieldsResult = dataService.getFields(state.pageContextId);
@@ -466,7 +465,7 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
     console.error('[W6] Opening Customer List (page 22)...');
     const openResult = await openAndTrack('22');
     if (isErr(openResult)) { console.error(`[W6] Open FAILED: ${openResult.error.message}`); return; }
-    const state = unwrap(openResult);
+    const state = derivePageState(unwrap(openResult));
 
     console.error(`[W6] filterControlPath: ${state.filterControlPath ?? 'NONE'}`);
     if (state.repeater) {
@@ -479,7 +478,7 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
     try {
       const filterResult = await filterService.applyFilter(state.pageContextId, 'No.', '10000');
       if (isOk(filterResult)) {
-        const filtered = unwrap(filterResult);
+        const filtered = derivePageState(unwrap(filterResult));
         console.error(`[W6] Filter success! Rows after filter: ${filtered.repeater?.rows.length ?? 0}`);
         if (filtered.repeater && filtered.repeater.rows.length > 0) {
           console.error(`[W6] Filtered first row: ${JSON.stringify(filtered.repeater.rows[0]!.cells)}`);
@@ -497,7 +496,7 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
     try {
       const clearResult = await filterService.clearFilters(state.pageContextId);
       if (isOk(clearResult)) {
-        console.error(`[W6] Clear success! Rows after clear: ${clearResult.value.repeater?.rows.length ?? 0}`);
+        console.error(`[W6] Clear success! Rows after clear: ${derivePageState(clearResult.value).repeater?.rows.length ?? 0}`);
       } else {
         console.error(`[W6] Clear FAILED: ${clearResult.error.message}`);
       }
@@ -539,7 +538,7 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
       try {
         const result = await openAndTrack(pid);
         if (isOk(result)) {
-          const st = unwrap(result);
+          const st = derivePageState(unwrap(result));
           pageContextIds.push(st.pageContextId);
           console.error(`[W7] Page ${pid} opened: pageContextId=${st.pageContextId}, pageType=${st.pageType}, fields=${st.controlTree.length}`);
         } else {
