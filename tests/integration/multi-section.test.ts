@@ -13,6 +13,7 @@ import { PageService } from '../../src/services/page-service.js';
 import { DataService } from '../../src/services/data-service.js';
 import { isOk, unwrap } from '../../src/core/result.js';
 import type { PageContext } from '../../src/protocol/page-context.js';
+import type { BCConfig } from '../../src/core/config.js';
 
 dotenvConfig();
 
@@ -192,6 +193,24 @@ describe.sequential('Multi-Section: Sales Order (page 42)', () => {
     console.error(`Line Discount % restored to: ${restoreValue}`);
   });
 
+  it('writes to a header field (External Document No.)', async () => {
+    if (!ctx) { console.error('Skipping: no page context'); return; }
+
+    // Write a header field
+    const writeResult = await dataService.writeField(pageContextId, 'External Document No.', 'GATE4-TEST');
+    console.error('Header write result:', isOk(writeResult) ? writeResult.value : writeResult.error);
+    expect(isOk(writeResult)).toBe(true);
+
+    if (isOk(writeResult)) {
+      expect(writeResult.value.success).toBe(true);
+      expect(writeResult.value.fieldName).toBe('External Document No.');
+    }
+
+    // Restore
+    await dataService.writeField(pageContextId, 'External Document No.', '');
+    console.error('Restored External Document No. to empty');
+  });
+
   it('verifies multi-section architecture: section count and form count are consistent', async () => {
     if (!ctx) { console.error('Skipping: no page context'); return; }
 
@@ -214,5 +233,114 @@ describe.sequential('Multi-Section: Sales Order (page 42)', () => {
     }
 
     console.error('All section formIds are valid.');
+  });
+});
+
+describe.sequential('Multi-Section: Sales Order on BC28', () => {
+  let session: BCSession;
+  let pageService: PageService;
+  let dataService: DataService;
+  let pageContextId: string;
+  const logger = createNullLogger();
+
+  beforeAll(async () => {
+    const bc28Config: BCConfig = {
+      baseUrl: 'http://cronus28/BC',
+      username: 'sshadows',
+      password: '1234',
+      tenantId: 'default',
+      clientVersionString: '28.0.0.0',
+      serverMajor: 28,
+      timeoutMs: 120000,
+    };
+    const auth = new NTLMAuthProvider({
+      baseUrl: bc28Config.baseUrl,
+      username: bc28Config.username,
+      password: bc28Config.password,
+      tenantId: bc28Config.tenantId,
+    }, logger);
+    const connFactory = new ConnectionFactory(auth, bc28Config, logger);
+    const decoder = new EventDecoder();
+    const encoder = new InteractionEncoder(bc28Config.clientVersionString);
+    const sessionFactory = new SessionFactory(connFactory, decoder, encoder, logger, bc28Config.tenantId);
+
+    const result = await sessionFactory.create();
+    session = unwrap(result);
+
+    const repo = new PageContextRepository();
+    pageService = new PageService(session, repo, logger);
+    dataService = new DataService(session, repo, logger);
+  });
+
+  afterAll(async () => {
+    if (pageContextId) {
+      await pageService.closePage(pageContextId);
+    }
+    session?.close();
+  });
+
+  it('opens Sales Order page 42 on BC28 with multi-section', async () => {
+    const result = await pageService.openPage('42');
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result)) return;
+
+    const ctx = result.value;
+    pageContextId = ctx.pageContextId;
+
+    console.error('BC28 - Sections:', Array.from(ctx.sections.keys()));
+    console.error('BC28 - PageType:', ctx.pageType);
+    console.error('BC28 - Forms:', ctx.forms.size);
+
+    expect(ctx.sections.has('header')).toBe(true);
+
+    const linesSection = Array.from(ctx.sections.values()).find(s => s.kind === 'lines');
+    if (linesSection) {
+      console.error('BC28 - Lines section found:', linesSection.sectionId);
+      expect(linesSection.repeaterControlPath).toBeTruthy();
+
+      // Read lines
+      const rowsResult = dataService.readRows(pageContextId, linesSection.sectionId);
+      if (isOk(rowsResult)) {
+        console.error('BC28 - Line rows:', rowsResult.value.length);
+        if (rowsResult.value.length > 0) {
+          const cells = rowsResult.value[0]!.cells;
+          const keys = Object.keys(cells).slice(0, 10);
+          console.error('BC28 - Line columns:', keys);
+        }
+      }
+    } else {
+      console.error('BC28 - No lines section (same issue would need investigation)');
+    }
+
+    // Verify cross-version: sections structure is same as BC27
+    expect(ctx.pageType).toBe('Document');
+    expect(ctx.forms.size).toBeGreaterThan(1);
+  });
+
+  it('writes to a line cell on BC28', async () => {
+    if (!pageContextId) return;
+    const ctx = pageService.getPageContext(pageContextId);
+    if (!ctx) return;
+
+    const linesSectionId = Array.from(ctx.sections.entries())
+      .find(([, s]) => s.kind === 'lines')?.[0];
+    if (!linesSectionId) { console.error('BC28 - No lines section'); return; }
+
+    const rowsResult = dataService.readRows(pageContextId, linesSectionId);
+    if (!isOk(rowsResult) || rowsResult.value.length === 0) { console.error('BC28 - No rows'); return; }
+
+    const writeResult = await dataService.writeField(
+      pageContextId, 'Line Discount %', '3',
+      { sectionId: linesSectionId, rowIndex: 0 },
+    );
+    console.error('BC28 - Line write result:', isOk(writeResult) ? 'SUCCESS' : writeResult.error.message);
+    expect(isOk(writeResult)).toBe(true);
+
+    // Restore
+    await dataService.writeField(
+      pageContextId, 'Line Discount %', '0',
+      { sectionId: linesSectionId, rowIndex: 0 },
+    );
+    console.error('BC28 - Restored');
   });
 });
