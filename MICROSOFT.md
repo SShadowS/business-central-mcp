@@ -90,6 +90,12 @@ internal static void DisposeCurrentDispatcher()
 
 **Our workaround:** `BCSession.closeGracefully()` sends `CloseForm` for every open form and auto-dismisses save-changes dialogs before closing the WebSocket.
 
+### Live Verification (2026-04-04, Cronus28 BC28)
+
+Poisoned 10 threads by opening Sales Order page 42, closing (triggers save dialog), then killing WebSocket. First legitimate session attempt afterward **hung indefinitely** -- the BC service was alive (HTTP 302) but the WebSocket session was permanently blocked by the stale modal frame. The user's session never completes; it stalls forever without error.
+
+This is worse than an error response -- the victim gets no feedback, just an infinite hang.
+
 ### PoC
 
 ```typescript
