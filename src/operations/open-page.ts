@@ -2,6 +2,7 @@ import { mapResult, type Result } from '../core/result.js';
 import type { ProtocolError } from '../core/errors.js';
 import type { PageService } from '../services/page-service.js';
 import { resolveSection } from '../protocol/section-resolver.js';
+import { mapRowCellKeys } from '../services/data-service.js';
 
 export interface OpenPageInput {
   pageId: string;
@@ -42,7 +43,7 @@ export class OpenPageOperation {
         actions: (form?.actions ?? [])
           .filter(a => a.visible && a.enabled && a.caption)
           .map(a => ({ name: a.caption, systemAction: a.systemAction, enabled: a.enabled })),
-        rows: repeater?.rows.map(r => ({ bookmark: r.bookmark, cells: r.cells })),
+        rows: repeater ? mapRowCellKeys(repeater.rows, repeater.columns).map(r => ({ bookmark: r.bookmark, cells: r.cells })) : undefined,
       };
     });
   }

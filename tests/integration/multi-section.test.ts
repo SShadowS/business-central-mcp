@@ -138,11 +138,12 @@ describe.sequential('Multi-Section: Sales Order (page 42)', () => {
         console.error('First row bookmark:', firstRow.bookmark);
         const cellKeys = Object.keys(firstRow.cells);
         console.error(`Column paths (${cellKeys.length}):`, cellKeys.slice(0, 10));
+        // After cell key mapping, values are already extracted (strings/numbers, not objects)
         const cellsWithValues = Object.entries(firstRow.cells)
-          .filter(([, v]) => v.stringValue)
-          .slice(0, 10);
-        console.error('First row cells with values:', JSON.stringify(
-          Object.fromEntries(cellsWithValues.map(([k, v]) => [k, v.stringValue])),
+          .filter(([, v]) => v !== undefined && v !== null && v !== '')
+          .slice(0, 15);
+        console.error('First row values:', JSON.stringify(
+          Object.fromEntries(cellsWithValues),
           null, 2,
         ));
       }

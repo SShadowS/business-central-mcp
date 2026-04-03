@@ -2,7 +2,7 @@ import { ok, err, isErr, type Result } from '../core/result.js';
 import { ProtocolError } from '../core/errors.js';
 import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
-import type { RepeaterRow, ControlField, SaveValueInteraction } from '../protocol/types.js';
+import type { RepeaterRow, RepeaterColumn, ControlField, SaveValueInteraction } from '../protocol/types.js';
 import type { Logger } from '../core/logger.js';
 import { resolveSection } from '../protocol/section-resolver.js';
 
@@ -26,7 +26,8 @@ export class DataService {
     if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
     const resolved = resolveSection(ctx, sectionId);
     if ('error' in resolved) return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
-    return ok(resolved.repeater?.rows ?? []);
+    if (!resolved.repeater) return ok([]);
+    return ok(mapRowCellKeys(resolved.repeater.rows, resolved.repeater.columns));
   }
 
   readField(pageContextId: string, fieldName: string, sectionId?: string): Result<ControlField | undefined, ProtocolError> {
@@ -120,4 +121,60 @@ export class DataService {
       f.controlPath === fieldName,
     );
   }
+}
+
+/** @internal exported for use by operations that format rows for MCP output */
+export { mapRowCellKeys };
+
+/**
+ * Build a mapping from columnBinderName to column caption.
+ * Used to remap row.cells keys from internal binder names to human-readable captions.
+ */
+function buildBinderToCaptionMap(columns: RepeaterColumn[]): Map<string, string> {
+  const map = new Map<string, string>();
+  const usedCaptions = new Map<string, number>();
+  for (const col of columns) {
+    if (!col.columnBinderName) continue;
+    let caption = col.caption || col.columnBinderName;
+    // Disambiguate duplicate captions with ordinal suffix
+    const count = usedCaptions.get(caption) ?? 0;
+    if (count > 0) {
+      caption = `${caption}#${count + 1}`;
+    }
+    usedCaptions.set(col.caption || col.columnBinderName, count + 1);
+    map.set(col.columnBinderName, caption);
+  }
+  return map;
+}
+
+/**
+ * Remap row cell keys from columnBinderName to caption.
+ * Cell values are extracted: if value is an object with stringValue, use that.
+ */
+function mapRowCellKeys(rows: RepeaterRow[], columns: RepeaterColumn[]): RepeaterRow[] {
+  const binderMap = buildBinderToCaptionMap(columns);
+  return rows.map(row => ({
+    bookmark: row.bookmark,
+    cells: remapCells(row.cells, binderMap),
+  }));
+}
+
+function remapCells(
+  cells: Record<string, unknown>,
+  binderMap: Map<string, string>,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, rawValue] of Object.entries(cells)) {
+    const caption = binderMap.get(key) ?? key;
+    // Extract the display value from BC's cell structure
+    // BC sends cells as objects like { stringValue: "...", objectValue: ..., editable: ..., ... }
+    if (rawValue && typeof rawValue === 'object') {
+      const cell = rawValue as Record<string, unknown>;
+      // Prefer stringValue (formatted), fall back to objectValue (raw), then null for empty cells
+      result[caption] = cell.stringValue ?? cell.objectValue ?? null;
+    } else {
+      result[caption] = rawValue;
+    }
+  }
+  return result;
 }
