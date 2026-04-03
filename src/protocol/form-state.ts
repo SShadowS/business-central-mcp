@@ -1,13 +1,14 @@
 // src/protocol/form-state.ts
 import type {
   ControlField, RepeaterState, RepeaterRow, ActionInfo, ControlContainerType,
-  BCEvent, DataLoadedEvent, PropertyChangedEvent, BookmarkChangedEvent,
+  BCEvent, DataLoadedEvent, PropertyChangedEvent, BookmarkChangedEvent, TabGroup,
 } from './types.js';
 
 export interface FormState {
   readonly formId: string;
   readonly parentFormId?: string;
   readonly controlTree: ControlField[];
+  readonly tabs?: TabGroup[];
   readonly repeaters: ReadonlyMap<string, RepeaterState>;
   readonly actions: ActionInfo[];
   readonly filterControlPath: string | null;

@@ -152,4 +152,114 @@ describe('parseControlTree', () => {
 
     console.error('No. column:', noCol);
   });
+
+  // -- Item 1.2: Field metadata (isLookup, showMandatory) --
+
+  it('extracts isLookup for fields with AssistEditAction', () => {
+    const controlTree = loadControlTree('page21-control-tree.json');
+    const parsed = parseControlTree(controlTree);
+
+    // No. field on Customer Card has AssistEditAction
+    const noField = parsed.fields.find(f => f.caption === 'No.');
+    expect(noField).toBeDefined();
+    expect(noField!.isLookup).toBe(true);
+  });
+
+  it('extracts isLookup for fields with LookupAction', () => {
+    const controlTree = loadControlTree('page21-control-tree.json');
+    const parsed = parseControlTree(controlTree);
+
+    // IC Partner Code has LookupAction
+    const icField = parsed.fields.find(f => f.caption === 'IC Partner Code');
+    expect(icField).toBeDefined();
+    expect(icField!.isLookup).toBe(true);
+  });
+
+  it('does not set isLookup on fields without lookup/assist actions', () => {
+    const controlTree = loadControlTree('page21-control-tree.json');
+    const parsed = parseControlTree(controlTree);
+
+    // Name field has ShowMandatory but no AssistEditAction or LookupAction
+    const nameField = parsed.fields.find(f => f.caption === 'Name');
+    expect(nameField).toBeDefined();
+    expect(nameField!.isLookup).toBeUndefined();
+  });
+
+  it('extracts showMandatory from fields', () => {
+    const controlTree = loadControlTree('page21-control-tree.json');
+    const parsed = parseControlTree(controlTree);
+
+    // Name field on Customer Card has ShowMandatory: true
+    const nameField = parsed.fields.find(f => f.caption === 'Name');
+    expect(nameField).toBeDefined();
+    expect(nameField!.showMandatory).toBe(true);
+  });
+
+  it('does not set showMandatory on non-mandatory fields', () => {
+    const controlTree = loadControlTree('page21-control-tree.json');
+    const parsed = parseControlTree(controlTree);
+
+    // No. field does not have ShowMandatory
+    const noField = parsed.fields.find(f => f.caption === 'No.');
+    expect(noField).toBeDefined();
+    expect(noField!.showMandatory).toBeUndefined();
+  });
+
+  // -- Item 2.1: Tab groups --
+
+  it('extracts tab groups from Customer Card (page 21)', () => {
+    const controlTree = loadControlTree('page21-control-tree.json');
+    const parsed = parseControlTree(controlTree);
+
+    expect(parsed.tabs).toBeDefined();
+    expect(parsed.tabs!.length).toBeGreaterThanOrEqual(5);
+
+    const tabCaptions = parsed.tabs!.map(t => t.caption);
+    expect(tabCaptions).toContain('General');
+    expect(tabCaptions).toContain('Address & Contact');
+    expect(tabCaptions).toContain('Invoicing');
+    expect(tabCaptions).toContain('Payments');
+    expect(tabCaptions).toContain('Shipping');
+  });
+
+  it('tab groups contain the correct fields', () => {
+    const controlTree = loadControlTree('page21-control-tree.json');
+    const parsed = parseControlTree(controlTree);
+
+    const generalTab = parsed.tabs!.find(t => t.caption === 'General');
+    expect(generalTab).toBeDefined();
+    expect(generalTab!.fields.length).toBeGreaterThan(0);
+
+    // Name field should be in General tab
+    const nameInGeneral = generalTab!.fields.find(f => f.caption === 'Name');
+    expect(nameInGeneral).toBeDefined();
+
+    // No. field should be in General tab
+    const noInGeneral = generalTab!.fields.find(f => f.caption === 'No.');
+    expect(noInGeneral).toBeDefined();
+  });
+
+  it('tab groups do not include toolbar or action bar', () => {
+    const controlTree = loadControlTree('page21-control-tree.json');
+    const parsed = parseControlTree(controlTree);
+
+    const tabCaptions = parsed.tabs!.map(t => t.caption);
+    // No empty-caption tabs (toolbar, action bar have no caption)
+    expect(tabCaptions.every(c => c.length > 0)).toBe(true);
+  });
+
+  it('List page (page 22) may have no tabs', () => {
+    const controlTree = loadControlTree('page22-control-tree.json');
+    const parsed = parseControlTree(controlTree);
+
+    // List pages typically don't have tab groups
+    // (they may or may not, depending on BC page design)
+    // Just verify parsing doesn't crash and returns undefined or an array
+    expect(parsed.tabs === undefined || Array.isArray(parsed.tabs)).toBe(true);
+  });
+
+  it('empty control tree has no tabs', () => {
+    const parsed = parseControlTree(null);
+    expect(parsed.tabs).toBeUndefined();
+  });
 });

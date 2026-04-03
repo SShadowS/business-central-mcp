@@ -15,8 +15,10 @@ export const OpenPageSchema = z.object({
 export const ReadDataSchema = z.object({
   pageContextId: z.string().min(1),
   section: z.string().optional(),
+  tab: z.string().optional(),
   filters: z.array(z.object({ column: z.string(), value: z.string() })).optional(),
   columns: z.array(z.string()).optional(),
+  range: z.object({ offset: z.number(), limit: z.number() }).optional(),
 });
 
 export const WriteDataSchema = z.object({

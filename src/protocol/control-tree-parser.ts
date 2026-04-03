@@ -1,4 +1,4 @@
-import type { ControlField, RepeaterColumn, RepeaterState, ActionInfo } from './types.js';
+import type { ControlField, RepeaterColumn, RepeaterState, ActionInfo, TabGroup } from './types.js';
 
 export interface DiscoveredChildForm {
   readonly serverId: string;          // lf node's ServerId (used as formId)
@@ -12,6 +12,7 @@ export interface ParsedControlTree {
   caption: string;
   pageType: 'Card' | 'List' | 'Document' | 'Unknown';
   fields: ControlField[];
+  tabs?: TabGroup[];
   repeaters: ReadonlyMap<string, RepeaterState>;
   filterControlPath: string | null;
   actions: ActionInfo[];
@@ -67,6 +68,13 @@ export function parseControlTree(controlTree: unknown): ParsedControlTree {
   const children = root.Children as unknown[] | undefined;
   if (Array.isArray(children)) {
     walkChildren(children, 'server', result, false);
+
+    // Extract tab groups from top-level gc nodes.
+    // Tab gc nodes have a Caption and no MappingHint (excludes TOOLBAR, ACTIONBAR, PromptActions, etc.)
+    const tabs = extractTabGroups(children, result);
+    if (tabs.length > 0) {
+      result.tabs = tabs;
+    }
   }
 
   return result;
@@ -142,6 +150,9 @@ function extractField(
 
   const binder = node.ColumnBinder as { Name?: string } | undefined;
 
+  const hasLookup = !!(node.AssistEditAction || node.LookupAction);
+  const showMandatory = node.ShowMandatory === true ? true : undefined;
+
   result.fields.push({
     controlPath,
     caption: (node.Caption as string) ?? '',
@@ -151,6 +162,8 @@ function extractField(
     stringValue: node.StringValue != null ? String(node.StringValue) : undefined,
     value: node.ObjectValue ?? node.StringValue,
     columnBinderName: binder?.Name || undefined,
+    ...(hasLookup ? { isLookup: true } : {}),
+    ...(showMandatory !== undefined ? { showMandatory } : {}),
   });
 }
 
@@ -225,4 +238,38 @@ function extractFormHostControl(
     isSubForm: (lf.IsSubForm as boolean) ?? false,
     isPart: (lf.IsPart as boolean) ?? false,
   });
+}
+
+/**
+ * Non-tab MappingHints at the root gc level (toolbars, action bars, etc.)
+ */
+const NON_TAB_HINTS = new Set(['TOOLBAR', 'ACTIONBAR', 'PromptActions', 'CommandBarHelpGroup', 'CommandBarLayoutGroup']);
+
+/**
+ * Extract tab groups from root-level gc children.
+ * A tab gc has a Caption and no MappingHint from the excluded set.
+ * Each tab's fields are found by matching controlPath prefixes against result.fields.
+ */
+function extractTabGroups(
+  rootChildren: unknown[],
+  result: ParsedControlTree,
+): TabGroup[] {
+  const tabs: TabGroup[] = [];
+  for (let i = 0; i < rootChildren.length; i++) {
+    const child = rootChildren[i];
+    if (!child || typeof child !== 'object') continue;
+    const node = child as Record<string, unknown>;
+    if (node.t !== 'gc') continue;
+    const caption = node.Caption as string | undefined;
+    if (!caption) continue;
+    const hint = node.MappingHint as string | undefined;
+    if (hint && NON_TAB_HINTS.has(hint)) continue;
+
+    // This gc is a tab. Its fields are those in result.fields whose controlPath
+    // starts with "server:c[{i}]/"
+    const prefix = `server:c[${i}]/`;
+    const fields = result.fields.filter(f => f.controlPath.startsWith(prefix));
+    tabs.push({ caption, fields });
+  }
+  return tabs;
 }

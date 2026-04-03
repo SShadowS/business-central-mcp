@@ -2,7 +2,7 @@ import { ok, err, isErr, type Result } from '../core/result.js';
 import { ProtocolError } from '../core/errors.js';
 import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
-import type { BCEvent, RepeaterRow, RepeaterColumn, RepeaterState, ControlField, SaveValueInteraction, SetCurrentRowInteraction } from '../protocol/types.js';
+import type { BCEvent, RepeaterRow, RepeaterColumn, RepeaterState, ControlField, TabGroup, SaveValueInteraction, SetCurrentRowInteraction } from '../protocol/types.js';
 import type { Logger } from '../core/logger.js';
 import { resolveSection } from '../protocol/section-resolver.js';
 
@@ -34,6 +34,22 @@ export class DataService {
     if ('error' in resolved) return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
     if (!resolved.repeater) return ok([]);
     return ok(mapRowCellKeys(resolved.repeater.rows, resolved.repeater.columns));
+  }
+
+  getRepeaterTotalRowCount(pageContextId: string, sectionId?: string): number | null {
+    const ctx = this.repo.get(pageContextId);
+    if (!ctx) return null;
+    const resolved = resolveSection(ctx, sectionId);
+    if ('error' in resolved) return null;
+    return resolved.repeater?.totalRowCount ?? null;
+  }
+
+  getTabs(pageContextId: string, sectionId?: string): Result<TabGroup[] | undefined, ProtocolError> {
+    const ctx = this.repo.get(pageContextId);
+    if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
+    const resolved = resolveSection(ctx, sectionId, 'header');
+    if ('error' in resolved) return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
+    return ok(resolved.form.tabs);
   }
 
   readField(pageContextId: string, fieldName: string, sectionId?: string): Result<ControlField | undefined, ProtocolError> {

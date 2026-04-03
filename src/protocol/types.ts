@@ -178,6 +178,8 @@ export interface ControlField {
   readonly value?: unknown;
   readonly stringValue?: string;
   readonly columnBinderName?: string; // e.g., "1165569367_c2" — key in row cells
+  readonly isLookup?: boolean;        // true if field has AssistEditAction or LookupAction
+  readonly showMandatory?: boolean;   // true if field is marked as mandatory in BC
 }
 
 export interface RepeaterState {
@@ -199,6 +201,11 @@ export interface RepeaterColumn {
 export interface RepeaterRow {
   readonly bookmark: string;
   readonly cells: Record<string, unknown>;
+}
+
+export interface TabGroup {
+  readonly caption: string;
+  readonly fields: ControlField[];
 }
 
 export interface ActionInfo {

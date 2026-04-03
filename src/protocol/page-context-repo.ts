@@ -132,6 +132,7 @@ export class PageContextRepository {
     const withData: FormState = {
       ...childForm,
       controlTree: parsed.fields,
+      tabs: parsed.tabs,
       repeaters: parsed.repeaters,
       actions: parsed.actions,
       filterControlPath: parsed.filterControlPath,
@@ -174,6 +175,7 @@ export class PageContextRepository {
     const updated: FormState = {
       ...(existingForm ?? this.formProjection.createInitial(event.formId)),
       controlTree: parsed.fields.length > 0 ? parsed.fields : (existingForm?.controlTree ?? []),
+      tabs: parsed.tabs ?? existingForm?.tabs,
       repeaters: parsed.repeaters.size > 0 ? parsed.repeaters : (existingForm?.repeaters ?? new Map()),
       actions: parsed.actions.length > 0 ? parsed.actions : (existingForm?.actions ?? []),
       filterControlPath: parsed.filterControlPath ?? existingForm?.filterControlPath ?? null,
@@ -225,6 +227,7 @@ export class PageContextRepository {
     const childForm: FormState = {
       ...this.formProjection.createInitial(child.serverId, page.rootFormId),
       controlTree: parsed.fields,
+      tabs: parsed.tabs,
       repeaters: parsed.repeaters,
       actions: parsed.actions,
       filterControlPath: parsed.filterControlPath,
