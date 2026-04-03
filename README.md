@@ -145,11 +145,7 @@ After restoring a BC database, the first session may encounter a license notific
 
 ### Session modal state persistence (BC bug)
 
-If the MCP server disconnects without properly closing open forms (e.g., process crash, kill signal), BC retains modal dialog state server-side. This blocks new sessions for the same user with `LogicalModalityViolationException`.
-
-**Root cause (verified from decompiled source):** BC's `LogicalDispatcher` is stored in a `[ThreadStatic]` field and reused across sessions on the same thread. When `DisposeCurrentDispatcher()` is called during session cleanup, it sets the thread-static reference to null but does NOT clear the `Frames` stack (`LogicalDispatcher.cs:90-93`). When a new session gets assigned to the same server thread, the old dispatcher's modal frames leak through, causing `LogicalModalityVerifier.VerifyAnyModalFormOpen()` to throw (`LogicalModalityVerifier.cs:69-74`).
-
-**Our workaround:** `BCSession.closeGracefully()` sends `CloseForm` for all open forms and auto-dismisses any save-changes dialogs before closing the WebSocket. `PageService.closePage()` accepts a `discardChanges` option to handle save-changes dialogs during the close flow. Together, these ensure no modal state remains when the session ends normally. Abrupt termination (kill -9, power loss) can still leave stale state -- restart the BC service instance to recover.
+If the MCP server disconnects without properly closing open forms (e.g., process crash), BC retains modal dialog state server-side, blocking new sessions for the same user with `LogicalModalityViolationException`. The server uses `closeGracefully()` to close all forms and dismiss dialogs before disconnecting, but abrupt termination can still trigger the bug. See [MICROSOFT.md](MICROSOFT.md) for the full analysis and proposed fix.
 
 ### FactBox data on card pages opened without context
 FactBox data loads automatically on list pages (via SetCurrentRow) and card/document pages (via LoadForm with openForm). However, some factboxes may return empty values if BC's server-side data binding requires additional context that isn't provided during the initial page open.
