@@ -927,7 +927,7 @@ Not directly testable from the WebSocket client. The permissions service is an i
 | G | $polyType injection | HIGH | **PARTIAL** | Request with $polyType accepted at protocol level. Instantiation depends on whitelist. |
 | H | No rate limiting | HIGH | **CONFIRMED** | 200/200 requests accepted at 6 req/s. Zero rejections. No throttling. |
 | I | Permission token first-write-wins | HIGH | Skipped | Needs MetadataToken header. Code-level confirmed. |
-| J | 65KB password pre-auth | MEDIUM | **CONFIRMED** | 1KB=363ms, 10KB=3020ms, 60KB=9351ms. Linear resource consumption. Pre-auth. |
+| J | 65KB password pre-auth | ~~MEDIUM~~ LOW | **NOT A DoS** | 30 concurrent 60KB requests: legitimate user unaffected (avg 133ms). Self-DoS only. |
 | K | Token replay across servers | MEDIUM | Skipped | Needs multi-server. Code-level confirmed. |
 | L | PermissionsService stub | MEDIUM | Skipped | Internal dependency. Code-level confirmed. |
 
@@ -943,8 +943,8 @@ Posted 2 Sales Orders successfully (101001, 101001). The sequencing check is seq
 **Finding H -- Parallel WebSocket flood:**
 5 concurrent WebSocket connections sent 250 total requests: all 250 accepted at 32 req/s. Zero rejections, zero throttling. No per-user connection limit, no per-connection message rate limit. A real attacker could open 50+ connections and sustain 300+ req/s.
 
-**Finding J -- Pre-auth resource consumption:**
-Baseline (1-byte password): 956ms. 10 concurrent 60KB password requests: 83,194ms total (87x slower). All 10 requests processed simultaneously. This is **pre-auth** -- no valid credentials needed. The 30-second lockout (`Thread.Sleep(30000)` in NavUserPasswordValidator.cs) only triggers after 5 failed attempts per username, so rotating usernames bypasses it entirely.
+**Finding J -- Pre-auth resource consumption (NOT a DoS):**
+30 concurrent 60KB password requests ran for 162 seconds. However, during the flood, a legitimate user logged in successfully 81 times with average latency 133ms and max 341ms. **Zero requests blocked.** The IIS/Kestrel thread pool handles the large-password requests without starving other users. Finding J causes the attacker's own requests to be slow (self-DoS) but does NOT deny service to legitimate users. **Downgraded to LOW** -- resource waste but no user-visible impact.
 
 **Finding A -- Large JSON payloads:**
 Server accepted 5MB string and 100K-element array without crashing. The NavDataSet binary compression bomb requires crafted binary framing (not standard JSON), which our client doesn't produce. Downgraded to PARTIAL -- the JSON path has no size limits but the actual compression bomb vector needs binary protocol manipulation.
