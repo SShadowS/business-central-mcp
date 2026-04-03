@@ -5,8 +5,10 @@ import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { PageContext } from '../protocol/page-context.js';
 import type {
-  BCEvent, OpenFormInteraction, LoadFormInteraction, CloseFormInteraction,
+  BCEvent, OpenFormInteraction, LoadFormInteraction, CloseFormInteraction, InvokeActionInteraction,
 } from '../protocol/types.js';
+import { parseControlTree } from '../protocol/control-tree-parser.js';
+// DiscoveredChildForm is used by repo.registerDiscoveredChildForm, not directly here
 import type { Logger } from '../core/logger.js';
 
 export class PageService {
@@ -51,8 +53,8 @@ export class PageService {
     this.repo.create(pageContextId, formId);
     this.repo.applyToPage(pageContextId, events);
 
-    // Load data for child forms (list pages need LoadForm with loadData)
-    await this.loadChildFormData(pageContextId, events);
+    // Discover child forms embedded in the root form's control tree (fhc -> lf nodes)
+    await this.discoverAndLoadChildForms(pageContextId, events);
 
     const finalState = this.repo.get(pageContextId);
     if (!finalState) {
@@ -63,17 +65,42 @@ export class PageService {
     return ok(finalState);
   }
 
-  private async loadChildFormData(pageContextId: string, openEvents: BCEvent[]): Promise<void> {
+  private async discoverAndLoadChildForms(pageContextId: string, openEvents: BCEvent[]): Promise<void> {
     const ctx = this.repo.get(pageContextId);
     if (!ctx) return;
 
-    // Find child forms from FormCreated events (forms that aren't the main form)
-    const childForms = openEvents
-      .filter(e => e.type === 'FormCreated' && e.formId !== ctx.rootFormId)
-      .map(e => e.type === 'FormCreated' ? e.formId : '')
-      .filter(id => id !== '');
+    // Collect child form IDs to load data for
+    const childFormIds: string[] = [];
 
-    for (const childFormId of childForms) {
+    // Source 1: Child forms from separate FormCreated events (rare, but possible)
+    for (const e of openEvents) {
+      if (e.type === 'FormCreated' && e.formId !== ctx.rootFormId) {
+        childFormIds.push(e.formId);
+      }
+    }
+
+    // Source 2: Child forms embedded in root form's control tree as fhc -> lf nodes
+    const rootFormCreated = openEvents.find(e => e.type === 'FormCreated' && e.formId === ctx.rootFormId);
+    if (rootFormCreated?.type === 'FormCreated') {
+      const parsed = parseControlTree(rootFormCreated.controlTree);
+      for (const child of parsed.childForms) {
+        this.repo.registerDiscoveredChildForm(pageContextId, child);
+        childFormIds.push(child.serverId);
+        this.logger.debug('page', `Discovered child form: ${child.serverId} (${child.caption}, subform=${child.isSubForm}, part=${child.isPart})`);
+      }
+    }
+
+    // Load data for all child forms (only lines subpage and key parts, skip most factboxes)
+    const updatedCtx = this.repo.get(pageContextId);
+    if (!updatedCtx) return;
+
+    for (const childFormId of childFormIds) {
+      // Only load data for forms that are sections we care about (lines subpage)
+      const section = Array.from(updatedCtx.sections.values()).find(s => s.formId === childFormId);
+      if (!section) continue;
+      if (section.kind === 'factbox') continue;
+
+      // Step 1: LoadForm to initialize the child form on the server
       const loadInteraction: LoadFormInteraction = {
         type: 'LoadForm',
         formId: childFormId,
@@ -88,6 +115,27 @@ export class PageService {
 
       if (isOk(loadResult)) {
         this.repo.applyToPage(pageContextId, loadResult.value);
+      }
+
+      // Step 2: Refresh the child form's repeater to trigger DataLoaded.
+      // BC sends lines data as DataLoaded on the ROOT formId with the child's controlPath.
+      // LoadForm alone doesn't trigger DataLoaded for subpage repeaters.
+      if (section.repeaterControlPath) {
+        const refreshInteraction: InvokeActionInteraction = {
+          type: 'InvokeAction',
+          formId: childFormId,
+          controlPath: section.repeaterControlPath,
+          systemAction: 30, // SystemAction.Refresh
+        };
+
+        const refreshResult = await this.session.invoke(
+          refreshInteraction,
+          (event) => event.type === 'InvokeCompleted' || event.type === 'DataLoaded',
+        );
+
+        if (isOk(refreshResult)) {
+          this.repo.applyToPage(pageContextId, refreshResult.value);
+        }
       }
     }
   }

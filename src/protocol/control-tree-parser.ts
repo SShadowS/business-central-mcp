@@ -1,5 +1,13 @@
 import type { ControlField, RepeaterColumn, RepeaterState, ActionInfo } from './types.js';
 
+export interface DiscoveredChildForm {
+  readonly serverId: string;          // lf node's ServerId (used as formId)
+  readonly caption: string;
+  readonly controlTree: unknown;      // raw lf node, to be parsed separately
+  readonly isSubForm: boolean;        // true for lines subpages
+  readonly isPart: boolean;           // true for factboxes and parts
+}
+
 export interface ParsedControlTree {
   caption: string;
   pageType: 'Card' | 'List' | 'Document' | 'Unknown';
@@ -7,6 +15,7 @@ export interface ParsedControlTree {
   repeaters: ReadonlyMap<string, RepeaterState>;
   filterControlPath: string | null;
   actions: ActionInfo[];
+  childForms: DiscoveredChildForm[];  // fhc -> lf nodes found in the tree
   metadata?: { id: number; sourceTableId: number };
 }
 
@@ -31,6 +40,7 @@ export function parseControlTree(controlTree: unknown): ParsedControlTree {
     repeaters: new Map(),
     filterControlPath: null,
     actions: [],
+    childForms: [],
   };
 
   if (!controlTree || typeof controlTree !== 'object') return result;
@@ -92,6 +102,11 @@ function walkChildren(
         walkChildren(subChildren, controlPath, result, true);
       }
       continue; // skip the general recursion below
+    } else if (t === 'fhc') {
+      // FormHostControl: contains a hosted child form (lf node) as first child.
+      // Extract it as a discovered child form -- it will be processed separately.
+      extractFormHostControl(node, result);
+      continue; // don't recurse into fhc children (they belong to the child form)
     } else if (t === 'filc' && result.filterControlPath === null) {
       // FilterLogicalControl — used for Filter(AddLine) interactions
       result.filterControlPath = controlPath;
@@ -186,5 +201,28 @@ function extractRepeater(
     rows: [],       // Rows come from DataLoaded events, not the control tree
     totalRowCount: null,
     currentBookmark: null,
+  });
+}
+
+function extractFormHostControl(
+  node: Record<string, unknown>,
+  result: ParsedControlTree,
+): void {
+  const children = node.Children as unknown[] | undefined;
+  if (!Array.isArray(children) || children.length === 0) return;
+
+  // The first child of an fhc is the lf (LogicalForm) node
+  const lf = children[0] as Record<string, unknown> | undefined;
+  if (!lf || typeof lf !== 'object') return;
+
+  const serverId = (lf.ServerId as string) ?? '';
+  if (!serverId) return;
+
+  result.childForms.push({
+    serverId,
+    caption: (lf.Caption as string) ?? (node.Caption as string) ?? '',
+    controlTree: lf,
+    isSubForm: (lf.IsSubForm as boolean) ?? false,
+    isPart: (lf.IsPart as boolean) ?? false,
   });
 }

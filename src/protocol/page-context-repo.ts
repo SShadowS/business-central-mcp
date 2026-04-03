@@ -5,6 +5,7 @@ import type { FormState } from './form-state.js';
 import { FormProjection } from './form-state.js';
 import { SectionResolver } from './section-resolver.js';
 import { parseControlTree } from './control-tree-parser.js';
+import type { DiscoveredChildForm } from './control-tree-parser.js';
 
 export class PageContextRepository {
   private readonly pages = new Map<string, PageContext>();
@@ -95,6 +96,25 @@ export class PageContextRepository {
     const form = page.forms.get(formId);
     if (form) {
       const updated = this.formProjection.apply(form, event);
+
+      // Check if the event was actually applied (repeater matched).
+      // If not, and this is a DataLoaded/PropertyChanged/BookmarkChanged with a controlPath,
+      // try routing to a child form whose repeater matches that controlPath.
+      // BC sends lines data with the ROOT formId but a controlPath matching the child repeater.
+      const controlPath = 'controlPath' in event ? (event as { controlPath: string }).controlPath : undefined;
+      if (controlPath && updated === form) {
+        const childForm = this.findChildFormByRepeaterPath(page, formId, controlPath);
+        if (childForm) {
+          const childUpdated = this.formProjection.apply(childForm, event);
+          if (childUpdated !== childForm) {
+            const forms = new Map(page.forms);
+            forms.set(childForm.formId, childUpdated);
+            this.pages.set(pcId, { ...page, forms });
+            return;
+          }
+        }
+      }
+
       const forms = new Map(page.forms);
       forms.set(formId, updated);
       this.pages.set(pcId, { ...page, forms });
@@ -181,6 +201,76 @@ export class PageContextRepository {
     });
 
     this.formIdIndex.set(event.formId, pcId);
+  }
+
+  /** Find a child form (not rootFormId) that has a repeater at the given controlPath. */
+  private findChildFormByRepeaterPath(page: PageContext, excludeFormId: string, controlPath: string): FormState | undefined {
+    for (const [fId, form] of page.forms) {
+      if (fId === excludeFormId) continue;
+      if (form.repeaters.has(controlPath)) return form;
+    }
+    return undefined;
+  }
+
+  /** Register a child form discovered from fhc/lf nodes in the control tree. */
+  registerDiscoveredChildForm(pcId: string, child: DiscoveredChildForm): void {
+    const page = this.pages.get(pcId);
+    if (!page) return;
+
+    // Don't re-register if already known
+    if (page.forms.has(child.serverId)) return;
+
+    // Parse the child form's control tree
+    const parsed = parseControlTree(child.controlTree);
+    const childForm: FormState = {
+      ...this.formProjection.createInitial(child.serverId, page.rootFormId),
+      controlTree: parsed.fields,
+      repeaters: parsed.repeaters,
+      actions: parsed.actions,
+      filterControlPath: parsed.filterControlPath,
+    };
+
+    // Derive section: use IsSubForm to distinguish lines from factboxes
+    const section = child.isSubForm
+      ? this.sectionResolver.deriveSection(page, child.serverId, child.controlTree)
+      : this.deriveFactboxSection(page, child);
+
+    const forms = new Map(page.forms);
+    forms.set(child.serverId, childForm);
+
+    const sections = new Map(page.sections);
+    sections.set(section.sectionId, section);
+
+    let pageType = page.pageType;
+    if (section.kind === 'lines') pageType = 'Document';
+
+    this.pages.set(pcId, {
+      ...page,
+      forms,
+      sections,
+      pageType,
+      ownedFormIds: [...page.ownedFormIds, child.serverId],
+    });
+
+    this.formIdIndex.set(child.serverId, pcId);
+  }
+
+  private deriveFactboxSection(page: PageContext, child: DiscoveredChildForm) {
+    const caption = child.caption || 'FactBox';
+    const base = `factbox:${caption}`;
+    let sectionId = base;
+    if (page.sections.has(sectionId)) {
+      for (let i = 2; ; i++) {
+        sectionId = `${base}#${i}`;
+        if (!page.sections.has(sectionId)) break;
+      }
+    }
+    return {
+      sectionId,
+      kind: 'factbox' as const,
+      caption,
+      formId: child.serverId,
+    };
   }
 
   remove(pageContextId: string): void {
