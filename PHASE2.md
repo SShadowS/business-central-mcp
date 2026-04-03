@@ -1,6 +1,6 @@
 # Phase 2: Multi-Section Document Page Architecture
 
-## Status: TIER 1-4 IMPLEMENTED (core items)
+## Status: COMPLETE (core items) -- deferred items moved to [PHASE3.md](PHASE3.md)
 
 **Goal**: Enable full LLM interaction with BC document pages (Sales Order, Purchase Order, etc.) that have multiple repeaters, subpages, and section-scoped actions.
 
