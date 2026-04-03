@@ -117,7 +117,6 @@ export interface FilterInteraction extends BaseInteraction {
   readonly controlPath: string;
   readonly filterOperation: number;
   readonly filterColumnId?: string;
-  readonly filterValue?: string;
 }
 
 export interface SetCurrentRowInteraction extends BaseInteraction {
@@ -161,6 +160,7 @@ export interface PageState {
   readonly pageType: 'Card' | 'List' | 'Document' | 'Unknown';
   readonly controlTree: ControlField[];
   readonly repeater: RepeaterState | null;
+  readonly filterControlPath: string | null;
   readonly actions: ActionInfo[];
   readonly childForms: ChildFormInfo[];
   readonly dialogs: DialogInfo[];

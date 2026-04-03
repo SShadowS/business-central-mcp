@@ -7,7 +7,7 @@ export class StateProjection {
   createInitial(pageContextId: string, formId: string): PageState {
     return {
       pageContextId, formId, pageType: 'Unknown',
-      controlTree: [], repeater: null, actions: [],
+      controlTree: [], repeater: null, filterControlPath: null, actions: [],
       childForms: [], dialogs: [], openFormIds: [formId],
     };
   }
@@ -37,6 +37,7 @@ export class StateProjection {
             pageType: parsed.pageType !== 'Unknown' ? parsed.pageType : state.pageType,
             controlTree: parsed.fields.length > 0 ? parsed.fields : state.controlTree,
             repeater: parsed.repeater ?? state.repeater,
+            filterControlPath: parsed.filterControlPath ?? state.filterControlPath,
             actions: parsed.actions.length > 0 ? parsed.actions : state.actions,
           };
         }

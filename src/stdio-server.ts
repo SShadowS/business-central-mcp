@@ -57,9 +57,20 @@ async function main() {
   );
 
   let session: BCSession | null = null;
+  let realTools: ReturnType<typeof buildToolRegistry> | null = null;
 
   async function getSession(): Promise<BCSession> {
-    if (session !== null) return session;
+    // If session exists and is alive, reuse it
+    if (session !== null && session.isAlive) return session;
+
+    // Session is dead or doesn't exist — tear down and recreate
+    if (session !== null) {
+      logger.info('Session is dead, closing and recreating...');
+      session.close();
+      session = null;
+      realTools = null;  // Services reference the old session — must rebuild
+    }
+
     const result = await sessionFactory.create();
     if (isErr(result)) throw new Error(`Session creation failed: ${result.error.message}`);
     session = result.value;
@@ -93,12 +104,13 @@ async function main() {
   // Tool definitions (name, description, inputSchema, zodSchema) are static and
   // available immediately so initialize/tools/list work before any BC connection.
   // The execute functions call ensureSession() on first invocation.
-  let realTools: ReturnType<typeof buildToolRegistry> | null = null;
 
   async function ensureSession(): Promise<ReturnType<typeof buildToolRegistry>> {
-    if (realTools !== null) return realTools;
     const s = await getSession();
-    realTools = buildServices(s);
+    // Rebuild services if session was recreated (realTools nulled in getSession)
+    if (realTools === null) {
+      realTools = buildServices(s);
+    }
     return realTools;
   }
 

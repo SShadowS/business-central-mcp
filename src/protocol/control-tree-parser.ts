@@ -5,6 +5,7 @@ export interface ParsedControlTree {
   pageType: 'Card' | 'List' | 'Document' | 'Unknown';
   fields: ControlField[];
   repeater: RepeaterState | null;
+  filterControlPath: string | null;
   actions: ActionInfo[];
   metadata?: { id: number; sourceTableId: number };
 }
@@ -27,6 +28,7 @@ export function parseControlTree(controlTree: unknown): ParsedControlTree {
     pageType: 'Unknown',
     fields: [],
     repeater: null,
+    filterControlPath: null,
     actions: [],
   };
 
@@ -75,6 +77,9 @@ function walkChildren(children: unknown[], parentPath: string, result: ParsedCon
       // Use the first repeater found (the main page repeater).
       // Subsequent rc nodes are typically from embedded sub-pages.
       extractRepeater(node, controlPath, result);
+    } else if (t === 'filc' && result.filterControlPath === null) {
+      // FilterLogicalControl — used for Filter(AddLine) interactions
+      result.filterControlPath = controlPath;
     }
 
     // Recurse into Children (gc groups, etc.)

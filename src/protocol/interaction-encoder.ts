@@ -134,7 +134,7 @@ export class InteractionEncoder {
       case 'SaveValue':
         return { interactionName: 'SaveValue', formId: interaction.formId, controlPath: interaction.controlPath, namedParameters: JSON.stringify({ newValue: interaction.newValue }), callbackId };
       case 'Filter':
-        return { interactionName: 'Filter', formId: interaction.formId, controlPath: interaction.controlPath, namedParameters: JSON.stringify({ filterOperation: interaction.filterOperation, filterColumnId: interaction.filterColumnId, filterValue: interaction.filterValue }), callbackId };
+        return { interactionName: 'Filter', formId: interaction.formId, controlPath: interaction.controlPath, namedParameters: JSON.stringify({ filterOperation: interaction.filterOperation, filterColumnId: interaction.filterColumnId }), callbackId };
       case 'SetCurrentRow':
         return { interactionName: 'SetCurrentRowAndRowsSelection', formId: interaction.formId, controlPath: interaction.controlPath, namedParameters: JSON.stringify({ key: interaction.key }), callbackId };
       case 'SessionAction':
