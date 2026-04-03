@@ -1,6 +1,7 @@
 import { mapResult, type Result } from '../core/result.js';
 import type { ProtocolError } from '../core/errors.js';
 import type { ActionService } from '../services/action-service.js';
+import { resolveSection } from '../protocol/section-resolver.js';
 
 export interface ExecuteActionInput {
   pageContextId: string;
@@ -18,12 +19,21 @@ export class ExecuteActionOperation {
 
   async execute(input: ExecuteActionInput): Promise<Result<ExecuteActionOutput, ProtocolError>> {
     const result = await this.actionService.executeAction(input.pageContextId, input.action);
-    return mapResult(result, (ar) => ({
-      success: ar.success,
-      dialog: ar.dialog ? { formId: ar.dialog.formId } : undefined,
-      updatedFields: ar.updatedState?.controlTree
-        .filter(f => f.visible && f.caption)
-        .map(f => ({ name: f.caption, value: f.stringValue })),
-    }));
+    return mapResult(result, (ar) => {
+      let updatedFields: Array<{ name: string; value?: string }> | undefined;
+      if (ar.updatedState) {
+        const resolved = resolveSection(ar.updatedState, 'header');
+        if (!('error' in resolved)) {
+          updatedFields = resolved.form.controlTree
+            .filter(f => f.visible && f.caption)
+            .map(f => ({ name: f.caption, value: f.stringValue }));
+        }
+      }
+      return {
+        success: ar.success,
+        dialog: ar.dialog ? { formId: ar.dialog.formId } : undefined,
+        updatedFields,
+      };
+    });
   }
 }

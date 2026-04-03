@@ -1,6 +1,7 @@
 import { isErr, mapResult, type Result } from '../core/result.js';
 import type { ProtocolError } from '../core/errors.js';
 import type { NavigationService } from '../services/navigation-service.js';
+import { resolveSection } from '../protocol/section-resolver.js';
 
 export interface NavigateInput {
   pageContextId: string;
@@ -21,20 +22,28 @@ export class NavigateOperation {
   async execute(input: NavigateInput): Promise<Result<NavigateOutput, ProtocolError>> {
     if (input.action === 'drill_down') {
       const result = await this.navigationService.drillDown(input.pageContextId, input.bookmark);
-      return mapResult(result, (r) => ({
-        targetPageContextId: r.targetPageState.pageContextId,
-        pageType: r.targetPageState.pageType,
-        fields: r.targetPageState.controlTree
-          .filter(f => f.visible && f.caption)
-          .map(f => ({ name: f.caption, value: f.stringValue, editable: f.editable })),
-      }));
+      return mapResult(result, (r) => {
+        const resolved = resolveSection(r.targetPageContext, 'header');
+        const form = 'error' in resolved ? undefined : resolved.form;
+        return {
+          targetPageContextId: r.targetPageContext.pageContextId,
+          pageType: r.targetPageContext.pageType,
+          fields: (form?.controlTree ?? [])
+            .filter(f => f.visible && f.caption)
+            .map(f => ({ name: f.caption, value: f.stringValue, editable: f.editable })),
+        };
+      });
     }
 
     // Default: select row
     const result = await this.navigationService.selectRow(input.pageContextId, input.bookmark);
     if (isErr(result)) return result;
-    return mapResult(result, (state) => ({
-      rows: state.repeater?.rows.map(r => ({ bookmark: r.bookmark, cells: r.cells })),
-    }));
+    return mapResult(result, (ctx) => {
+      const resolved = resolveSection(ctx);
+      const repeater = 'error' in resolved ? null : resolved.repeater;
+      return {
+        rows: repeater?.rows.map(r => ({ bookmark: r.bookmark, cells: r.cells })),
+      };
+    });
   }
 }

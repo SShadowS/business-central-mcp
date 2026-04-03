@@ -2,8 +2,9 @@ import { ok, err, isErr, type Result } from '../core/result.js';
 import { ProtocolError } from '../core/errors.js';
 import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
-import type { PageState, RepeaterRow, ControlField, SaveValueInteraction } from '../protocol/types.js';
+import type { RepeaterRow, ControlField, SaveValueInteraction } from '../protocol/types.js';
 import type { Logger } from '../core/logger.js';
+import { resolveSection } from '../protocol/section-resolver.js';
 
 export interface FieldWriteResult {
   fieldName: string;
@@ -20,43 +21,53 @@ export class DataService {
     private readonly logger: Logger,
   ) {}
 
-  readRows(pageContextId: string): Result<RepeaterRow[], ProtocolError> {
-    const state = this.repo.get(pageContextId);
-    if (!state) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
-    return ok(state.repeater?.rows ?? []);
+  readRows(pageContextId: string, sectionId?: string): Result<RepeaterRow[], ProtocolError> {
+    const ctx = this.repo.get(pageContextId);
+    if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
+    const resolved = resolveSection(ctx, sectionId);
+    if ('error' in resolved) return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
+    return ok(resolved.repeater?.rows ?? []);
   }
 
-  readField(pageContextId: string, fieldName: string): Result<ControlField | undefined, ProtocolError> {
-    const state = this.repo.get(pageContextId);
-    if (!state) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
-    return ok(this.resolveField(state, fieldName));
+  readField(pageContextId: string, fieldName: string, sectionId?: string): Result<ControlField | undefined, ProtocolError> {
+    const ctx = this.repo.get(pageContextId);
+    if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
+    const resolved = resolveSection(ctx, sectionId, 'header');
+    if ('error' in resolved) return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
+    return ok(this.resolveField(resolved.form.controlTree, fieldName));
   }
 
-  getFields(pageContextId: string): Result<ControlField[], ProtocolError> {
-    const state = this.repo.get(pageContextId);
-    if (!state) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
-    return ok(state.controlTree);
+  getFields(pageContextId: string, sectionId?: string): Result<ControlField[], ProtocolError> {
+    const ctx = this.repo.get(pageContextId);
+    if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
+    const resolved = resolveSection(ctx, sectionId, 'header');
+    if ('error' in resolved) return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
+    return ok(resolved.form.controlTree);
   }
 
   async writeField(
     pageContextId: string,
     fieldName: string,
     value: string,
+    sectionId?: string,
   ): Promise<Result<FieldWriteResult, ProtocolError>> {
-    const state = this.repo.get(pageContextId);
-    if (!state) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
+    const ctx = this.repo.get(pageContextId);
+    if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
+    const resolved = resolveSection(ctx, sectionId, 'header');
+    if ('error' in resolved) return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
 
-    const field = this.resolveField(state, fieldName);
+    const { form } = resolved;
+    const field = this.resolveField(form.controlTree, fieldName);
     if (!field) {
       return err(new ProtocolError(`Field not found: ${fieldName}`, {
         pageContextId,
-        availableFields: state.controlTree.map(f => f.caption || f.controlPath).filter(Boolean),
+        availableFields: form.controlTree.map(f => f.caption || f.controlPath).filter(Boolean),
       }));
     }
 
     const interaction: SaveValueInteraction = {
       type: 'SaveValue',
-      formId: state.formId,
+      formId: form.formId,
       controlPath: field.controlPath,
       newValue: value,
     };
@@ -73,7 +84,9 @@ export class DataService {
     // Apply events to update state
     this.repo.applyToPage(pageContextId, result.value);
 
-    const updatedField = this.repo.get(pageContextId)?.controlTree.find(f => f.controlPath === field.controlPath);
+    const updatedCtx = this.repo.get(pageContextId);
+    const updatedForm = updatedCtx?.forms.get(form.formId);
+    const updatedField = updatedForm?.controlTree.find(f => f.controlPath === field.controlPath);
 
     return ok({
       fieldName,
@@ -86,10 +99,11 @@ export class DataService {
   async writeFields(
     pageContextId: string,
     fields: Record<string, string>,
+    sectionId?: string,
   ): Promise<Result<FieldWriteResult[], ProtocolError>> {
     const results: FieldWriteResult[] = [];
     for (const [name, value] of Object.entries(fields)) {
-      const result = await this.writeField(pageContextId, name, value);
+      const result = await this.writeField(pageContextId, name, value, sectionId);
       if (isErr(result)) {
         results.push({ fieldName: name, controlPath: '', success: false, error: result.error.message });
       } else {
@@ -99,10 +113,9 @@ export class DataService {
     return ok(results);
   }
 
-  private resolveField(state: PageState, fieldName: string): ControlField | undefined {
+  private resolveField(controlTree: ControlField[], fieldName: string): ControlField | undefined {
     const lower = fieldName.toLowerCase();
-    // Try caption match first, then controlPath match
-    return state.controlTree.find(f =>
+    return controlTree.find(f =>
       f.caption.toLowerCase() === lower ||
       f.controlPath === fieldName,
     );

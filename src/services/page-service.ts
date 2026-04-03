@@ -3,8 +3,9 @@ import { ok, err, isOk, type Result } from '../core/result.js';
 import { ProtocolError } from '../core/errors.js';
 import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
+import type { PageContext } from '../protocol/page-context.js';
 import type {
-  PageState, BCEvent, OpenFormInteraction, LoadFormInteraction, CloseFormInteraction,
+  BCEvent, OpenFormInteraction, LoadFormInteraction, CloseFormInteraction,
 } from '../protocol/types.js';
 import type { Logger } from '../core/logger.js';
 
@@ -15,7 +16,7 @@ export class PageService {
     private readonly logger: Logger,
   ) {}
 
-  async openPage(pageId: string, options?: { bookmark?: string; tenantId?: string }): Promise<Result<PageState, ProtocolError>> {
+  async openPage(pageId: string, options?: { bookmark?: string; tenantId?: string }): Promise<Result<PageContext, ProtocolError>> {
     const tenantId = options?.tenantId ?? 'default';
     let query = `page=${pageId}&tenant=${tenantId}`;
     if (options?.bookmark) {
@@ -63,12 +64,12 @@ export class PageService {
   }
 
   private async loadChildFormData(pageContextId: string, openEvents: BCEvent[]): Promise<void> {
-    const state = this.repo.get(pageContextId);
-    if (!state) return;
+    const ctx = this.repo.get(pageContextId);
+    if (!ctx) return;
 
     // Find child forms from FormCreated events (forms that aren't the main form)
     const childForms = openEvents
-      .filter(e => e.type === 'FormCreated' && e.formId !== state.formId)
+      .filter(e => e.type === 'FormCreated' && e.formId !== ctx.rootFormId)
       .map(e => e.type === 'FormCreated' ? e.formId : '')
       .filter(id => id !== '');
 
@@ -92,10 +93,10 @@ export class PageService {
   }
 
   async closePage(pageContextId: string): Promise<Result<void, ProtocolError>> {
-    const state = this.repo.get(pageContextId);
-    if (!state) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
+    const ctx = this.repo.get(pageContextId);
+    if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
 
-    for (const formId of state.openFormIds) {
+    for (const formId of ctx.ownedFormIds) {
       const closeInteraction: CloseFormInteraction = { type: 'CloseForm', formId };
       await this.session.invoke(closeInteraction, (event) => event.type === 'InvokeCompleted');
       this.session.removeOpenForm(formId);
@@ -106,7 +107,7 @@ export class PageService {
     return ok(undefined);
   }
 
-  getPageState(pageContextId: string): PageState | undefined {
+  getPageContext(pageContextId: string): PageContext | undefined {
     return this.repo.get(pageContextId);
   }
 }

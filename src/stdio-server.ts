@@ -6,7 +6,6 @@ import { NTLMAuthProvider } from './connection/auth/ntlm-provider.js';
 import { ConnectionFactory } from './connection/connection-factory.js';
 import { EventDecoder } from './protocol/event-decoder.js';
 import { InteractionEncoder } from './protocol/interaction-encoder.js';
-import { StateProjection } from './protocol/state-projection.js';
 import { PageContextRepository } from './protocol/page-context-repo.js';
 import { SessionFactory } from './session/session-factory.js';
 import type { BCSession } from './session/bc-session.js';
@@ -48,8 +47,7 @@ async function main() {
   // Protocol
   const decoder = new EventDecoder();
   const encoder = new InteractionEncoder(config.bc.clientVersionString);
-  const stateProjection = new StateProjection();
-  const pageContextRepo = new PageContextRepository(stateProjection);
+  const pageContextRepo = new PageContextRepository();
 
   // Session — created lazily on first tools/call
   const sessionFactory = new SessionFactory(

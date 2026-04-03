@@ -1,6 +1,7 @@
 import { mapResult, type Result } from '../core/result.js';
 import type { ProtocolError } from '../core/errors.js';
 import type { PageService } from '../services/page-service.js';
+import { resolveSection } from '../protocol/section-resolver.js';
 
 export interface OpenPageInput {
   pageId: string;
@@ -26,17 +27,23 @@ export class OpenPageOperation {
       tenantId: input.tenantId,
     });
 
-    return mapResult(result, (state) => ({
-      pageContextId: state.pageContextId,
-      pageType: state.pageType,
-      caption: state.formId,
-      fields: state.controlTree
-        .filter(f => f.visible && f.caption)
-        .map(f => ({ name: f.caption, value: f.stringValue, editable: f.editable, type: f.type })),
-      actions: state.actions
-        .filter(a => a.visible && a.enabled && a.caption)
-        .map(a => ({ name: a.caption, systemAction: a.systemAction, enabled: a.enabled })),
-      rows: state.repeater?.rows.map(r => ({ bookmark: r.bookmark, cells: r.cells })),
-    }));
+    return mapResult(result, (ctx) => {
+      const resolved = resolveSection(ctx, 'header');
+      const form = 'error' in resolved ? undefined : resolved.form;
+      const repeater = 'error' in resolved ? null : resolved.repeater;
+
+      return {
+        pageContextId: ctx.pageContextId,
+        pageType: ctx.pageType,
+        caption: ctx.caption || ctx.rootFormId,
+        fields: (form?.controlTree ?? [])
+          .filter(f => f.visible && f.caption)
+          .map(f => ({ name: f.caption, value: f.stringValue, editable: f.editable, type: f.type })),
+        actions: (form?.actions ?? [])
+          .filter(a => a.visible && a.enabled && a.caption)
+          .map(a => ({ name: a.caption, systemAction: a.systemAction, enabled: a.enabled })),
+        rows: repeater?.rows.map(r => ({ bookmark: r.bookmark, cells: r.cells })),
+      };
+    });
   }
 }
