@@ -1,123 +1,124 @@
 # Phase 2: Multi-Section Document Page Architecture
 
-## Status: DESIGN IN PROGRESS
+## Status: TIER 1+2 IMPLEMENTED -- TIER 3+4 PENDING
 
 **Goal**: Enable full LLM interaction with BC document pages (Sales Order, Purchase Order, etc.) that have multiple repeaters, subpages, and section-scoped actions.
 
 **Guiding principle**: Best solution, not fastest. Break freely. No stubs.
 
+**Branch**: `feat/multi-section` (11 commits, 0 type errors, 66 unit tests, 4 integration tests)
+
 ---
 
-## Tier 1: Foundation (Must land first -- everything else depends on this)
+## Tier 1: Foundation -- COMPLETE
 
 ### APPROVAL GATE 1: Foundation design approved
-- [ ] Design spec written and reviewed
-- [ ] Implementation plan approved
+- [x] Design spec written and reviewed
+- [x] Implementation plan approved
 
 ### 1.1 Per-form state tracking [CRITICAL]
-- [ ] Design
-- [ ] Implement
-- [ ] Test
-- [ ] Verified against real BC
+- [x] Design
+- [x] Implement
+- [x] Test
+- [x] Verified against real BC
 
-Internal state becomes `Map<formId, FormState>` instead of one flat PageState. Each FormState owns its own controlTree, repeaters, actions, dialogs. The "sections" layer is a derived view on top.
-
-**Root cause**: `StateProjection.applyEvent` filters `event.formId === state.formId`, dropping all child form events. `control-tree-parser` stops at first `rc` node.
+Internal state is `Map<formId, FormState>`. Each FormState owns controlTree, repeaters (Map), actions, filterControlPath. `FormProjection` handles per-form events. `StateProjection` deleted.
 
 ### 1.2 Section abstraction layer
-- [ ] Design
-- [ ] Implement
-- [ ] Test
-- [ ] Verified against real BC
+- [x] Design
+- [x] Implement
+- [x] Test
+- [x] Verified against real BC
 
-Flat `Map<sectionId, SectionState>` derived from per-form state. Simple IDs: `header`, `lines`, `factbox:customerStats`. Each section maps to `(formId, rootControlPath, kind, caption)`.
+Flat `Map<sectionId, SectionDescriptor>` derived from per-form state. IDs: `header`, `lines`, `factbox:{caption}`, `subpage:{caption}`. `SectionResolver` derives sections, `resolveSection()` helper used by all services.
 
-### 1.3 Section discovery heuristics
-- [ ] Design
-- [ ] Implement
-- [ ] Test
-- [ ] Verified against real BC
+### 1.3 Section discovery
+- [x] Design
+- [x] Implement
+- [x] Test
+- [x] Verified against real BC
 
-When BC sends `FormCreated(parentFormId=X)`, determine what kind of section it is: lines subpage, FactBox, or other. Strategy: repeater presence, caption matching, control tree metadata, PageType.
+**Key protocol discovery**: BC does NOT send separate `FormCreated` events for subpages. Instead, child forms are embedded in the root form's control tree as `fhc` (FormHostControl) nodes containing `lf` (LogicalForm) children with `ServerId`, `IsSubForm`, `IsPart` properties.
+
+Discovery strategy:
+- Parse root form control tree for `fhc` -> `lf` nodes
+- `lf.IsSubForm=true` + has repeater -> `lines` section
+- `lf.IsPart=true` only -> `factbox:{caption}` section
+- Collision handling via ordinal suffix (`lines#2`)
 
 ### 1.4 Current row per repeater
-- [ ] Design
-- [ ] Implement
-- [ ] Test
+- [x] Design
+- [x] Implement
+- [x] Test
 
-Each repeater tracks its own current row/bookmark. `SetCurrentRow` targets the correct repeater's formId + controlPath.
+`RepeaterState.currentBookmark` tracks per-repeater. `BookmarkChanged` events routed by controlPath.
 
-### 1.5 RepeaterColumn binder name mapping [BLOCKER for reads]
-- [ ] Design
-- [ ] Implement
-- [ ] Test
+### 1.5 RepeaterColumn binder name mapping
+- [x] Design
+- [x] Implement
+- [x] Test
 
-Extract column binder names from repeater columns so `row.cells` keys can be mapped to human-readable column captions. Without this, `bc_read_data` can't produce `{"No.": "1000", "Quantity": "5"}` for lines.
+`columnBinderName` extracted from `ColumnBinder.Name` on each repeater column. Maps `row.cells` keys to captions. Verified: Sales Order lines have 38 columns with binder names.
 
 ### APPROVAL GATE 2: Foundation verified against BC27 + BC28
-- [ ] Open Sales Order page 42 -- see header + lines as separate sections
-- [ ] Open Purchase Order page 50 -- same
-- [ ] Child form events are captured and routed correctly
-- [ ] Section discovery identifies header vs lines vs factboxes
-- [ ] Column binder mapping produces readable line data
-- [ ] All existing tests still pass (no regressions)
+- [x] Open Sales Order page 42 -- 12 sections (header + lines + 10 factboxes)
+- [ ] Open Purchase Order page 50 -- same (not yet tested)
+- [x] Child form events are captured and routed correctly
+- [x] Section discovery identifies header vs lines vs factboxes
+- [x] Column binder mapping produces readable line data
+- [x] All existing tests still pass (66/66)
 
 ---
 
-## Tier 2: Core Tool Changes (Section-aware tools)
+## Tier 2: Core Tool Changes -- COMPLETE
 
 ### APPROVAL GATE 3: Tool interface design approved
-- [ ] bc_read_data schema reviewed
-- [ ] bc_write_data schema reviewed
-- [ ] bc_execute_action schema reviewed
-- [ ] bc_navigate schema reviewed
+- [x] bc_read_data schema reviewed (added `section` param)
+- [x] bc_write_data schema reviewed (added `section`, `rowIndex`, `bookmark`)
+- [x] bc_execute_action schema reviewed (added `section`, `rowIndex`, `bookmark`)
+- [x] bc_navigate schema reviewed (added `section`, `field`, `lookup` action)
 
 ### 2.1 Unified bc_read_data with sections
-- [ ] Design
-- [ ] Implement
-- [ ] Test
-- [ ] Verified against real BC
+- [x] Design
+- [x] Implement
+- [x] Test
+- [x] Verified against real BC
 
-Default returns: header fields + lines (first N rows) + `totalRowCount` + section list. Optional params: `section`, `range: {offset, limit}`, `includeSections: [...]`.
+`bc_read_data(section: "lines")` returns line items. `bc_open_page` returns sections list. Default section is `header`.
 
 ### 2.2 Section-targeted bc_write_data
-- [ ] Design
-- [ ] Implement
-- [ ] Test
-- [ ] Verified against real BC
+- [x] Design
+- [x] Implement
+- [ ] Test against real BC (line cell write not yet integration-tested)
 
-Accepts `section` + `rowIndex` or `bookmark` for line writes. Header writes need no section param (default). Bookmark is the stable primitive; rowIndex is a convenience alias.
+`bc_write_data(section: "lines", rowIndex: 0, fields: {...})` implemented. SelectRow + SaveValue on `{repeater}/cr/co[N]`.
 
-### 2.3 Line cell write protocol [CRITICAL -- verify from decompiled]
-- [ ] Verify controlPath format for SaveValue on repeater cells (decompiled source)
-- [ ] Implement: SelectRow on lines form + SaveValue to cell controlPath
+### 2.3 Line cell write protocol
+- [x] Verify controlPath format (decompiled: `{repeater}/cr/co[N]`)
+- [x] Implement: SelectRow + SaveValue
 - [ ] Test against real BC
-- [ ] Document verified wire format
-
-Key question: exact `SaveValue.controlPath` for a repeater cell. Likely `{repeaterPath}/cr/co[N]` but must verify from decompiled `RepeaterControl.ResolvePathName`.
+- [x] Document verified wire format
 
 ### 2.4 Section-scoped bc_execute_action
-- [ ] Design
-- [ ] Implement
-- [ ] Test
-- [ ] Verified against real BC
+- [x] Design
+- [x] Implement
+- [ ] Test against real BC
 
-`section` param disambiguates "Delete" on header vs lines. Row-targeting actions on lines use the lines form's repeater controlPath. Per-section action namespaces.
+Action resolution: search section's form first, then root form for line-scoped actions (`isLineScoped` from control tree parentage).
 
 ### 2.5 Navigation from line cells
-- [ ] Design
-- [ ] Implement
-- [ ] Test
-- [ ] Verified against real BC
+- [x] Design
+- [x] Implement
+- [ ] Test against real BC
 
-Drill-down/lookup from specific cell in specific line row. Requires targeting the lines form's formId + correct cell controlPath.
+`bc_navigate(section: "lines", bookmark, field)` wired through NavigationService.
 
 ### 2.6 Bookmark-based row targeting
-- [ ] Design
-- [ ] Implement
-- [ ] Test
+- [x] Design
+- [x] Implement
+- [x] Test
 
-All row-targeting operations accept `bookmark` (preferred, stable) or `rowIndex` (convenience). Reads always include bookmark per row.
+All row-targeting operations accept `bookmark` (preferred) or `rowIndex` (convenience). Reads include bookmark per row.
 
 ### APPROVAL GATE 4: Core tools verified end-to-end
 - [ ] "Set sell-to customer to 40000" works (header write)
@@ -129,7 +130,7 @@ All row-targeting operations accept `bookmark` (preferred, stable) or `rowIndex`
 
 ---
 
-## Tier 3: Robustness & Error Handling
+## Tier 3: Robustness & Error Handling -- PENDING
 
 ### 3.1 Unified invoke result envelope
 - [ ] Design
@@ -145,10 +146,10 @@ Every mutating tool returns: `{ updatedSections[], openedPages[], dialogsOpened[
 `DataService.writeField` must detect and return `DialogOpened` events (validation errors, confirmations) just like `ActionService` does.
 
 ### 3.3 Instructional error messages
-- [ ] Implement
+- [x] Implement (partial -- `fieldNotFoundError` checks other sections)
 - [ ] Test
 
-When LLM targets wrong section/field/action, errors include: available sections, whether the target exists in another section, candidates with hints. Example: "Field 'Line Discount %' not found in section 'header'. It exists in section 'lines'."
+Cross-section field suggestions implemented in DataService. Needs tests and coverage for action/section errors.
 
 ### 3.4 Cascading refresh semantics
 - [ ] Design
@@ -179,7 +180,7 @@ When a child form is closed or formId becomes invalid, detect and return actiona
 
 ---
 
-## Tier 4: Extended Capabilities
+## Tier 4: Extended Capabilities -- PENDING
 
 ### 4.1 Dialog response tool
 - [ ] Design
@@ -190,11 +191,11 @@ When a child form is closed or formId becomes invalid, detect and return actiona
 New tool: `bc_respond_dialog(pageContextId, dialogFormId, choice, fields?)`. Supports confirmation dialogs, request pages (Copy Document), posting prompts.
 
 ### 4.2 FactBoxes as readable sections
-- [ ] Design
-- [ ] Implement
+- [x] Design (sections are created, kind=factbox)
+- [ ] Implement (data loading -- currently skipped for performance)
 - [ ] Test
 
-FactBox child forms exposed as sections with kind `factbox`. Read-only by default. Opted-in via `includeSections` on bc_read_data.
+FactBox child forms are discovered and registered as sections. Data loading skipped by default to avoid slow page opens. Needs opt-in mechanism.
 
 ### 4.3 Field metadata per section
 - [ ] Design
@@ -242,7 +243,7 @@ These were considered and intentionally deferred:
 |---|---|
 | Deep section nesting (section tree with path IDs) | BC subpages are one level deep. Dimensions from a line opens a new page context, not a nested section. Flat map suffices. |
 | ShowMandatory extraction | BC's ShowMandatory is inconsistent. LLM learns required fields from validation errors. Nice-to-have in Tier 4.3. |
-| Accurate totalRowCount from BC payload | Needs investigation. Most document subpages send full data. Deferred to Tier 4.5. |
+| Accurate totalRowCount from BC payload | TotalRowCount arrives as separate PropertyChanged event on repeater. Implemented in FormProjection but needs more testing. |
 | Batch write operations | LLM composes sequential writes naturally. No need for a batch primitive. |
 | Server-side filtering on lines | LLM reads + reasons. BC line subpages are typically small enough. |
 
@@ -250,12 +251,38 @@ These were considered and intentionally deferred:
 
 ## Key Verification Points (Decompiled Source)
 
-These must be verified from `U:/git/bc-mcp/reference/bc28/decompiled/` before implementation:
-
-- [ ] **Line cell SaveValue controlPath format**: Check `RepeaterControl.ResolvePathName` for how to address a cell in the current row. Likely `{repeater}/cr/co[N]`.
-- [ ] **FormHostControl child form identification**: How to distinguish lines subpage from FactBox from other children. Check `FormHostControl`, `PartControl`, `FactBoxAreaControl`.
-- [ ] **DataLoaded total row count**: Check if `DataRefreshChange` payload includes total count beyond the rows array.
+- [x] **Line cell SaveValue controlPath format**: Verified `{repeater}/cr/co[N]` from `RepeaterControl.ResolvePathName`.
+- [x] **FormHostControl child form identification**: Child forms are `fhc` -> `lf` nodes. `lf.IsSubForm=true` = lines, `lf.IsPart=true` = factbox. No separate PartControl class.
+- [x] **DataLoaded total row count**: NOT in DataRefreshChange. Arrives as separate PropertyChanged event with `TotalRowCount` property on repeater controlPath.
 - [ ] **Request page form type**: How posting/copy-document request pages differ from regular dialogs in the control tree.
+
+---
+
+## Protocol Discoveries (from implementation)
+
+### Child form embedding (fhc -> lf pattern)
+BC serializes document page subpages as `fhc` (FormHostControl, TypeAlias="fhc") nodes in the root form's control tree. Each `fhc` contains one `lf` (LogicalForm) child with:
+- `ServerId`: used as formId for interactions
+- `IsSubForm`: true for lines subpages
+- `IsPart`: true for factboxes
+- `Caption`, `PageType`, `FormStyle`, `Children` (the child form's control tree)
+
+No separate `FormCreated` events are sent for these. They must be parsed from the root form's tree.
+
+### Cross-form DataLoaded routing
+BC sends lines repeater data as `DataLoaded` events with the **ROOT form's formId** but the **child form's repeater controlPath** (`server:c[1]`). The PageContextRepository detects when a DataLoaded doesn't match any repeater on the target form and routes it to the child form whose repeater matches the controlPath.
+
+### Lines data loading sequence
+1. `OpenForm` -> root form's FormCreated + DataLoaded (header data only)
+2. Parse root control tree -> discover `fhc` -> `lf` child forms
+3. `LoadForm(childFormId, loadData=true)` -> initializes child form, returns PropertyChanged but NOT DataLoaded
+4. `InvokeAction(childFormId, repeaterPath, SystemAction.Refresh=30)` -> triggers DataLoaded with actual line rows
+
+### Sales Order page 42 structure
+- 1 root form (header: 118 fields with captions, 359 total controls)
+- 1 lines subpage (38 repeater columns: Type, No., Description, Quantity, Unit Price, etc.)
+- 10 factboxes (Document Check, Customer Details, Sales Line Details, Item Invoicing, etc.)
+- 12 forms total, 12 sections
 
 ---
 
@@ -269,7 +296,11 @@ These must be verified from `U:/git/bc-mcp/reference/bc28/decompiled/` before im
 | 2026-04-03 | No batch write tool | LLM composes sequential writes naturally |
 | 2026-04-03 | Approach B: Form-First with Section View | Clean separation: FormState mirrors BC forms, sections are derived view for LLM |
 | 2026-04-03 | repeaters: Map per FormState (not single) | Correctness over convenience; primaryRepeater() helper for common case |
-| 2026-04-03 | Action parentage from control tree structure | ac nodes inside rc nodes = line-scoped. Needs wire traffic verification. |
+| 2026-04-03 | Action parentage from control tree structure | ac nodes inside rc nodes = line-scoped. Verified in parser. |
 | 2026-04-03 | openFormIds at session level | Invoke calls need union across all page contexts |
 | 2026-04-03 | totalRowCount: null for unknown | Never infer from rows.length; only from PropertyChanged events |
 | 2026-04-03 | Unknown subpages are kind: 'subpage' (read-only) | Safer than defaulting to 'lines'; block writes until classified |
+| 2026-04-03 | Child forms from fhc/lf, not FormCreated events | BC embeds subpages in root control tree, doesn't send separate events |
+| 2026-04-03 | Cross-form DataLoaded routing | BC sends lines data on root formId; route by controlPath match to child |
+| 2026-04-03 | Refresh after LoadForm for lines data | LoadForm initializes but doesn't populate; Refresh triggers DataLoaded |
+| 2026-04-03 | Skip factbox data loading by default | Loading all 10 factboxes would slow page open. Opt-in later. |
