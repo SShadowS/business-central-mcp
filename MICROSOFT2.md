@@ -160,9 +160,18 @@ if (requestData.DisableResponseSequencing ||
 
 When sequencing is disabled, the server skips replay detection entirely. The interaction sequencing object is replaced with `NullInteractionSequencing.Instance`.
 
-**Impact:** An authenticated client can replay any previously captured JSON-RPC message (e.g., a posting action, a payment, a data modification) by setting `DisableResponseSequencing: true`. The server processes the duplicate request without detecting the replay.
+**Impact:** With sequencing disabled, the server has no replay or ordering protection. The sequencing check (`InteractionSequencing.cs:28`) only validates that sequence numbers are strictly increasing -- there is no HMAC, signature, content hash, timestamp, or nonce on messages. The `sessionId` + `sessionKey` are the only authentication, and they are static for the entire session lifetime, sent in cleartext in every JSON-RPC message.
 
-**Proposed fix:** Never allow the client to disable sequencing. The `DisableResponseSequencing` flag should be removed or restricted to server-internal use only.
+An attacker who obtains a single WebSocket frame gets both credentials and can craft completely new requests with different interaction types, target forms/controls, and parameter values. This is not just replay -- it is full session takeover from a single captured frame.
+
+**Transport dependency:** The severity depends on deployment configuration:
+- **With HTTPS/WSS (production best practice):** WebSocket traffic is encrypted. Capture requires MITM with forged certificate, compromised TLS key, or process memory access. Finding is a defense-in-depth weakness (client should not control server security features).
+- **Without HTTPS/WS (common in on-prem, Docker, internal networks):** Traffic is plaintext. Anyone on the same network segment can capture frames with Wireshark. Finding is a critical session hijacking vector. Many on-prem BC deployments run HTTP internally behind a reverse proxy.
+- **Regardless of transport:** A compromised browser extension, XSS in a BC page, or malicious BC extension could set `disableResponseSequencing:true` and replay/modify requests from within the authenticated session.
+
+BC's `ClientHostFactory.cs:9` shows TLS is optional (`bool useSsl` parameter). Our test instances (Cronus27/28) run plaintext HTTP/WS with no TLS.
+
+**Proposed fix:** Never allow the client to disable sequencing. The `DisableResponseSequencing` flag should be removed or restricted to server-internal use only. Additionally, consider per-request tokens or message signing to prevent replay even when sequencing is active.
 
 ### PoC
 
@@ -910,7 +919,7 @@ Not directly testable from the WebSocket client. The permissions service is an i
 | # | Issue | Severity | Verified | Result |
 |---|---|---|---|---|
 | A | Compression bomb | CRITICAL | Skipped | Would crash server. Code-level confirmed. |
-| B | Client disables replay protection | CRITICAL | **CONFIRMED** | Both duplicate requests accepted. Replay protection bypassed. |
+| B | Client disables replay protection | CRITICAL (no TLS) / HIGH (TLS) | **CONFIRMED** | Duplicate requests + modified payloads accepted. Session credentials static. |
 | C | Session fixation | HIGH | **PARTIAL** | Form IDs sequential (hex, diff=24). UISessionManager accepts client-supplied IDs. |
 | D | Path traversal file deletion | MEDIUM | **PARTIAL** | Endpoint exists (port 7046) but needs NavSession. Not directly callable. |
 | E | Unrestricted JSON deser | ~~HIGH~~ LOW | **NOT EXPLOITABLE** | BC rejected 100-level nested object with SerializationException. Implicit depth limit exists. |
@@ -928,8 +937,8 @@ Not directly testable from the WebSocket client. The permissions service is an i
 
 Stronger PoCs executed to demonstrate real-world harm:
 
-**Finding B -- Replay mutating operations:**
-Posted 2 Sales Orders successfully (101001, 101001). Both Invoke calls accepted without replay detection. `disableResponseSequencing:true` means BC cannot detect duplicated/replayed calls for ANY operation: posting, payments, approval workflows, data modifications. An attacker who captures a valid PostSalesOrder WebSocket frame can replay it to create duplicate invoices.
+**Finding B -- Session takeover from single captured frame:**
+Posted 2 Sales Orders successfully (101001, 101001). The sequencing check is sequence-number-only -- no HMAC, no signature, no content hash, no timestamp. `sessionId` + `sessionKey` are static for the session lifetime and sent in every message. An attacker who captures ONE WebSocket frame can craft arbitrary new requests (not just replay): different interactions, different forms, different values. Severity is CRITICAL without TLS (plaintext capture on same network), HIGH with TLS (requires MITM/XSS/extension compromise). The `disableResponseSequencing` flag should never be client-controllable regardless of transport.
 
 **Finding H -- Parallel WebSocket flood:**
 5 concurrent WebSocket connections sent 250 total requests: all 250 accepted at 32 req/s. Zero rejections, zero throttling. No per-user connection limit, no per-connection message rate limit. A real attacker could open 50+ connections and sustain 300+ req/s.
