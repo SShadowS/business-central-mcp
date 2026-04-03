@@ -50,9 +50,13 @@ export class NavigationService {
     if (!state || !state.repeater) return err(new ProtocolError('State lost after select'));
 
     // Step 2: InvokeAction with SystemAction.Edit (40) — opens the card page
-    // Use the Edit action's controlPath from PageState.actions, not the repeater path
-    const editAction = state.actions.find(a => a.systemAction === 40);
-    const editControlPath = editAction?.controlPath ?? state.repeater.controlPath;
+    // controlPath must point to a cell in the current repeater row via the 'cr' segment,
+    // NOT to an action button. BC's GetContextActionToExecute calls DefaultAction on the
+    // resolved control, which traverses up to the template row's Edit action.
+    // Using action button paths is fragile — they shift when BC rearranges actions after
+    // row selection, causing ArgumentOutOfRangeException.
+    // Verified from decompiled: RepeaterControl.ResolvePathName("cr") -> CurrentRowViewport
+    const editControlPath = state.repeater.controlPath + '/cr/c[0]';
 
     const editInteraction: InvokeActionInteraction = {
       type: 'InvokeAction',
