@@ -918,7 +918,7 @@ Not directly testable from the WebSocket client. The permissions service is an i
 
 | # | Issue | Severity | Verified | Result |
 |---|---|---|---|---|
-| A | Compression bomb | CRITICAL | Skipped | Would crash server. Code-level confirmed. |
+| A | Large payload DoS | CRITICAL | **CONFIRMED** | 50 connections x 5MB = 78% CPU on 16-core Ryzen, 7x latency degradation, system-wide impact |
 | B | Client disables replay protection | CRITICAL (no TLS) / HIGH (TLS) | **CONFIRMED** | Duplicate requests + modified payloads accepted. Session credentials static. |
 | C | Session fixation | HIGH | **PARTIAL** | Form IDs sequential (hex, diff=24). UISessionManager accepts client-supplied IDs. |
 | D | Path traversal file deletion | MEDIUM | **PARTIAL** | Endpoint exists (port 7046) but needs NavSession. Not directly callable. |
@@ -946,5 +946,17 @@ Escalation tested: 100 connections at 642 KeepAlive/s -- legitimate user unaffec
 **Finding J -- Pre-auth resource consumption (NOT a DoS):**
 30 concurrent 60KB password requests ran for 162 seconds. However, during the flood, a legitimate user logged in successfully 81 times with average latency 133ms and max 341ms. **Zero requests blocked.** The IIS/Kestrel thread pool handles the large-password requests without starving other users. Finding J causes the attacker's own requests to be slow (self-DoS) but does NOT deny service to legitimate users. **Downgraded to LOW** -- resource waste but no user-visible impact.
 
-**Finding A -- Large JSON payloads:**
-Server accepted 5MB string and 100K-element array without crashing. The NavDataSet binary compression bomb requires crafted binary framing (not standard JSON), which our client doesn't produce. Downgraded to PARTIAL -- the JSON path has no size limits but the actual compression bomb vector needs binary protocol manipulation.
+**Finding A -- Large JSON payloads (CONFIRMED DoS on strong hardware):**
+50 WebSocket connections sending 5MB payloads (5GB total) caused:
+- CPU: 78% across all 16 cores of a Ryzen 9 9950X3D @ 5.26GHz
+- Legitimate user latency: 2.3s baseline -> 16s during flood (7x degradation)
+- System-level impact: YouTube playback choppy, USB keyboard controller stalled (LEDs stopped)
+- Server survived but was severely degraded during the attack
+
+This is **authenticated** (requires valid credentials). The NavDataSet binary compression bomb (which could crash the server with much less bandwidth) still requires binary frame injection.
+
+**Finding J -- Pre-auth flood NOT effective as DoS:**
+50 concurrent pre-auth 60KB password threads achieved only 0.2 req/s (50 requests in 267 seconds). BC's auth pipeline serializes password validation and the 30-second `Thread.Sleep` throttle limits throughput. Pre-auth path cannot generate enough load for DoS. **Downgraded to LOW.**
+
+**Combined H+J NOT effective:**
+Pre-auth flood too slow to amplify the WebSocket flood. The two attack vectors target different server components (IIS auth pipeline vs BC service tier) and don't compound.
