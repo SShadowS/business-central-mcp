@@ -168,10 +168,12 @@ describe('Document Page Workflows (BC27)', () => {
     console.error(`[D1] filterControlPath: ${state.filterControlPath ?? 'NONE'}`);
 
     if (state.repeater) {
+      console.error(`[D1] Repeater controlPath: "${state.repeater.controlPath}"`);
       console.error(`[D1] Repeater: ${state.repeater.rows.length} rows, ${state.repeater.columns.length} columns`);
+      console.error(`[D1] Repeater columns: ${state.repeater.columns.map(c => `"${c.caption}"`).join(', ')}`);
       if (state.repeater.rows.length > 0) {
         console.error(`[D1] First row bookmark: "${state.repeater.rows[0]!.bookmark}"`);
-        console.error(`[D1] First row cells: ${JSON.stringify(state.repeater.rows[0]!.cells)}`);
+        console.error(`[D1] First row cells (keys): ${Object.keys(state.repeater.rows[0]!.cells).join(', ')}`);
 
         // Drill down to first Sales Order
         const bookmark = state.repeater.rows[0]!.bookmark;

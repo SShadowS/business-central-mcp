@@ -66,6 +66,7 @@ export class FilterService {
       };
 
       this.logger.info(`[Filter] Filter(AddLine) on ${filterControlPath}, column=${columnBinderPath}, value="${filter.value}"`);
+      this.logger.info(`[Filter] repeater.controlPath=${currentState.repeater.controlPath}, formId=${currentState.formId}`);
 
       const addResult = await this.session.invoke(
         addLineInteraction,

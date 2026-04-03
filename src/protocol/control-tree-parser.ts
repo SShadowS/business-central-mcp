@@ -52,9 +52,11 @@ export function parseControlTree(controlTree: unknown): ParsedControlTree {
   }
 
   // Walk the tree starting from root Children
+  // BC references the lf root's children as server:c[0], server:c[1], etc.
+  // (not server:c[0]/c[0], server:c[0]/c[1] — the lf node is implicit)
   const children = root.Children as unknown[] | undefined;
   if (Array.isArray(children)) {
-    walkChildren(children, 'server:c[0]', result);
+    walkChildren(children, 'server', result);
   }
 
   return result;
@@ -68,7 +70,9 @@ function walkChildren(children: unknown[], parentPath: string, result: ParsedCon
     const t = node.t as string | undefined;
     if (!t) continue;
 
-    const controlPath = `${parentPath}/c[${i}]`;
+    // Root-level children use "server:c[N]"; deeper children use "parent/c[N]"
+    const separator = parentPath === 'server' ? ':' : '/';
+    const controlPath = `${parentPath}${separator}c[${i}]`;
 
     if (FIELD_TYPES.has(t)) {
       extractField(node, t, controlPath, result);

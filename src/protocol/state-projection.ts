@@ -68,6 +68,7 @@ export class StateProjection {
       }
       return { ...state, repeater: { ...state.repeater, rows: updatedRows, totalRowCount: updatedRows.length } };
     }
+
     return {
       ...state,
       repeater: { controlPath: event.controlPath, columns: state.repeater?.columns ?? [], rows, totalRowCount: rows.length },
