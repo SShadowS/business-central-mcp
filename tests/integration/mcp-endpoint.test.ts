@@ -88,20 +88,20 @@ describe('MCP Endpoint (integration)', () => {
     expect(tools).toHaveLength(7);
 
     const names = tools.map((t: any) => t.name);
-    expect(names).toContain('open_page');
-    expect(names).toContain('read_data');
-    expect(names).toContain('write_data');
-    expect(names).toContain('execute_action');
-    expect(names).toContain('close_page');
-    expect(names).toContain('search_pages');
-    expect(names).toContain('navigate');
+    expect(names).toContain('bc_open_page');
+    expect(names).toContain('bc_read_data');
+    expect(names).toContain('bc_write_data');
+    expect(names).toContain('bc_execute_action');
+    expect(names).toContain('bc_close_page');
+    expect(names).toContain('bc_search_pages');
+    expect(names).toContain('bc_navigate');
 
     console.error('Tools:', names.join(', '));
   });
 
   it('opens Customer List (page 22) via tools/call', async () => {
     const result = await mcpCall('tools/call', {
-      name: 'open_page',
+      name: 'bc_open_page',
       arguments: { pageId: '22' },
     }) as any;
 
