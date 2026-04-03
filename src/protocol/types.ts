@@ -175,6 +175,7 @@ export interface ControlField {
   readonly visible: boolean;
   readonly value?: unknown;
   readonly stringValue?: string;
+  readonly columnBinderName?: string; // e.g., "1165569367_c2" — key in row cells
 }
 
 export interface RepeaterState {
@@ -188,6 +189,7 @@ export interface RepeaterColumn {
   readonly controlPath: string;
   readonly caption: string;
   readonly type: string;
+  readonly columnBinderPath?: string; // e.g., "18_Customer.1" — used as filterColumnId
 }
 
 export interface RepeaterRow {

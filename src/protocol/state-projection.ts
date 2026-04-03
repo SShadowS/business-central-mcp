@@ -1,6 +1,7 @@
 import type {
   PageState, ControlField, RepeaterRow, BCEvent,
 } from './types.js';
+import { parseControlTree } from './control-tree-parser.js';
 
 export class StateProjection {
   createInitial(pageContextId: string, formId: string): PageState {
@@ -28,7 +29,19 @@ export class StateProjection {
       case 'DialogOpened':
         return this.applyDialogOpened(state, event);
       case 'FormCreated':
-        if (event.formId !== state.formId && event.parentFormId === state.formId) {
+        if (event.formId === state.formId) {
+          // Parse the control tree for metadata
+          const parsed = parseControlTree(event.controlTree);
+          return {
+            ...state,
+            pageType: parsed.pageType !== 'Unknown' ? parsed.pageType : state.pageType,
+            controlTree: parsed.fields.length > 0 ? parsed.fields : state.controlTree,
+            repeater: parsed.repeater ?? state.repeater,
+            actions: parsed.actions.length > 0 ? parsed.actions : state.actions,
+          };
+        }
+        // Child form
+        if (event.parentFormId === state.formId) {
           return {
             ...state,
             childForms: [...state.childForms, { formId: event.formId, caption: '' }],
