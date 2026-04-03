@@ -42,8 +42,8 @@ describe('DataService (integration)', () => {
     dataService = new DataService(session, repo, logger);
   });
 
-  afterAll(() => {
-    session?.close();
+  afterAll(async () => {
+    await session?.closeGracefully().catch(() => {});
   });
 
   it('reads rows from Customer List (page 22)', async () => {

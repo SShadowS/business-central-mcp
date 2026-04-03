@@ -55,9 +55,9 @@ describe.sequential('Multi-Section: Sales Order (page 42)', () => {
 
   afterAll(async () => {
     if (pageContextId) {
-      await pageService.closePage(pageContextId);
+      await pageService.closePage(pageContextId, { discardChanges: true });
     }
-    session?.close();
+    await session?.closeGracefully().catch(() => {});
   });
 
   it('opens page 42 and finds sections', async () => {
@@ -387,9 +387,9 @@ describe.sequential('Multi-Section: Sales Order on BC28', () => {
 
   afterAll(async () => {
     if (pageContextId) {
-      await pageService.closePage(pageContextId);
+      await pageService.closePage(pageContextId, { discardChanges: true });
     }
-    session?.close();
+    await session?.closeGracefully().catch(() => {});
   });
 
   it('opens Sales Order page 42 on BC28 with multi-section', async () => {

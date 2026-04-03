@@ -48,8 +48,8 @@ describe.sequential('Phase 4: FactBox Data & Full Paging', () => {
     readData = new ReadDataOperation(dataService, filterService);
   });
 
-  afterAll(() => {
-    session?.close();
+  afterAll(async () => {
+    await session?.closeGracefully().catch(() => {});
   });
 
   // --- Tier 1: FactBox Data ---
@@ -101,7 +101,7 @@ describe.sequential('Phase 4: FactBox Data & Full Paging', () => {
     });
 
     it('closes page', async () => {
-      await pageService.closePage(pageContextId);
+      await pageService.closePage(pageContextId, { discardChanges: true });
     });
   });
 
@@ -136,7 +136,7 @@ describe.sequential('Phase 4: FactBox Data & Full Paging', () => {
     });
 
     it('closes page', async () => {
-      await pageService.closePage(pageContextId);
+      await pageService.closePage(pageContextId, { discardChanges: true });
     });
   });
 
@@ -206,7 +206,7 @@ describe.sequential('Phase 4: FactBox Data & Full Paging', () => {
     });
 
     it('closes page', async () => {
-      await pageService.closePage(pageContextId);
+      await pageService.closePage(pageContextId, { discardChanges: true });
     });
   });
 
@@ -231,7 +231,7 @@ describe.sequential('Phase 4: FactBox Data & Full Paging', () => {
       console.error(`Lines read: ${readElapsed.toFixed(0)}ms`);
       expect(readElapsed).toBeLessThan(500);
 
-      await pageService.closePage(ctx.pageContextId);
+      await pageService.closePage(ctx.pageContextId, { discardChanges: true });
     });
   });
 });

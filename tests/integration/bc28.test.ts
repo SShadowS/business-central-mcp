@@ -50,8 +50,8 @@ describe('BC28 Compatibility (integration)', () => {
     dataService = new DataService(session, repo, logger);
   }, 60000);
 
-  afterAll(() => {
-    session?.close();
+  afterAll(async () => {
+    await session?.closeGracefully().catch(() => {});
   });
 
   it('connects and establishes session on BC28', () => {

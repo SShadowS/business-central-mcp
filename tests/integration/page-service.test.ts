@@ -40,8 +40,8 @@ describe('PageService (integration)', () => {
     pageService = new PageService(session, repo, logger);
   });
 
-  afterAll(() => {
-    session?.close();
+  afterAll(async () => {
+    await session?.closeGracefully().catch(() => {});
   });
 
   it('opens Customer List (page 22) and returns PageState', async () => {

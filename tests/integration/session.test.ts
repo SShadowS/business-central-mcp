@@ -36,8 +36,8 @@ describe('BCSession (integration)', () => {
     session = unwrap(result);
   });
 
-  afterAll(() => {
-    session?.close();
+  afterAll(async () => {
+    await session?.closeGracefully().catch(() => {});
   });
 
   /**

@@ -69,9 +69,9 @@ describe('Document Page Workflows (BC27)', () => {
 
   afterAll(async () => {
     for (const pageCtx of openedPages) {
-      try { await pageService.closePage(pageCtx); } catch { /* ignore */ }
+      try { await pageService.closePage(pageCtx, { discardChanges: true }); } catch { /* ignore */ }
     }
-    session?.close();
+    await session?.closeGracefully().catch(() => {});
   });
 
   function rebuildServices(): void {
@@ -90,7 +90,7 @@ describe('Document Page Workflows (BC27)', () => {
       return false;
     }
     console.error('[SESSION] Recreating session...');
-    try { session?.close(); } catch { /* ignore */ }
+    try { await session?.closeGracefully().catch(() => {}); } catch { /* ignore */ }
 
     let result = await sessionFactory.create();
     const delays = [2000, 4000, 8000];
@@ -127,7 +127,7 @@ describe('Document Page Workflows (BC27)', () => {
   }
 
   async function closeAndUntrack(pageContextId: string) {
-    const result = await pageService.closePage(pageContextId);
+    const result = await pageService.closePage(pageContextId, { discardChanges: true });
     const idx = openedPages.indexOf(pageContextId);
     if (idx >= 0) openedPages.splice(idx, 1);
     return result;
@@ -544,9 +544,9 @@ describe('BC28 Cross-Version Tests', () => {
 
   afterAll(async () => {
     for (const pageCtx of openedPages) {
-      try { await pageService?.closePage(pageCtx); } catch { /* ignore */ }
+      try { await pageService?.closePage(pageCtx, { discardChanges: true }); } catch { /* ignore */ }
     }
-    session?.close();
+    await session?.closeGracefully().catch(() => {});
   });
 
   function rebuildServices(): void {
@@ -562,7 +562,7 @@ describe('BC28 Cross-Version Tests', () => {
   async function recreateSession(): Promise<boolean> {
     if (recreationFailed) return false;
     console.error('[BC28][SESSION] Recreating session...');
-    try { session?.close(); } catch { /* ignore */ }
+    try { await session?.closeGracefully().catch(() => {}); } catch { /* ignore */ }
 
     let result = await sessionFactory.create();
     const delays = [2000, 4000, 8000];
@@ -599,7 +599,7 @@ describe('BC28 Cross-Version Tests', () => {
   }
 
   async function closeAndUntrack(pageContextId: string) {
-    const result = await pageService.closePage(pageContextId);
+    const result = await pageService.closePage(pageContextId, { discardChanges: true });
     const idx = openedPages.indexOf(pageContextId);
     if (idx >= 0) openedPages.splice(idx, 1);
     return result;

@@ -5,5 +5,6 @@ export default defineConfig({
     globals: true,
     testTimeout: 60000,
     include: ['tests/integration/**/*.test.ts'],
+    exclude: ['tests/integration/phase4-destructive.test.ts'],
   },
 });

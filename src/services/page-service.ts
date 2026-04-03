@@ -208,7 +208,7 @@ export class PageService {
     }
   }
 
-  async closePage(pageContextId: string): Promise<Result<ClosePageResult, ProtocolError>> {
+  async closePage(pageContextId: string, options?: { discardChanges?: boolean }): Promise<Result<ClosePageResult, ProtocolError>> {
     const ctx = this.repo.get(pageContextId);
     if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
 
@@ -218,6 +218,25 @@ export class PageService {
       const result = await this.session.invoke(closeInteraction, (event) => event.type === 'InvokeCompleted');
       if (isOk(result)) {
         allEvents.push(...result.value);
+
+        // Handle "save changes?" dialogs triggered by CloseForm.
+        // When discardChanges is true, auto-dismiss with "no" to complete the close.
+        // Otherwise, the dialog info is returned in events for the caller to handle.
+        if (options?.discardChanges) {
+          for (const event of result.value) {
+            if (event.type === 'DialogOpened' && event.formId) {
+              this.logger.info(`Close triggered dialog (formId=${event.formId}), dismissing with "no"`);
+              const dismissResult = await this.session.invoke(
+                { type: 'InvokeAction', formId: event.formId, controlPath: 'server:', systemAction: 390 } as InvokeActionInteraction, // No=390
+                (e) => e.type === 'InvokeCompleted',
+              );
+              if (isOk(dismissResult)) {
+                allEvents.push(...dismissResult.value);
+              }
+              this.session.removeOpenForm(event.formId);
+            }
+          }
+        }
       }
       this.session.removeOpenForm(formId);
     }

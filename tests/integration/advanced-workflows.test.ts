@@ -69,9 +69,9 @@ describe('Advanced Workflow Tests (v2)', () => {
 
   afterAll(async () => {
     for (const pageCtx of openedPages) {
-      try { await pageService.closePage(pageCtx); } catch { /* ignore */ }
+      try { await pageService.closePage(pageCtx, { discardChanges: true }); } catch { /* ignore */ }
     }
-    session?.close();
+    await session?.closeGracefully().catch(() => {});
   });
 
   // ---------------------------------------------------------------------------
@@ -94,7 +94,7 @@ describe('Advanced Workflow Tests (v2)', () => {
       return false;
     }
     console.error('[SESSION] Recreating session...');
-    try { session?.close(); } catch { /* ignore */ }
+    try { await session?.closeGracefully().catch(() => {}); } catch { /* ignore */ }
 
     let result = await sessionFactory.create();
     const delays = [2000, 4000, 8000];
@@ -131,7 +131,7 @@ describe('Advanced Workflow Tests (v2)', () => {
   }
 
   async function closeAndUntrack(pageContextId: string) {
-    const result = await pageService.closePage(pageContextId);
+    const result = await pageService.closePage(pageContextId, { discardChanges: true });
     const idx = openedPages.indexOf(pageContextId);
     if (idx >= 0) openedPages.splice(idx, 1);
     return result;

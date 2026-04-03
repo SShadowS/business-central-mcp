@@ -51,7 +51,7 @@ describe('MCP Endpoint (integration)', () => {
     }
   }, 60_000);
 
-  afterAll(() => {
+  afterAll(async () => {
     if (serverProcess && !serverProcess.killed) {
       serverProcess.kill('SIGTERM');
     }

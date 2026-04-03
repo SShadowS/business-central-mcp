@@ -96,7 +96,15 @@ export class SessionManager {
     return this.session;
   }
 
-  /** Explicitly close the session (for shutdown). */
+  /** Gracefully close the session, sending CloseForm for all open forms. */
+  async closeGracefully(): Promise<void> {
+    if (this.session !== null) {
+      await this.session.closeGracefully();
+      this.session = null;
+    }
+  }
+
+  /** Abrupt close (for signal handlers that can't be async). */
   close(): void {
     if (this.session !== null) {
       this.session.close();

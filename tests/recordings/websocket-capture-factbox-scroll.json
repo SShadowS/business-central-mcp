@@ -1,0 +1,183 @@
+{
+  "captureDate": "2026-04-03",
+  "bcVersion": "BC27 (27.0.46760.0)",
+  "server": "http://cronus27/BC",
+  "wsEndpoint": "ws://cronus27/BC/csh",
+  "captureMethod": "Playwright CDP + WebSocket.prototype.send monkey-patch on Web Worker",
+
+  "findings": {
+    "webSocketLocation": "BC creates the WebSocket inside a Web Worker (blob: URL), NOT in the main frame or iframe. This is why page-level interception fails.",
+    "batchedInteractions": "BC can send MULTIPLE interactions in a single Invoke call via the interactionsToInvoke array. SetCurrentRowAndRowsSelection + ScrollRepeater are often batched together.",
+    "factboxRefresh": "Factbox data refresh is triggered SERVER-SIDE as a response to SetCurrentRowAndRowsSelection. No separate 'refresh factbox' call is needed from the client.",
+    "scrollDirection": "ScrollRepeater delta=1 for down, delta=-1 for up. The client debounces scroll events and sends a single ScrollRepeater per batch.",
+    "systemAction134": "Ctrl+End sends InvokeAction with systemAction=134, which is NOT in the documented SystemAction enum. This appears to be 'GoToLast' or similar."
+  },
+
+  "interaction_SetCurrentRowAndRowsSelection": {
+    "description": "Sent when a row is selected in a list (click, arrow key, page down). Triggers factbox refresh server-side.",
+    "interactionName": "SetCurrentRowAndRowsSelection",
+    "controlPath": "server:c[N]  (the repeater control path, e.g. server:c[2] for Sales Orders, server:c[3] for G/L Entries)",
+    "formId": "the list page's formId",
+    "namedParameters": {
+      "key": "bookmark of the row to select (base64 encoded)",
+      "selectAll": false,
+      "rowsToSelect": ["array with the bookmark of the row to select"],
+      "unselectAll": true,
+      "rowsToUnselect": []
+    },
+    "example": {
+      "interactionName": "SetCurrentRowAndRowsSelection",
+      "skipExtendingSessionLifetime": false,
+      "namedParameters": "{\"key\":\"1D_JAAAAACLAQAAAAJ7BjEAMAAxADAAMAA2\",\"selectAll\":false,\"rowsToSelect\":[\"1D_JAAAAACLAQAAAAJ7BjEAMAAxADAAMAA2\"],\"unselectAll\":true,\"rowsToUnselect\":[]}",
+      "controlPath": "server:c[2]",
+      "formId": "22A1",
+      "callbackId": "15"
+    }
+  },
+
+  "interaction_ScrollRepeater": {
+    "description": "Sent when the viewport needs more rows (scrolling past loaded data). Often batched with SetCurrentRowAndRowsSelection.",
+    "interactionName": "ScrollRepeater",
+    "controlPath": "server:c[N]  (same repeater control path)",
+    "formId": "the list page's formId",
+    "namedParameters": {
+      "delta": "1 for down (next page), -1 for up (previous page)"
+    },
+    "example": {
+      "interactionName": "ScrollRepeater",
+      "skipExtendingSessionLifetime": false,
+      "namedParameters": "{\"delta\":1}",
+      "controlPath": "server:c[3]",
+      "formId": "22C4",
+      "callbackId": "u"
+    }
+  },
+
+  "interaction_InvokeAction_GoToLast": {
+    "description": "Sent when user presses Ctrl+End to jump to the last row.",
+    "interactionName": "InvokeAction",
+    "controlPath": "server:c[N]  (repeater control path)",
+    "namedParameters": {
+      "systemAction": 134,
+      "key": null,
+      "repeaterControlTarget": null
+    },
+    "note": "systemAction 134 is not in the standard SystemAction enum. Likely 'GoToLastRow' or 'End'."
+  },
+
+  "fullMessageExamples": {
+    "rowSelection_arrowDown": {
+      "jsonrpc": "2.0",
+      "method": "Invoke",
+      "params": [
+        {
+          "openFormIds": ["229B", "22A1", "22AF"],
+          "sessionId": "DEFAULTCRONUS Danmark A/SSR639108449416789146391FIN",
+          "sequenceNo": "mnj8md6r#27",
+          "lastClientAckSequenceNumber": 77,
+          "telemetryClientActivityId": null,
+          "telemetryTraceStartInfo": "traceStartInfo=%5BWeb%20Client%20-%20Web%20browser%5D%20SetCurrentRowAndRowsSelection",
+          "navigationContext": {
+            "applicationId": "FIN",
+            "deviceCategory": 0,
+            "spaInstanceId": "mnj8md6r"
+          },
+          "supportedExtensions": null,
+          "interactionsToInvoke": [
+            {
+              "interactionName": "SetCurrentRowAndRowsSelection",
+              "skipExtendingSessionLifetime": false,
+              "namedParameters": "{\"key\":\"1D_JAAAAACLAQAAAAJ7BjEAMAAxADAAMAA2\",\"selectAll\":false,\"rowsToSelect\":[\"1D_JAAAAACLAQAAAAJ7BjEAMAAxADAAMAA2\"],\"unselectAll\":true,\"rowsToUnselect\":[]}",
+              "controlPath": "server:c[2]",
+              "formId": "22A1",
+              "callbackId": "15"
+            }
+          ],
+          "tenantId": "default",
+          "sessionKey": "sr639108449416789146391",
+          "company": "CRONUS Danmark A/S",
+          "telemetryClientSessionId": "98f4f053-05b8-407b-b0b8-4f8d5c3819d3"
+        }
+      ]
+    },
+    "batchedScrollAndSelect": {
+      "jsonrpc": "2.0",
+      "method": "Invoke",
+      "params": [
+        {
+          "openFormIds": ["22C4"],
+          "sessionId": "DEFAULTCRONUS Danmark A/SSR639108449416789146391FIN",
+          "sequenceNo": "mnj8yj8a#23",
+          "lastClientAckSequenceNumber": 66,
+          "navigationContext": {
+            "applicationId": "FIN",
+            "deviceCategory": 0,
+            "spaInstanceId": "mnj8yj8a"
+          },
+          "supportedExtensions": null,
+          "interactionsToInvoke": [
+            {
+              "interactionName": "SetCurrentRowAndRowsSelection",
+              "skipExtendingSessionLifetime": false,
+              "namedParameters": "{\"key\":\"C_EQAAAACHfAY\",\"selectAll\":false,\"rowsToSelect\":[\"C_EQAAAACHfAY\"],\"unselectAll\":true,\"rowsToUnselect\":[]}",
+              "controlPath": "server:c[3]",
+              "formId": "22C4",
+              "callbackId": "t"
+            },
+            {
+              "interactionName": "ScrollRepeater",
+              "skipExtendingSessionLifetime": false,
+              "namedParameters": "{\"delta\":1}",
+              "controlPath": "server:c[3]",
+              "formId": "22C4",
+              "callbackId": "u"
+            }
+          ],
+          "tenantId": "default",
+          "sessionKey": "sr639108449416789146391",
+          "company": "CRONUS Danmark A/S"
+        }
+      ]
+    },
+    "drillDown_fromSalesOrderList": {
+      "step1_setCurrentRow": {
+        "interactionName": "SetCurrentRowAndRowsSelection",
+        "controlPath": "server:c[2]",
+        "formId": "22A1",
+        "namedParameters": {
+          "key": "1D_JAAAAACLAQAAAAJ7BjEAMAAxADAAMAAz",
+          "selectAll": false,
+          "rowsToSelect": ["1D_JAAAAACLAQAAAAJ7BjEAMAAxADAAMAAz"],
+          "unselectAll": true,
+          "rowsToUnselect": []
+        }
+      },
+      "step2_invokeEdit": {
+        "interactionName": "InvokeAction",
+        "controlPath": "server:c[2]/cr",
+        "formId": "22A1",
+        "namedParameters": {
+          "systemAction": 40,
+          "key": "1D_JAAAAACLAQAAAAJ7BjEAMAAxADAAMAAz",
+          "data": { "AlwaysCommit": false },
+          "repeaterControlTarget": null
+        },
+        "note": "systemAction 40 = Edit. controlPath uses /cr (current row) on the repeater."
+      },
+      "step3_loadForm_subpages": {
+        "note": "After FormCreated event, LoadForm calls are sent for each subpage/factbox with delayed:true, openForm:true, loadData:true",
+        "formIds": ["22A6", "22A7", "22A8", "22A4", "22AC"],
+        "example": {
+          "interactionName": "LoadForm",
+          "controlPath": "server:",
+          "formId": "22A6",
+          "namedParameters": {
+            "delayed": true,
+            "openForm": true,
+            "loadData": true
+          }
+        }
+      }
+    }
+  }
+}

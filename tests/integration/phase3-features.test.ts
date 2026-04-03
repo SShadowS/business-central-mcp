@@ -48,8 +48,8 @@ describe.sequential('Phase 3 Feature Verification', () => {
     readData = new ReadDataOperation(dataService, filterService);
   });
 
-  afterAll(() => {
-    session?.close();
+  afterAll(async () => {
+    await session?.closeGracefully().catch(() => {});
   });
 
   // --- 1.2: Field Metadata (isLookup, showMandatory) ---
@@ -96,7 +96,7 @@ describe.sequential('Phase 3 Feature Verification', () => {
     });
 
     it('closes page', async () => {
-      await pageService.closePage(pageContextId);
+      await pageService.closePage(pageContextId, { discardChanges: true });
     });
   });
 
@@ -147,7 +147,7 @@ describe.sequential('Phase 3 Feature Verification', () => {
     });
 
     it('closes page', async () => {
-      await pageService.closePage(pageContextId);
+      await pageService.closePage(pageContextId, { discardChanges: true });
     });
   });
 
@@ -202,7 +202,7 @@ describe.sequential('Phase 3 Feature Verification', () => {
     });
 
     it('closes page', async () => {
-      await pageService.closePage(pageContextId);
+      await pageService.closePage(pageContextId, { discardChanges: true });
     });
   });
 });

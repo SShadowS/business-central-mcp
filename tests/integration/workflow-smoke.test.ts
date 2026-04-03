@@ -77,12 +77,12 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
     // Best-effort cleanup of any pages left open
     for (const pageCtx of openedPages) {
       try {
-        await pageService.closePage(pageCtx);
+        await pageService.closePage(pageCtx, { discardChanges: true });
       } catch {
         // ignore
       }
     }
-    session?.close();
+    await session?.closeGracefully().catch(() => {});
   });
 
   // ---------------------------------------------------------------------------
@@ -113,7 +113,7 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
   }
 
   async function closeAndUntrack(pageContextId: string) {
-    const result = await pageService.closePage(pageContextId);
+    const result = await pageService.closePage(pageContextId, { discardChanges: true });
     const idx = openedPages.indexOf(pageContextId);
     if (idx >= 0) openedPages.splice(idx, 1);
     return result;
@@ -127,7 +127,7 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
    */
   async function recreateSession(): Promise<boolean> {
     console.error('[SESSION] Recreating session (old one is dead)...');
-    try { session?.close(); } catch { /* ignore */ }
+    try { await session?.closeGracefully().catch(() => {}); } catch { /* ignore */ }
 
     // BC may briefly reject logins right after a session is killed — retry with backoff
     let result = await sessionFactory.create();
@@ -705,7 +705,7 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
 
       // Now try to close again
       try {
-        const result = await pageService.closePage(ctx);
+        const result = await pageService.closePage(ctx, { discardChanges: true });
         if (isErr(result)) {
           console.error(`[E4] Failed as expected: ${result.error.message}`);
         } else {

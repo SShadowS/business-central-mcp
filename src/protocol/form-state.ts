@@ -93,6 +93,27 @@ export class FormProjection {
       return { ...form, repeaters: newRepeaters };
     }
 
+    // Update action Enabled/Visible state if the controlPath matches an action.
+    // BC sends PropertyChanged events for action controls after page load.
+    const { Enabled, Visible: VisibleProp } = event.changes as Record<string, unknown>;
+    if (Enabled !== undefined || VisibleProp !== undefined) {
+      const actionIndex = form.actions.findIndex(a => a.controlPath === event.controlPath);
+      if (actionIndex >= 0) {
+        const existing = form.actions[actionIndex]!;
+        const updatedAction: ActionInfo = {
+          ...existing,
+          ...(Enabled !== undefined ? { enabled: Enabled as boolean } : {}),
+          ...(VisibleProp !== undefined ? { visible: VisibleProp as boolean } : {}),
+        };
+        const updatedActions = [
+          ...form.actions.slice(0, actionIndex),
+          updatedAction,
+          ...form.actions.slice(actionIndex + 1),
+        ];
+        return { ...form, actions: updatedActions };
+      }
+    }
+
     // Otherwise update the controlTree field
     const { StringValue, Caption, Editable, Visible } = event.changes as Record<string, unknown>;
 

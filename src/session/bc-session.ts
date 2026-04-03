@@ -224,6 +224,50 @@ export class BCSession {
     this.dead = true;
   }
 
+  /**
+   * Gracefully close the session by closing all open forms (dialogs first),
+   * then closing the WebSocket. Without this, BC keeps modal dialog state
+   * alive server-side, blocking new sessions for the same user.
+   * Verified from decompiled LogicalModalityVerifier.cs / LogicalDispatcher.cs.
+   */
+  async closeGracefully(): Promise<void> {
+    if (this.dead) { this.ws.close(); return; }
+
+    // Close forms iteratively. CloseForm may trigger save-changes dialogs that
+    // become new modal forms in _openFormIds. Dismiss them before continuing.
+    // Safety limit prevents infinite loops.
+    for (let iteration = 0; iteration < 20 && this._openFormIds.size > 0; iteration++) {
+      const formId = Array.from(this._openFormIds).pop()!;
+      try {
+        const result = await this.invoke(
+          { type: 'CloseForm', formId },
+          (event) => event.type === 'InvokeCompleted',
+        );
+        // Check if CloseForm spawned a dialog (save changes?) -- dismiss it
+        if (isOk(result)) {
+          for (const event of result.value) {
+            if (event.type === 'DialogOpened' && event.formId) {
+              // Respond "no" to discard changes and close the dialog
+              try {
+                await this.invoke(
+                  { type: 'InvokeAction', formId: event.formId, controlPath: 'server:', systemAction: 390 }, // No=390
+                  (e) => e.type === 'InvokeCompleted',
+                );
+              } catch { /* best effort */ }
+              this._openFormIds.delete(event.formId);
+            }
+          }
+        }
+      } catch {
+        // Best effort -- form may already be closed or session dead
+      }
+      this._openFormIds.delete(formId);
+    }
+
+    this.dead = true;
+    this.ws.close();
+  }
+
   close(): void {
     this.dead = true;
     this.ws.close();
