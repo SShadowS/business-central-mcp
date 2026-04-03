@@ -152,3 +152,64 @@ export type EventPredicate = (event: BCEvent, context: {
   interactionFormId?: string;
   invokeCompletedSeen: boolean;
 }) => boolean;
+
+// -- PageState: derived from BCEvent[] projections --
+
+export interface PageState {
+  readonly pageContextId: string;
+  readonly formId: string;
+  readonly pageType: 'Card' | 'List' | 'Document' | 'Unknown';
+  readonly controlTree: ControlField[];
+  readonly repeater: RepeaterState | null;
+  readonly actions: ActionInfo[];
+  readonly childForms: ChildFormInfo[];
+  readonly dialogs: DialogInfo[];
+  readonly openFormIds: string[];
+}
+
+export interface ControlField {
+  readonly controlPath: string;
+  readonly caption: string;
+  readonly type: string;
+  readonly editable: boolean;
+  readonly visible: boolean;
+  readonly value?: unknown;
+  readonly stringValue?: string;
+}
+
+export interface RepeaterState {
+  readonly controlPath: string;
+  readonly columns: RepeaterColumn[];
+  readonly rows: RepeaterRow[];
+  readonly totalRowCount: number;
+}
+
+export interface RepeaterColumn {
+  readonly controlPath: string;
+  readonly caption: string;
+  readonly type: string;
+}
+
+export interface RepeaterRow {
+  readonly bookmark: string;
+  readonly cells: Record<string, unknown>;
+}
+
+export interface ActionInfo {
+  readonly controlPath: string;
+  readonly caption: string;
+  readonly systemAction: number;
+  readonly enabled: boolean;
+  readonly visible: boolean;
+}
+
+export interface ChildFormInfo {
+  readonly formId: string;
+  readonly caption: string;
+}
+
+export interface DialogInfo {
+  readonly formId: string;
+  readonly ownerFormId?: string;
+  readonly controlTree: unknown;
+}
