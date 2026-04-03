@@ -12,6 +12,7 @@ import { BCSession } from '../../src/session/bc-session.js';
 import { PageService } from '../../src/services/page-service.js';
 import { DataService } from '../../src/services/data-service.js';
 import { isOk, unwrap } from '../../src/core/result.js';
+import { RespondDialogOperation } from '../../src/operations/respond-dialog.js';
 import type { PageContext } from '../../src/protocol/page-context.js';
 import type { BCConfig } from '../../src/core/config.js';
 
@@ -21,6 +22,8 @@ describe.sequential('Multi-Section: Sales Order (page 42)', () => {
   let session: BCSession;
   let pageService: PageService;
   let dataService: DataService;
+  let respondDialog: RespondDialogOperation;
+  let repo: PageContextRepository;
   let pageContextId: string;
   let ctx: PageContext;
   const logger = createNullLogger();
@@ -41,9 +44,10 @@ describe.sequential('Multi-Section: Sales Order (page 42)', () => {
     const result = await sessionFactory.create();
     session = unwrap(result);
 
-    const repo = new PageContextRepository();
+    repo = new PageContextRepository();
     pageService = new PageService(session, repo, logger);
     dataService = new DataService(session, repo, logger);
+    respondDialog = new RespondDialogOperation(session, repo);
   });
 
   afterAll(async () => {
@@ -236,13 +240,15 @@ describe.sequential('Multi-Section: Sales Order (page 42)', () => {
     console.error('DrillDown opened:', opened?.type, 'formId:', (opened as any)?.formId);
     expect(opened).toBeDefined();
 
-    // Close the opened form/dialog
+    // Close the opened dialog using bc_respond_dialog
     if (opened) {
-      await session.invoke(
-        { type: 'CloseForm' as const, formId: (opened as any).formId },
-        (event: any) => event.type === 'InvokeCompleted',
-      );
-      console.error('DrillDown form closed.');
+      const closeResult = await respondDialog.execute({
+        pageContextId,
+        dialogFormId: (opened as any).formId,
+        response: 'close',
+      });
+      expect(isOk(closeResult)).toBe(true);
+      console.error('DrillDown dialog closed via bc_respond_dialog.');
     }
   });
 

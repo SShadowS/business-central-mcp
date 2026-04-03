@@ -51,6 +51,12 @@ export const NavigateSchema = z.object({
   field: z.string().optional(),
 });
 
+export const RespondDialogSchema = z.object({
+  pageContextId: z.string().min(1),
+  dialogFormId: z.string().min(1),
+  response: z.enum(['ok', 'cancel', 'yes', 'no', 'abort', 'close']),
+});
+
 /**
  * Generate MCP-compatible JSON schema from a Zod schema.
  * Handles the OpenPageSchema specially since it uses .transform() which

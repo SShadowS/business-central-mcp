@@ -7,6 +7,7 @@ import {
   ClosePageSchema,
   SearchPagesSchema,
   NavigateSchema,
+  RespondDialogSchema,
   toMcpJsonSchema,
 } from './schemas.js';
 import type { OpenPageOperation } from '../operations/open-page.js';
@@ -16,6 +17,7 @@ import type { ExecuteActionOperation } from '../operations/execute-action.js';
 import type { ClosePageOperation } from '../operations/close-page.js';
 import type { SearchPagesOperation } from '../operations/search-pages.js';
 import type { NavigateOperation } from '../operations/navigate.js';
+import type { RespondDialogOperation } from '../operations/respond-dialog.js';
 
 export interface ToolDefinition {
   name: string;
@@ -33,6 +35,7 @@ export interface Operations {
   closePage: ClosePageOperation;
   searchPages: SearchPagesOperation;
   navigate: NavigateOperation;
+  respondDialog: RespondDialogOperation;
 }
 
 export function buildToolRegistry(ops: Operations): ToolDefinition[] {
@@ -85,6 +88,13 @@ export function buildToolRegistry(ops: Operations): ToolDefinition[] {
       inputSchema: toMcpJsonSchema(NavigateSchema),
       zodSchema: NavigateSchema,
       execute: (input) => ops.navigate.execute(input as Parameters<typeof ops.navigate.execute>[0]),
+    },
+    {
+      name: 'bc_respond_dialog',
+      description: 'Responds to an open Business Central dialog or confirmation prompt. When a bc_execute_action or bc_write_data call returns dialogsOpened with requiresDialogResponse: true, use this tool to respond. The dialogFormId is returned in the dialogsOpened array. Common responses: "ok" (confirm/accept), "cancel" (dismiss), "yes"/"no" (answer a question), "close" (close a modal page like an Item Card opened from drill-down). After responding, check changedSections to see what data may have been updated (e.g., posting a Sales Order changes all sections). If another dialog opens after responding, the response will include it in dialogsOpened.',
+      inputSchema: toMcpJsonSchema(RespondDialogSchema),
+      zodSchema: RespondDialogSchema,
+      execute: (input) => ops.respondDialog.execute(input as Parameters<typeof ops.respondDialog.execute>[0]),
     },
   ];
 }

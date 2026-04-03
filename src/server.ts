@@ -22,6 +22,7 @@ import { ExecuteActionOperation } from './operations/execute-action.js';
 import { ClosePageOperation } from './operations/close-page.js';
 import { SearchPagesOperation } from './operations/search-pages.js';
 import { NavigateOperation } from './operations/navigate.js';
+import { RespondDialogOperation } from './operations/respond-dialog.js';
 import { buildToolRegistry, type Operations } from './mcp/tool-registry.js';
 import { MCPHandler } from './mcp/handler.js';
 import { createApiRoutes } from './api/routes.js';
@@ -83,6 +84,7 @@ async function main() {
       closePage: new ClosePageOperation(pageService),
       searchPages: new SearchPagesOperation(searchService),
       navigate: new NavigateOperation(navigationService),
+      respondDialog: new RespondDialogOperation(s, pageContextRepo),
     };
 
     return { operations, tools: buildToolRegistry(operations) };
