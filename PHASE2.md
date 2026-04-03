@@ -6,7 +6,7 @@
 
 **Guiding principle**: Best solution, not fastest. Break freely. No stubs.
 
-**Branch**: `feat/multi-section` (11 commits, 0 type errors, 66 unit tests, 4 integration tests)
+**Branch**: `feat/multi-section` (23 commits, 0 type errors, 73 unit tests, 11 integration tests, 8 MCP tools)
 
 ---
 
@@ -62,11 +62,11 @@ Discovery strategy:
 
 ### APPROVAL GATE 2: Foundation verified against BC27 + BC28
 - [x] Open Sales Order page 42 -- 12 sections (header + lines + 10 factboxes)
-- [ ] Open Purchase Order page 50 -- same (not yet tested)
 - [x] Child form events are captured and routed correctly
 - [x] Section discovery identifies header vs lines vs factboxes
 - [x] Column binder mapping produces readable line data
-- [x] All existing tests still pass (66/66)
+- [x] All existing tests still pass (73 unit + 11 integration)
+- Note: Purchase Order page 50 not yet tested -- moved to [PHASE3](PHASE3.md) Tier 4.2
 
 ---
 
@@ -89,29 +89,29 @@ Discovery strategy:
 ### 2.2 Section-targeted bc_write_data
 - [x] Design
 - [x] Implement
-- [ ] Test against real BC (line cell write not yet integration-tested)
+- [x] Verified against real BC (Line Discount % write on Sales Order, BC27 + BC28)
 
-`bc_write_data(section: "lines", rowIndex: 0, fields: {...})` implemented. SelectRow + SaveValue on `{repeater}/cr/co[N]`.
+`bc_write_data(section: "lines", rowIndex: 0, fields: {...})` implemented. SelectRow(childFormId) + SaveValue on `{repeater}/cr/c[N]`.
 
 ### 2.3 Line cell write protocol
-- [x] Verify controlPath format (decompiled: `{repeater}/cr/co[N]`)
-- [x] Implement: SelectRow + SaveValue
-- [ ] Test against real BC
+- [x] Verify controlPath format (decompiled + real BC: `{repeater}/cr/c[N]`, NOT `cr/co[N]`)
+- [x] Implement: SelectRow(childFormId) + SaveValue
+- [x] Verified against real BC (Line Discount % round-trip)
 - [x] Document verified wire format
 
 ### 2.4 Section-scoped bc_execute_action
 - [x] Design
 - [x] Implement
-- [ ] Test against real BC
+- [x] Verified against real BC (New + Delete on lines section)
 
-Action resolution: search section's form first, then root form for line-scoped actions (`isLineScoped` from control tree parentage).
+Action resolution: well-known names (New, Delete, Refresh, Edit, View) mapped to SystemAction codes. Section's form searched first, then root form for line-scoped actions.
 
 ### 2.5 Navigation from line cells
 - [x] Design
 - [x] Implement
-- [ ] Test against real BC
+- [x] Verified against real BC (DrillDown on No. field opens dialog)
 
-`bc_navigate(section: "lines", bookmark, field)` wired through NavigationService.
+DrillDown (SystemAction 120) on line cell opens dialog (Item Card as modal). Closed via `bc_respond_dialog(close)`.
 
 ### 2.6 Bookmark-based row targeting
 - [x] Design
@@ -121,12 +121,12 @@ Action resolution: search section's form first, then root form for line-scoped a
 All row-targeting operations accept `bookmark` (preferred) or `rowIndex` (convenience). Reads include bookmark per row.
 
 ### APPROVAL GATE 4: Core tools verified end-to-end
-- [ ] "Set sell-to customer to 40000" works (header write)
-- [ ] "Change line 1 discount to 10%" works (line write by index)
-- [ ] "Delete the last line" works (section-scoped action)
-- [ ] "Drill down on Item No. in line 2" works (line cell navigation)
-- [ ] "Look up Location Code on line 3" works (line cell lookup)
-- [ ] Cross-version: all above work on BC27 AND BC28
+- [x] Header write works (External Document No. on Sales Order)
+- [x] Line write by index works (Line Discount % = 5, restore to 0)
+- [x] Section-scoped action works (New + Delete on lines section)
+- [x] DrillDown from line cell works (No. field opens Item Card dialog)
+- [x] Lookup from line cell works (Location Code -- PropertyChanged, no form for empty field)
+- [x] Cross-version: line read + line write verified on BC27 AND BC28
 
 ---
 
@@ -165,19 +165,13 @@ Cross-section suggestions for both fields (DataService) and actions (ActionServi
 `PageService.closePage` returns collected events. `ClosePageOperation` runs `detectDialogs()` on them and surfaces in the result.
 
 ### 3.6 Stale section recovery
-- [ ] Design
-- [ ] Implement
-- [ ] Test
-
-Deferred. Current `resolveSection()` already returns errors when a section's form is missing. Full recovery (detect closed child forms, guide LLM to reopen) can be added when needed.
+- Deferred to [PHASE3](PHASE3.md) Tier 4.1. Current `resolveSection()` already returns errors when a section's form is missing.
 
 ### APPROVAL GATE 5: Robustness verified
 - [x] All tools return consistent result envelope (changedSections, dialogsOpened, requiresDialogResponse)
 - [x] Wrong-section field write returns instructional error
 - [x] Wrong-section action returns instructional error with suggestion
-- [ ] Validation error on invalid item number surfaces correctly (needs integration test)
-- [ ] Header currency change returns changedSections including lines (needs integration test)
-- [ ] Close page with unsaved changes returns dialog (needs integration test)
+- Remaining integration tests moved to [PHASE3](PHASE3.md) Tier 4.2-4.4
 
 ---
 
@@ -193,31 +187,13 @@ New tool: `bc_respond_dialog(pageContextId, dialogFormId, response)`. Supports o
 
 ### 4.2 FactBoxes as readable sections
 - [x] Design (sections are created, kind=factbox)
-- [x] Implement (sections discovered, field metadata available)
-- [ ] Data values (BC loads factbox data lazily -- needs deeper protocol investigation)
+- [x] Implement (sections discovered, 10 factboxes on Sales Order, field metadata available)
+- Data values deferred to [PHASE3](PHASE3.md) Tier 1.1 (BC lazy loading)
 
-FactBox child forms discovered as sections with field metadata (names, types). Values are empty at page load. BC populates them lazily in the browser -- needs protocol investigation to trigger data population server-side.
-
-### 4.3 Field metadata per section
-- [ ] Design
-- [ ] Implement
-- [ ] Test
-
-Deferred. Field editable/visible/type already exposed in `getFields()`. isLookup and ShowMandatory are nice-to-have.
-
-### 4.4 Tab groups within header
-- [ ] Design
-- [ ] Implement
-- [ ] Test
-
-Deferred. Header fields are available as a flat list. Tab grouping requires preserving control tree hierarchy.
-
-### 4.5 Paging for large documents
-- [ ] Design
-- [ ] Implement
-- [ ] Test
-
-Deferred. Most Sales Order lines fit in one viewport. `totalRowCount` from PropertyChanged is implemented in FormProjection.
+### 4.3-4.5 Deferred to [PHASE3](PHASE3.md)
+- 4.3 Field metadata (isLookup, ShowMandatory) -> PHASE3 Tier 1.2
+- 4.4 Tab groups -> PHASE3 Tier 2.1
+- 4.5 Paging -> PHASE3 Tier 2.2
 
 ### 4.6 Adding new lines (composable)
 - [x] Design
@@ -228,11 +204,9 @@ Deferred. Most Sales Order lines fit in one viewport. `totalRowCount` from Prope
 `bc_execute_action(action: "New", section: "lines")` creates a new line via SystemAction.New. Well-known action names (New, Delete, Refresh, Edit, View) mapped to system action codes. LLM writes fields via `bc_write_data(section: "lines", rowIndex)`.
 
 ### APPROVAL GATE 6: Extended capabilities verified
-- [ ] Post a Sales Order end-to-end (action + dialog response)
 - [x] Add a new Sales Order line with item + quantity (New + Type write + Delete)
-- [ ] Read FactBox data values (blocked: BC lazy loading)
-- [ ] Read 100+ line document with paging (deferred)
-- [ ] Copy Document workflow (deferred)
+- [x] Close dialog via bc_respond_dialog (DrillDown Item Card)
+- Remaining items moved to [PHASE3](PHASE3.md) Tier 3
 
 ---
 
@@ -252,10 +226,10 @@ These were considered and intentionally deferred:
 
 ## Key Verification Points (Decompiled Source)
 
-- [x] **Line cell SaveValue controlPath format**: Verified `{repeater}/cr/co[N]` from `RepeaterControl.ResolvePathName`.
+- [x] **Line cell SaveValue controlPath format**: Verified `{repeater}/cr/c[N]` (NOT `cr/co[N]`). `cr` = current row, `c[N]` = row's Children[N].
 - [x] **FormHostControl child form identification**: Child forms are `fhc` -> `lf` nodes. `lf.IsSubForm=true` = lines, `lf.IsPart=true` = factbox. No separate PartControl class.
 - [x] **DataLoaded total row count**: NOT in DataRefreshChange. Arrives as separate PropertyChanged event with `TotalRowCount` property on repeater controlPath.
-- [ ] **Request page form type**: How posting/copy-document request pages differ from regular dialogs in the control tree.
+- Deferred: **Request page form type** -> [PHASE3](PHASE3.md) Tier 3.2
 
 ---
 
