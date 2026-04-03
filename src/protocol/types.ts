@@ -184,14 +184,16 @@ export interface RepeaterState {
   readonly controlPath: string;
   readonly columns: RepeaterColumn[];
   readonly rows: RepeaterRow[];
-  readonly totalRowCount: number;
+  readonly totalRowCount: number | null;      // null = unknown; set from PropertyChanged, NOT rows.length
+  readonly currentBookmark: string | null;     // per-repeater; set from BookmarkChanged events
 }
 
 export interface RepeaterColumn {
   readonly controlPath: string;
   readonly caption: string;
   readonly type: string;
-  readonly columnBinderPath?: string; // e.g., "18_Customer.1" — used as filterColumnId
+  readonly columnBinderName?: string;   // key that matches row.cells keys
+  readonly columnBinderPath?: string;   // for filter column IDs
 }
 
 export interface RepeaterRow {
@@ -205,6 +207,15 @@ export interface ActionInfo {
   readonly systemAction: number;
   readonly enabled: boolean;
   readonly visible: boolean;
+  readonly isLineScoped: boolean;       // true if defined inside a repeater subtree
+}
+
+export enum ControlContainerType {
+  ContentArea = 0,
+  FactBoxArea = 1,
+  RoleCenterArea = 2,
+  RequestPageFilters = 3,
+  DetailsArea = 4,
 }
 
 export interface ChildFormInfo {
