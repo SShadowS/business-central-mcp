@@ -150,7 +150,13 @@ export class BCSession {
 
       // Send and wait for synchronous response
       const rpcResult = await this.ws.sendRpc(encoded.method, encoded.params, timeoutMs);
-      if (isErr(rpcResult)) return rpcResult;
+      if (isErr(rpcResult)) {
+        // Check for fatal session errors
+        if (rpcResult.error.message.includes('InvalidSessionException')) {
+          this.markDead();
+        }
+        return rpcResult;
+      }
 
       // Decode synchronous response handlers
       const responseData = rpcResult.value;

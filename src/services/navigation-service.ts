@@ -50,10 +50,14 @@ export class NavigationService {
     if (!state || !state.repeater) return err(new ProtocolError('State lost after select'));
 
     // Step 2: InvokeAction with SystemAction.Edit (40) — opens the card page
+    // Use the Edit action's controlPath from PageState.actions, not the repeater path
+    const editAction = state.actions.find(a => a.systemAction === 40);
+    const editControlPath = editAction?.controlPath ?? state.repeater.controlPath;
+
     const editInteraction: InvokeActionInteraction = {
       type: 'InvokeAction',
       formId: state.formId,
-      controlPath: state.repeater.controlPath,
+      controlPath: editControlPath,
       systemAction: SystemAction.Edit,
     };
 
