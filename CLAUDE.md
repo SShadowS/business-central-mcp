@@ -35,8 +35,8 @@ Both use NavUserPassword authentication (not Windows/NTLM).
 ```bash
 cd U:/git/bc-mcp
 npx tsc --noEmit                    # Type check
-npx vitest run                       # Unit + protocol tests (55 tests)
-npx vitest run --config vitest.integration.config.ts  # Integration tests against real BC (55 tests)
+npx vitest run                       # Unit + protocol tests (109 tests)
+npx vitest run --config vitest.integration.config.ts  # Integration tests against real BC (87 tests)
 npm start                            # HTTP server on port 3000
 npm run start:stdio-direct           # Direct stdio for Claude Desktop
 ```
@@ -82,6 +82,9 @@ BC sends handler arrays as responses. The EventDecoder transforms these into typ
 
 ### Invoke Queue
 All invokes are serialized via a promise queue in `BCSession`. BC's protocol is stateful -- concurrent sends corrupt sequence numbers.
+
+### Session Lifecycle
+`SessionManager` (`src/session/session-manager.ts`) owns lazy session creation and dead-session recovery. Server entry points (`server.ts`, `stdio-server.ts`) use it instead of managing sessions directly. When a dead session is detected, all page contexts are cleared and `SessionLostError` is thrown.
 
 ## BC Protocol Patterns (Verified from Decompiled Source)
 
@@ -183,7 +186,7 @@ Verify against real BC first. Codify verified behavior as unit tests second. Nev
 ### Test Tiers
 1. **Unit tests** (`tests/unit/`, `tests/protocol/`): Pure logic, no BC needed. Run with `npx vitest run`.
 2. **Integration tests** (`tests/integration/`): Against real BC27/BC28. Run with `npx vitest run --config vitest.integration.config.ts`.
-3. **Workflow smoke tests**: Exercises all 7 MCP tools in realistic multi-step workflows.
+3. **Workflow smoke tests**: Exercises all 8 MCP tools in realistic multi-step workflows.
 4. **Edge case tests**: Protocol edge cases, error handling, cross-version compatibility.
 
 ### Stale Server Process
@@ -245,6 +248,7 @@ Note: `tsx` via `npx` pollutes stdout with `◇ injecting...` which breaks JSON-
 
 ## AI Assistant Guidelines
 
+- When dispatching parallel worktree agents, group by file overlap (not by feature). Files like `types.ts`, `schemas.ts`, `page-context-repo.ts` are touched by many features -- put them in one agent to avoid merge conflicts.
 - If stuck on a protocol issue, use the decompiled BC source (`bc-decompiled-analyzer` agent)
 - Use `gpt5 high` or `zen` for second opinions on complex issues
 - Use `Gemini 2.5 pro` for large file analysis
