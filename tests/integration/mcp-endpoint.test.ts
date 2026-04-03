@@ -13,7 +13,7 @@ describe('MCP Endpoint (integration)', () => {
 
   beforeAll(async () => {
     // Start the server as a child process
-    serverProcess = spawn('npx', ['tsx', 'src/server.ts'], {
+    serverProcess = spawn('node', ['node_modules/tsx/dist/cli.mjs', 'src/server.ts'], {
       cwd: 'U:/git/bc-mcp',
       env: { ...process.env, PORT },
       stdio: ['pipe', 'pipe', 'pipe'],
