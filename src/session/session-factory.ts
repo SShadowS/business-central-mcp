@@ -1,4 +1,4 @@
-import { isErr, type Result, ok } from '../core/result.js';
+import { isErr, type Result, ok, err } from '../core/result.js';
 import { ConnectionError } from '../core/errors.js';
 import type { ConnectionFactory } from '../connection/connection-factory.js';
 import { EventDecoder } from '../protocol/event-decoder.js';
@@ -12,6 +12,7 @@ export class SessionFactory {
     private readonly decoder: EventDecoder,
     private readonly encoder: InteractionEncoder,
     private readonly logger: Logger,
+    private readonly tenantId: string,
     private readonly timeoutMs: number = 30000,
   ) {}
 
@@ -24,8 +25,15 @@ export class SessionFactory {
       this.decoder,
       this.encoder,
       this.logger,
+      this.tenantId,
       this.timeoutMs,
     );
+
+    const initResult = await session.initialize(this.tenantId);
+    if (isErr(initResult)) {
+      session.close();
+      return err(new ConnectionError(`Session initialization failed: ${initResult.error.message}`));
+    }
 
     return ok(session);
   }

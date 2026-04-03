@@ -76,10 +76,10 @@ export class EventDecoder {
 
     switch (eventName) {
       case SESSION_EVENTS.FormToShow:
-        events.push({ type: 'FormCreated', formId: (eventData.formId ?? eventData.FormId ?? '') as string, parentFormId: (eventData.ParentForm ?? eventData.parentForm) as string | undefined, isReload: (eventData.IsReload ?? false) as boolean, controlTree: eventData } satisfies FormCreatedEvent);
+        events.push({ type: 'FormCreated', formId: (eventData.ServerId ?? eventData.formId ?? eventData.FormId ?? '') as string, parentFormId: (eventData.ParentForm ?? eventData.parentForm) as string | undefined, isReload: (eventData.IsReload ?? false) as boolean, controlTree: eventData } satisfies FormCreatedEvent);
         break;
       case SESSION_EVENTS.DialogToShow:
-        events.push({ type: 'DialogOpened', formId: (eventData.formId ?? eventData.FormId ?? '') as string, ownerFormId: (eventData.OwnerForm ?? eventData.ownerForm) as string | undefined, controlTree: eventData } satisfies DialogOpenedEvent);
+        events.push({ type: 'DialogOpened', formId: (eventData.ServerId ?? eventData.formId ?? eventData.FormId ?? '') as string, ownerFormId: (eventData.OwnerForm ?? eventData.ownerForm) as string | undefined, controlTree: eventData } satisfies DialogOpenedEvent);
         break;
     }
     return events;

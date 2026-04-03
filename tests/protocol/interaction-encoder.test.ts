@@ -1,9 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { InteractionEncoder } from '../../src/protocol/interaction-encoder.js';
+import { InteractionEncoder, type SessionContext } from '../../src/protocol/interaction-encoder.js';
 import type { OpenFormInteraction, SaveValueInteraction } from '../../src/protocol/types.js';
 
 describe('InteractionEncoder', () => {
   const encoder = new InteractionEncoder('27.0.0.0');
+
+  const testSession: SessionContext = {
+    sessionId: 'test-session-id',
+    sessionKey: 'test-session-key',
+    company: 'CRONUS',
+    tenantId: 'default',
+    spaInstanceId: 'testspa123',
+  };
 
   it('encodes OpenForm interaction', () => {
     const interaction: OpenFormInteraction = {
@@ -16,10 +24,20 @@ describe('InteractionEncoder', () => {
       sequenceNo: 'spa1#1',
       lastClientAckSequenceNumber: 0,
       openFormIds: new Set(['form1']),
+      session: testSession,
     });
     expect(result.method).toBe('Invoke');
     const params = result.params[0] as Record<string, unknown>;
     expect(params.sequenceNo).toBe('spa1#1');
+    expect(params.sessionId).toBe('test-session-id');
+    expect(params.sessionKey).toBe('test-session-key');
+    expect(params.company).toBe('CRONUS');
+    expect(params.tenantId).toBe('default');
+    expect(params.features).toBeInstanceOf(Array);
+    expect(typeof params.supportedExtensions).toBe('string');
+    const navCtx = params.navigationContext as Record<string, unknown>;
+    expect(navCtx.applicationId).toBe('FIN');
+    expect(navCtx.spaInstanceId).toBe('testspa123');
     const interactions = params.interactionsToInvoke as unknown[];
     expect(interactions.length).toBe(1);
     const inv = interactions[0] as Record<string, unknown>;
@@ -40,8 +58,10 @@ describe('InteractionEncoder', () => {
       sequenceNo: 'spa1#2',
       lastClientAckSequenceNumber: 1,
       openFormIds: new Set(['form123']),
+      session: testSession,
     });
     const params = result.params[0] as Record<string, unknown>;
+    expect(params.sessionId).toBe('test-session-id');
     const inv = (params.interactionsToInvoke as Record<string, unknown>[])[0]!;
     expect(inv.interactionName).toBe('SaveValue');
     expect(inv.formId).toBe('form123');
@@ -61,6 +81,7 @@ describe('InteractionEncoder', () => {
       sequenceNo: 'spa1#3',
       lastClientAckSequenceNumber: 2,
       openFormIds: new Set(['form1', 'form2', 'dialogForm3']),
+      session: testSession,
     });
     const params = result.params[0] as Record<string, unknown>;
     const openFormIds = params.openFormIds as string[];
@@ -81,6 +102,7 @@ describe('InteractionEncoder', () => {
       sequenceNo: 'spa1#4',
       lastClientAckSequenceNumber: 3,
       openFormIds: new Set(['form1']),
+      session: testSession,
     });
     const params = result.params[0] as Record<string, unknown>;
     const inv = (params.interactionsToInvoke as Record<string, unknown>[])[0]!;
@@ -103,6 +125,7 @@ describe('InteractionEncoder', () => {
       sequenceNo: 'spa1#5',
       lastClientAckSequenceNumber: 4,
       openFormIds: new Set(['form1']),
+      session: testSession,
     });
     const params = result.params[0] as Record<string, unknown>;
     const inv = (params.interactionsToInvoke as Record<string, unknown>[])[0]!;
@@ -124,11 +147,33 @@ describe('InteractionEncoder', () => {
       sequenceNo: 'spa1#6',
       lastClientAckSequenceNumber: 5,
       openFormIds: new Set(['form1']),
+      session: testSession,
     });
     const params = result.params[0] as Record<string, unknown>;
     const inv = (params.interactionsToInvoke as Record<string, unknown>[])[0]!;
     expect(inv.interactionName).toBe('SetCurrentRowAndRowsSelection');
     const namedParams = JSON.parse(inv.namedParameters as string);
     expect(namedParams.key).toBe('bookmark-abc');
+  });
+
+  it('encodes OpenSession handshake', () => {
+    const result = encoder.encodeOpenSession('default', 'spa-abc');
+    expect(result.method).toBe('OpenSession');
+    const params = result.params[0] as Record<string, unknown>;
+    expect(params.sessionId).toBe('');
+    expect(params.tenantId).toBe('default');
+    expect(params.company).toBeNull();
+    expect(params.lastClientAckSequenceNumber).toBe(-1);
+    expect(params.features).toBeInstanceOf(Array);
+    expect(typeof params.supportedExtensions).toBe('string');
+    const navCtx = params.navigationContext as Record<string, unknown>;
+    expect(navCtx.applicationId).toBe('FIN');
+    expect(navCtx.spaInstanceId).toBe('spa-abc');
+    const interactions = params.interactionsToInvoke as Record<string, unknown>[];
+    expect(interactions.length).toBe(1);
+    expect(interactions[0]!.interactionName).toBe('OpenForm');
+    const tz = params.timeZoneInformation as Record<string, unknown>;
+    expect(typeof tz.timeZoneBaseOffset).toBe('number');
+    expect(typeof tz.dstPeriodStart).toBe('string');
   });
 });

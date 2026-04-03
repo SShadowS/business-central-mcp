@@ -29,7 +29,7 @@ describe('BCSession (integration)', () => {
     const connFactory = new ConnectionFactory(auth, appConfig.bc, logger);
     const decoder = new EventDecoder();
     const encoder = new InteractionEncoder(appConfig.bc.clientVersionString);
-    const sessionFactory = new SessionFactory(connFactory, decoder, encoder, logger);
+    const sessionFactory = new SessionFactory(connFactory, decoder, encoder, logger, appConfig.bc.tenantId);
 
     const result = await sessionFactory.create();
     expect(isOk(result)).toBe(true);
@@ -67,21 +67,6 @@ describe('BCSession (integration)', () => {
     return events.filter(e => e.type !== 'DialogOpened');
   }
 
-  // NOTE: These tests currently fail because the BCSession/InteractionEncoder
-  // sends "Invoke" RPC calls without first establishing a BC server session
-  // via "OpenSession". The BC WebSocket protocol requires:
-  //
-  // 1. OpenSession RPC - establishes server session, returns ServerSessionId,
-  //    SessionKey, CompanyName, role center formId, timezone info, features list
-  // 2. Invoke RPC - must include sessionId, sessionKey, company, tenantId,
-  //    navigationContext, features, supportedExtensions, telemetry fields
-  //
-  // The current InteractionEncoder only sends: openFormIds, interactionsToInvoke,
-  // sequenceNo, lastClientAckSequenceNumber, clientVersion
-  //
-  // See bc-poc BCSessionManager.openSession() and BCSessionManager.invoke()
-  // for the complete protocol format that BC expects.
-
   it('opens Customer List (page 22) and receives events', async () => {
     const interaction: OpenFormInteraction = {
       type: 'OpenForm',
@@ -94,13 +79,8 @@ describe('BCSession (integration)', () => {
       (event) => event.type === 'InvokeCompleted',
     );
 
-    if (isErr(result)) {
-      console.error('Page 22 FAILED:', result.error.message);
-      // Known issue: RPC times out because OpenSession was never called.
-      // BC server silently ignores Invoke calls without a valid session.
-      expect(result.error.message).toContain('timed out');
-      return;
-    }
+    expect(isErr(result)).toBe(false);
+    if (isErr(result)) return;
 
     let events = result.value;
     console.error('Page 22 event types:', events.map(e => e.type));
@@ -129,12 +109,8 @@ describe('BCSession (integration)', () => {
       (event) => event.type === 'InvokeCompleted',
     );
 
-    if (isErr(result)) {
-      console.error('Page 21 FAILED:', result.error.message);
-      // Known issue: same as above - no OpenSession
-      expect(result.error.message).toContain('timed out');
-      return;
-    }
+    expect(isErr(result)).toBe(false);
+    if (isErr(result)) return;
 
     let events = result.value;
     console.error('Page 21 event types:', events.map(e => e.type));

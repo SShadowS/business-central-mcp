@@ -16,11 +16,17 @@ export class BCSession {
   private readonly _openFormIds = new Set<string>();
   private dead = false;
 
+  private sessionId = '';
+  private sessionKey = '';
+  private company = '';
+  private _initialized = false;
+
   constructor(
     private readonly ws: BCWebSocket,
     private readonly decoder: EventDecoder,
     private readonly encoder: InteractionEncoder,
     private readonly logger: Logger,
+    private readonly tenantId: string,
     private readonly timeoutMs: number = DEFAULT_TIMEOUT_MS,
   ) {}
 
@@ -28,8 +34,61 @@ export class BCSession {
     return this._openFormIds;
   }
 
+  get isInitialized(): boolean {
+    return this._initialized;
+  }
+
   get isAlive(): boolean {
     return !this.dead && this.ws.isConnected;
+  }
+
+  async initialize(tenantId: string): Promise<Result<BCEvent[], ProtocolError>> {
+    const openSessionCall = this.encoder.encodeOpenSession(tenantId, this.ws.spaInstanceId);
+
+    this.logger.debug('protocol', 'Sending OpenSession');
+    const rpcResult = await this.ws.sendRpc(openSessionCall.method, openSessionCall.params, this.timeoutMs);
+    if (isErr(rpcResult)) return rpcResult;
+
+    const responseData = rpcResult.value;
+    let events: BCEvent[] = [];
+    if (Array.isArray(responseData)) {
+      events = this.decoder.decode(responseData);
+    }
+
+    // Wait for async messages
+    await new Promise(resolve => setTimeout(resolve, QUIESCENCE_MS));
+
+    // Extract session credentials from response (recursively searches for fields)
+    this.extractSessionCredentials(responseData);
+
+    // Update form tracking
+    this.updateFormTracking(events);
+
+    this._initialized = true;
+    this.logger.info(`Session initialized: ${this.sessionId}, company: ${this.company}`);
+
+    return ok(events);
+  }
+
+  private extractSessionCredentials(data: unknown): void {
+    if (!data || typeof data !== 'object') return;
+    if (Array.isArray(data)) {
+      for (const item of data) this.extractSessionCredentials(item);
+      return;
+    }
+    const obj = data as Record<string, unknown>;
+    if (typeof obj.ServerSessionId === 'string' && obj.ServerSessionId) {
+      this.sessionId = obj.ServerSessionId;
+    }
+    if (typeof obj.SessionKey === 'string' && obj.SessionKey) {
+      this.sessionKey = obj.SessionKey;
+    }
+    if (typeof obj.CompanyName === 'string' && obj.CompanyName) {
+      this.company = obj.CompanyName;
+    }
+    for (const value of Object.values(obj)) {
+      this.extractSessionCredentials(value);
+    }
   }
 
   async invoke(
@@ -74,6 +133,13 @@ export class BCSession {
         sequenceNo: this.ws.nextSequenceNo,
         lastClientAckSequenceNumber: this.ws.lastClientAckSequenceNumber,
         openFormIds: this._openFormIds,
+        session: {
+          sessionId: this.sessionId,
+          sessionKey: this.sessionKey,
+          company: this.company,
+          tenantId: this.tenantId,
+          spaInstanceId: this.ws.spaInstanceId,
+        },
       };
       const encoded = this.encoder.encode(interaction, context);
 
