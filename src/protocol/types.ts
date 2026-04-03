@@ -78,6 +78,7 @@ export type BCInteraction =
   | SaveValueInteraction
   | FilterInteraction
   | SetCurrentRowInteraction
+  | ScrollRepeaterInteraction
   | SessionActionInteraction;
 
 interface BaseInteraction {
@@ -95,6 +96,7 @@ export interface LoadFormInteraction extends BaseInteraction {
   readonly formId: string;
   readonly loadData: boolean;
   readonly delayed?: boolean;
+  readonly openForm?: boolean;
 }
 
 export interface CloseFormInteraction extends BaseInteraction {
@@ -131,6 +133,13 @@ export interface SetCurrentRowInteraction extends BaseInteraction {
   readonly formId: string;
   readonly controlPath: string;
   readonly key: string;
+}
+
+export interface ScrollRepeaterInteraction extends BaseInteraction {
+  readonly type: 'ScrollRepeater';
+  readonly formId: string;
+  readonly controlPath: string;
+  readonly delta: number;  // positive = forward/down, negative = backward/up
 }
 
 export interface SessionActionInteraction extends BaseInteraction {

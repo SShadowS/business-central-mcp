@@ -126,7 +126,7 @@ export class InteractionEncoder {
       case 'OpenForm':
         return { interactionName: 'OpenForm', namedParameters: JSON.stringify({ query: interaction.query }), controlPath: interaction.controlPath ?? 'server:c[0]', callbackId };
       case 'LoadForm':
-        return { interactionName: 'LoadForm', formId: interaction.formId, namedParameters: JSON.stringify({ loadData: interaction.loadData, delayed: interaction.delayed ?? false }), callbackId };
+        return { interactionName: 'LoadForm', formId: interaction.formId, namedParameters: JSON.stringify({ loadData: interaction.loadData, delayed: interaction.delayed ?? false, ...(interaction.openForm ? { openForm: true } : {}) }), callbackId };
       case 'CloseForm':
         return { interactionName: 'CloseForm', formId: interaction.formId, namedParameters: JSON.stringify({}), callbackId };
       case 'InvokeAction':
@@ -140,6 +140,8 @@ export class InteractionEncoder {
       }
       case 'SetCurrentRow':
         return { interactionName: 'SetCurrentRowAndRowsSelection', formId: interaction.formId, controlPath: interaction.controlPath, namedParameters: JSON.stringify({ key: interaction.key, selectAll: false, rowsToSelect: [interaction.key], unselectAll: true, rowsToUnselect: [] }), callbackId };
+      case 'ScrollRepeater':
+        return { interactionName: 'ScrollRepeater', formId: interaction.formId, controlPath: interaction.controlPath, namedParameters: JSON.stringify({ delta: interaction.delta }), callbackId };
       case 'SessionAction':
         return { interactionName: interaction.actionName, namedParameters: JSON.stringify(interaction.namedParameters ?? {}), controlPath: interaction.controlPath ?? 'server:c[0]', callbackId };
     }

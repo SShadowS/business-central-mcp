@@ -3,7 +3,7 @@ import { PageService, DEFAULT_AUTO_LOAD_SECTIONS } from '../../src/services/page
 
 describe('PageService autoLoadSections config', () => {
   it('DEFAULT_AUTO_LOAD_SECTIONS includes header, lines, and subpage', () => {
-    expect(DEFAULT_AUTO_LOAD_SECTIONS).toEqual(['header', 'lines', 'subpage']);
+    expect(DEFAULT_AUTO_LOAD_SECTIONS).toEqual(['header', 'lines', 'subpage', 'factbox']);
   });
 
   it('accepts custom autoLoadSections via options', () => {
@@ -16,7 +16,7 @@ describe('PageService autoLoadSections config', () => {
 
     // Default config
     const defaultService = new PageService(mockSession, mockRepo, mockLogger);
-    expect((defaultService as any).autoLoadSections).toEqual(['header', 'lines', 'subpage']);
+    expect((defaultService as any).autoLoadSections).toEqual(['header', 'lines', 'subpage', 'factbox']);
 
     // Custom config: only load header
     const headerOnly = new PageService(mockSession, mockRepo, mockLogger, {

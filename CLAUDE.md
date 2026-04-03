@@ -36,7 +36,7 @@ Both use NavUserPassword authentication (not Windows/NTLM).
 cd U:/git/bc-mcp
 npx tsc --noEmit                    # Type check
 npx vitest run                       # Unit + protocol tests (109 tests)
-npx vitest run --config vitest.integration.config.ts  # Integration tests against real BC (87 tests)
+npx vitest run --config vitest.integration.config.ts  # Integration tests against real BC (99 tests)
 npm start                            # HTTP server on port 3000
 npm run start:stdio-direct           # Direct stdio for Claude Desktop
 ```

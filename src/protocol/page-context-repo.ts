@@ -124,6 +124,22 @@ export class PageContextRepository {
         }
       }
 
+      // Route PropertyChanged events to factbox forms when the controlPath matches a factbox field.
+      // BC sends factbox data changes on the ROOT formId. The controlPath matches a factbox
+      // form's field controlPath. Verified from decompiled WebLogicalFormObserver.cs.
+      if (controlPath && event.type === 'PropertyChanged' && formId === page.rootFormId) {
+        const factboxForm = this.findFactboxFormByFieldPath(page, controlPath);
+        if (factboxForm) {
+          const childUpdated = this.formProjection.apply(factboxForm, event);
+          if (childUpdated !== factboxForm) {
+            const forms = new Map(page.forms);
+            forms.set(factboxForm.formId, childUpdated);
+            this.pages.set(pcId, { ...page, forms });
+            return; // Don't also apply to root form
+          }
+        }
+      }
+
       const forms = new Map(page.forms);
       forms.set(formId, updated);
       this.pages.set(pcId, { ...page, forms });
@@ -237,6 +253,17 @@ export class PageContextRepository {
     for (const [fId, form] of page.forms) {
       if (fId === excludeFormId) continue;
       if (form.repeaters.has(controlPath)) return form;
+    }
+    return undefined;
+  }
+
+  /** Find a factbox form that has a field at the given controlPath. */
+  private findFactboxFormByFieldPath(page: PageContext, controlPath: string): FormState | undefined {
+    for (const [, section] of page.sections) {
+      if (section.kind !== 'factbox') continue;
+      const form = page.forms.get(section.formId);
+      if (!form) continue;
+      if (form.controlTree.some(f => f.controlPath === controlPath)) return form;
     }
     return undefined;
   }

@@ -5,7 +5,7 @@ import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { PageContext } from '../protocol/page-context.js';
 import type {
-  BCEvent, OpenFormInteraction, LoadFormInteraction, CloseFormInteraction, InvokeActionInteraction,
+  BCEvent, OpenFormInteraction, LoadFormInteraction, CloseFormInteraction, InvokeActionInteraction, SetCurrentRowInteraction,
 } from '../protocol/types.js';
 import { parseControlTree } from '../protocol/control-tree-parser.js';
 // DiscoveredChildForm is used by repo.registerDiscoveredChildForm, not directly here
@@ -17,7 +17,7 @@ export interface ClosePageResult {
 }
 
 /** Default section kinds that are auto-loaded when a page is opened. */
-export const DEFAULT_AUTO_LOAD_SECTIONS: readonly SectionKind[] = ['header', 'lines', 'subpage'];
+export const DEFAULT_AUTO_LOAD_SECTIONS: readonly SectionKind[] = ['header', 'lines', 'subpage', 'factbox'];
 
 export class PageService {
   private readonly autoLoadSections: readonly SectionKind[];
@@ -150,6 +150,55 @@ export class PageService {
           this.repo.applyToPage(pageContextId, refreshResult.value);
         }
       }
+    }
+
+    // Step 3: Trigger factbox data population by selecting the current row.
+    // BC populates factbox data server-side in response to SetCurrentRow on the
+    // parent repeater. Without this, factbox forms have field metadata but empty values.
+    // Verified from decompiled WebLogicalFormObserver.cs and live WebSocket capture.
+    await this.triggerFactboxRefresh(pageContextId);
+  }
+
+  private async triggerFactboxRefresh(pageContextId: string): Promise<void> {
+    const ctx = this.repo.get(pageContextId);
+    if (!ctx) return;
+
+    // Collect factbox sections
+    const factboxSections = Array.from(ctx.sections.entries()).filter(([, s]) => s.kind === 'factbox');
+    if (factboxSections.length === 0) return;
+
+    // Find the root form's repeater to select a row (triggers server-side factbox Query change)
+    const rootForm = ctx.forms.get(ctx.rootFormId);
+    if (!rootForm) return;
+
+    for (const repeater of rootForm.repeaters.values()) {
+      const firstRow = repeater.rows[0];
+      if (!firstRow?.bookmark) continue;
+
+      // Step 1: Select the first row to trigger factbox Query property change on the server.
+      // The server-side WebLogicalFormObserver registers a "Query" change on child forms.
+      const selectResult = await this.session.invoke(
+        { type: 'SetCurrentRow', formId: ctx.rootFormId, controlPath: repeater.controlPath, key: firstRow.bookmark } as SetCurrentRowInteraction,
+        (event) => event.type === 'InvokeCompleted',
+      );
+      if (isOk(selectResult)) {
+        this.repo.applyToPage(pageContextId, selectResult.value);
+      }
+
+      // Step 2: Re-load each factbox with openForm+loadData to force data refresh.
+      // LoadFormInteraction.CanLoadData() only returns true if DataLoaded is false.
+      // After the initial LoadForm, DataLoaded is true. OpenForm resets form state.
+      // Verified from decompiled LoadFormInteraction.cs: OpenForm -> LoadData chain.
+      for (const [, sec] of factboxSections) {
+        const loadResult = await this.session.invoke(
+          { type: 'LoadForm', formId: sec.formId, loadData: true, delayed: true, openForm: true } as LoadFormInteraction,
+          (event) => event.type === 'InvokeCompleted' || event.type === 'PropertyChanged' || event.type === 'DataLoaded',
+        );
+        if (isOk(loadResult)) {
+          this.repo.applyToPage(pageContextId, loadResult.value);
+        }
+      }
+      break;
     }
   }
 

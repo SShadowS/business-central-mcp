@@ -67,10 +67,24 @@ export class ReadDataOperation {
     }
 
     // Total row count from repeater state (before slicing)
-    const totalRowCount = this.dataService.getRepeaterTotalRowCount(input.pageContextId, input.section);
+    let totalRowCount = this.dataService.getRepeaterTotalRowCount(input.pageContextId, input.section);
+
+    // Full paging: if range requests rows beyond what's loaded, scroll to load more
+    if (input.range && totalRowCount !== null) {
+      const needed = input.range.offset + input.range.limit;
+      while (rows.length < needed && rows.length < (totalRowCount ?? Infinity)) {
+        const scrollResult = await this.dataService.scrollRepeater(input.pageContextId, 1, input.section);
+        if (!isOk(scrollResult)) break;
+        const newRows = scrollResult.value.map(r => ({ bookmark: r.bookmark, cells: r.cells }));
+        if (newRows.length <= rows.length) break; // No new rows loaded
+        rows = newRows;
+        totalRowCount = this.dataService.getRepeaterTotalRowCount(input.pageContextId, input.section);
+      }
+    }
+
     const totalCount = rows.length;
 
-    // Range slicing (paging MVP)
+    // Range slicing
     if (input.range) {
       rows = rows.slice(input.range.offset, input.range.offset + input.range.limit);
     }

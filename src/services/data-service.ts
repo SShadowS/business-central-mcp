@@ -2,7 +2,7 @@ import { ok, err, isErr, type Result } from '../core/result.js';
 import { ProtocolError } from '../core/errors.js';
 import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
-import type { BCEvent, RepeaterRow, RepeaterColumn, RepeaterState, ControlField, TabGroup, SaveValueInteraction, SetCurrentRowInteraction } from '../protocol/types.js';
+import type { BCEvent, RepeaterRow, RepeaterColumn, RepeaterState, ControlField, TabGroup, SaveValueInteraction, SetCurrentRowInteraction, ScrollRepeaterInteraction } from '../protocol/types.js';
 import type { Logger } from '../core/logger.js';
 import { resolveSection } from '../protocol/section-resolver.js';
 
@@ -50,6 +50,37 @@ export class DataService {
     const resolved = resolveSection(ctx, sectionId, 'header');
     if ('error' in resolved) return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
     return ok(resolved.form.tabs);
+  }
+
+  /**
+   * Scroll a repeater to load additional rows beyond the current viewport.
+   * BC uses ContinuousScrolling: delta > 0 loads next rows, delta < 0 loads previous.
+   * Returns all rows after scrolling (including newly loaded ones).
+   */
+  async scrollRepeater(pageContextId: string, delta: number, sectionId?: string): Promise<Result<RepeaterRow[], ProtocolError>> {
+    const ctx = this.repo.get(pageContextId);
+    if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
+    const resolved = resolveSection(ctx, sectionId);
+    if ('error' in resolved) return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
+    if (!resolved.repeater) return ok([]);
+
+    const interaction: ScrollRepeaterInteraction = {
+      type: 'ScrollRepeater',
+      formId: resolved.form.formId,
+      controlPath: resolved.repeater.controlPath,
+      delta,
+    };
+
+    const result = await this.session.invoke(
+      interaction,
+      (event) => event.type === 'InvokeCompleted' || event.type === 'DataLoaded',
+    );
+
+    if (isErr(result)) return result;
+    this.repo.applyToPage(pageContextId, result.value);
+
+    // Return all rows after scroll (newly loaded rows merged by form-state)
+    return this.readRows(pageContextId, sectionId);
   }
 
   readField(pageContextId: string, fieldName: string, sectionId?: string): Result<ControlField | undefined, ProtocolError> {
