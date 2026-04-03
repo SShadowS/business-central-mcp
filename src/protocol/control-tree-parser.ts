@@ -16,6 +16,7 @@ const PAGE_TYPE_MAP: Record<number, ParsedControlTree['pageType']> = {
   0: 'Card',
   1: 'List',
   2: 'Document',
+  3: 'Document',  // Worksheet — treated as Document for our purposes
 };
 
 /**

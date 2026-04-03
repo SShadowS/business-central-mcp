@@ -1,9 +1,9 @@
 import { v4 as uuid } from 'uuid';
-import { ok, err, isErr, type Result } from '../core/result.js';
+import { ok, err, isErr, isOk, type Result } from '../core/result.js';
 import { ProtocolError } from '../core/errors.js';
 import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
-import type { PageState, SetCurrentRowInteraction, InvokeActionInteraction } from '../protocol/types.js';
+import type { PageState, SetCurrentRowInteraction, InvokeActionInteraction, LoadFormInteraction } from '../protocol/types.js';
 import { SystemAction } from '../protocol/types.js';
 import type { Logger } from '../core/logger.js';
 
@@ -87,6 +87,24 @@ export class NavigationService {
 
     // Also apply events to source page (its openFormIds need updating)
     this.repo.applyToPage(pageContextId, events);
+
+    // Load data for the drilled-down card page
+    // Without this, field values are empty (verified from decompiled EditLogicalControl.ObjectValue)
+    const loadInteraction: LoadFormInteraction = {
+      type: 'LoadForm',
+      formId: formCreated.formId,
+      loadData: true,
+      delayed: false,
+    };
+
+    const loadResult = await this.session.invoke(
+      loadInteraction,
+      (event) => event.type === 'InvokeCompleted' || event.type === 'PropertyChanged',
+    );
+
+    if (isOk(loadResult)) {
+      this.repo.applyToPage(targetPageContextId, loadResult.value);
+    }
 
     const targetState = this.repo.get(targetPageContextId);
     if (!targetState) return err(new ProtocolError('Failed to create target page context'));

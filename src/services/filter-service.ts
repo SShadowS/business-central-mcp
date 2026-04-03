@@ -77,8 +77,8 @@ export class FilterService {
 
       // STEP 2: SaveValue — set the actual filter value
       // After Filter(AddLine), BC creates a filter row. The SaveValue targets
-      // the filter value control at {filterControlPath}/c[2]/c[1]
-      const saveValueControlPath = `${filterControlPath}/c[2]/c[1]`;
+      // the filter value control at {filterControlPath}/c[0]/c[1]
+      const saveValueControlPath = `${filterControlPath}/c[0]/c[1]`;
       const saveValueInteraction: SaveValueInteraction = {
         type: 'SaveValue',
         formId: currentState.formId,
