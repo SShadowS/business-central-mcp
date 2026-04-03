@@ -96,9 +96,8 @@ describe.sequential('Phase 4: FactBox Data & Full Paging', () => {
       }
 
       // At least one factbox should have data populated
-      // Note: factbox data depends on the currently selected row
       console.error('Found factbox values:', foundValues);
-      // Don't hard-fail if no values -- factbox data depends on row selection state
+      expect(foundValues).toBe(true);
     });
 
     it('closes page', async () => {
@@ -143,51 +142,67 @@ describe.sequential('Phase 4: FactBox Data & Full Paging', () => {
 
   // --- Tier 2: Full Paging (ScrollRepeater) ---
 
-  describe('2.1: ScrollRepeater on Customer List (page 22)', () => {
+  describe('2.1: Paging on G/L Entries (page 20) - large dataset', () => {
     let pageContextId: string;
 
-    it('opens page 22', async () => {
-      const result = await pageService.openPage('22');
+    it('opens page 20', async () => {
+      const result = await pageService.openPage('20');
       expect(isOk(result)).toBe(true);
       pageContextId = unwrap(result).pageContextId;
     });
 
-    it('loads initial rows and totalRowCount', async () => {
+    it('loads initial viewport (should be ~49 rows)', async () => {
       const result = await readData.execute({ pageContextId });
       expect(isOk(result)).toBe(true);
       const output = unwrap(result);
       console.error(`Initial: ${output.totalCount} rows loaded, totalRowCount=${output.totalRowCount}`);
-      expect(output.totalCount).toBeGreaterThan(0);
+      expect(output.totalCount).toBeGreaterThanOrEqual(20);
     });
 
-    it('scrolls to load more rows', async () => {
+    it('scrolls to load more rows beyond initial viewport', async () => {
       const beforeResult = await readData.execute({ pageContextId });
       const before = unwrap(beforeResult);
       const initialCount = before.totalCount;
 
-      // Scroll down to load more
-      const scrollResult = await dataService.scrollRepeater(pageContextId, 5);
-      expect(isOk(scrollResult)).toBe(true);
-      const afterRows = unwrap(scrollResult);
+      // Scroll down multiple times
+      for (let i = 0; i < 3; i++) {
+        const scrollResult = await dataService.scrollRepeater(pageContextId, 5);
+        expect(isOk(scrollResult)).toBe(true);
+      }
 
-      console.error(`After scroll: ${afterRows.length} rows (was ${initialCount})`);
-      // Should have same or more rows after scrolling
-      expect(afterRows.length).toBeGreaterThanOrEqual(initialCount);
+      const afterResult = await readData.execute({ pageContextId });
+      const after = unwrap(afterResult);
+      console.error(`After 3 scrolls: ${after.totalCount} rows (was ${initialCount})`);
+      // G/L Entries should have many rows; scrolling should load more
+      expect(after.totalCount).toBeGreaterThanOrEqual(initialCount);
     });
 
-    it('range query with auto-scroll loads beyond initial viewport', async () => {
-      // Get initial row count
-      const initialResult = this.dataService?.readRows(pageContextId) ?? await readData.execute({ pageContextId });
-      // Request rows that may be beyond initial viewport
+    it('range query slices correctly', async () => {
+      const allResult = await readData.execute({ pageContextId });
+      const all = unwrap(allResult);
+
+      // Slice first 10
       const rangeResult = await readData.execute({
         pageContextId,
-        range: { offset: 0, limit: 50 },
+        range: { offset: 0, limit: 10 },
       });
       expect(isOk(rangeResult)).toBe(true);
-      const output = unwrap(rangeResult);
-      console.error(`Range 0-50: got ${output.rows.length} rows, totalCount=${output.totalCount}, totalRowCount=${output.totalRowCount}`);
-      // Should return rows (may be less than 50 if fewer exist)
-      expect(output.rows.length).toBeGreaterThan(0);
+      const ranged = unwrap(rangeResult);
+      expect(ranged.rows.length).toBe(10);
+      expect(ranged.totalCount).toBe(all.totalCount);
+      expect(ranged.rows[0]!.bookmark).toBe(all.rows[0]!.bookmark);
+
+      // Slice with offset
+      const offsetResult = await readData.execute({
+        pageContextId,
+        range: { offset: 20, limit: 10 },
+      });
+      expect(isOk(offsetResult)).toBe(true);
+      const offset = unwrap(offsetResult);
+      expect(offset.rows.length).toBe(10);
+      expect(offset.rows[0]!.bookmark).toBe(all.rows[20]!.bookmark);
+
+      console.error(`Paging verified: ${all.totalCount} total rows, slicing works at offset 0 and 20`);
     });
 
     it('closes page', async () => {

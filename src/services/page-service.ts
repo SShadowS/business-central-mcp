@@ -113,17 +113,23 @@ export class PageService {
       if (!section) continue;
       if (!this.autoLoadSections.includes(section.kind)) continue;
 
-      // Step 1: LoadForm to initialize the child form on the server
+      // Step 1: LoadForm to initialize the child form on the server.
+      // For factboxes, openForm:true is needed -- without it, CanLoadData() returns false
+      // because the form was already opened during control tree parsing. openForm resets
+      // the form state so LoadData() can populate field values.
+      // Verified from decompiled LoadFormInteraction.cs: OpenForm -> LoadData chain.
+      const isFactbox = section.kind === 'factbox';
       const loadInteraction: LoadFormInteraction = {
         type: 'LoadForm',
         formId: childFormId,
         loadData: true,
         delayed: false,
+        openForm: isFactbox,
       };
 
       const loadResult = await this.session.invoke(
         loadInteraction,
-        (event) => event.type === 'InvokeCompleted' || event.type === 'DataLoaded',
+        (event) => event.type === 'InvokeCompleted' || event.type === 'DataLoaded' || event.type === 'PropertyChanged',
       );
 
       if (isOk(loadResult)) {
