@@ -44,6 +44,18 @@ export class ActionService {
       a.caption.toLowerCase() === actionName.toLowerCase()
     );
     if (!action) {
+      // Check other sections for the action to provide instructional error
+      const lower = actionName.toLowerCase();
+      for (const [otherId, otherSection] of ctx.sections) {
+        if (otherId === (sectionId ?? 'header')) continue;
+        const otherForm = ctx.forms.get(otherSection.formId);
+        if (otherForm?.actions.some(a => a.caption.toLowerCase() === lower)) {
+          return err(new ProtocolError(
+            `Action '${actionName}' not found in section '${sectionId ?? 'header'}'. It exists in section '${otherId}'. Use section: '${otherId}' to target it.`,
+            { availableSections: Array.from(ctx.sections.keys()) },
+          ));
+        }
+      }
       return err(new ProtocolError(`Action not found: ${actionName}`, {
         availableActions: form.actions.filter(a => a.visible && a.enabled).map(a => a.caption).filter(Boolean),
       }));

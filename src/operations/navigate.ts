@@ -14,8 +14,12 @@ export interface NavigateInput {
 export interface NavigateOutput {
   targetPageContextId?: string;
   pageType?: string;
+  sections?: Array<{ sectionId: string; kind: string; caption: string }>;
   fields?: Array<{ name: string; value?: string; editable: boolean }>;
   rows?: Array<{ bookmark: string; cells: Record<string, unknown> }>;
+  changedSections: string[];
+  dialogsOpened: Array<{ formId: string; message?: string }>;
+  requiresDialogResponse: boolean;
 }
 
 export class NavigateOperation {
@@ -27,12 +31,24 @@ export class NavigateOperation {
       return mapResult(result, (r) => {
         const resolved = resolveSection(r.targetPageContext, 'header');
         const form = 'error' in resolved ? undefined : resolved.form;
+
+        // Collect section descriptors from the target page
+        const sections = Array.from(r.targetPageContext.sections.entries()).map(([sectionId, s]) => ({
+          sectionId,
+          kind: s.kind,
+          caption: s.caption,
+        }));
+
         return {
           targetPageContextId: r.targetPageContext.pageContextId,
           pageType: r.targetPageContext.pageType,
+          sections,
           fields: (form?.controlTree ?? [])
             .filter(f => f.visible && f.caption)
             .map(f => ({ name: f.caption, value: f.stringValue, editable: f.editable })),
+          changedSections: [],
+          dialogsOpened: [],
+          requiresDialogResponse: false,
         };
       });
     }
@@ -45,6 +61,9 @@ export class NavigateOperation {
       const repeater = 'error' in resolved ? null : resolved.repeater;
       return {
         rows: repeater?.rows.map(r => ({ bookmark: r.bookmark, cells: r.cells })),
+        changedSections: [],
+        dialogsOpened: [],
+        requiresDialogResponse: false,
       };
     });
   }

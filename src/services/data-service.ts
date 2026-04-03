@@ -2,7 +2,7 @@ import { ok, err, isErr, type Result } from '../core/result.js';
 import { ProtocolError } from '../core/errors.js';
 import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
-import type { RepeaterRow, RepeaterColumn, RepeaterState, ControlField, SaveValueInteraction, SetCurrentRowInteraction } from '../protocol/types.js';
+import type { BCEvent, RepeaterRow, RepeaterColumn, RepeaterState, ControlField, SaveValueInteraction, SetCurrentRowInteraction } from '../protocol/types.js';
 import type { Logger } from '../core/logger.js';
 import { resolveSection } from '../protocol/section-resolver.js';
 
@@ -12,6 +12,12 @@ export interface FieldWriteResult {
   success: boolean;
   newValue?: string;
   error?: string;
+  events?: BCEvent[];
+}
+
+export interface WriteFieldsResult {
+  results: FieldWriteResult[];
+  events: BCEvent[];
 }
 
 export class DataService {
@@ -92,7 +98,8 @@ export class DataService {
     );
 
     if (isErr(result)) return result;
-    this.repo.applyToPage(pageContextId, result.value);
+    const events = result.value;
+    this.repo.applyToPage(pageContextId, events);
 
     const updatedCtx = this.repo.get(pageContextId);
     const updatedForm = updatedCtx?.forms.get(form.formId);
@@ -103,6 +110,7 @@ export class DataService {
       controlPath: field.controlPath,
       success: true,
       newValue: updatedField?.stringValue ?? value,
+      events,
     });
   }
 
@@ -110,17 +118,19 @@ export class DataService {
     pageContextId: string,
     fields: Record<string, string>,
     options?: { sectionId?: string; bookmark?: string; rowIndex?: number },
-  ): Promise<Result<FieldWriteResult[], ProtocolError>> {
+  ): Promise<Result<WriteFieldsResult, ProtocolError>> {
     const results: FieldWriteResult[] = [];
+    const allEvents: BCEvent[] = [];
     for (const [name, value] of Object.entries(fields)) {
       const result = await this.writeField(pageContextId, name, value, options);
       if (isErr(result)) {
         results.push({ fieldName: name, controlPath: '', success: false, error: result.error.message });
       } else {
         results.push(result.value);
+        if (result.value.events) allEvents.push(...result.value.events);
       }
     }
-    return ok(results);
+    return ok({ results, events: allEvents });
   }
 
   private async writeLineCell(
@@ -189,9 +199,12 @@ export class DataService {
       event.type === 'InvokeCompleted' || event.type === 'PropertyChanged',
     );
     if (isErr(saveResult)) return saveResult;
-    this.repo.applyToPage(pageContextId, saveResult.value);
+    const saveEvents = saveResult.value;
+    this.repo.applyToPage(pageContextId, saveEvents);
 
-    return ok({ fieldName, controlPath: cellPath, success: true, newValue: value });
+    // Combine events from select + save steps
+    const allEvents = [...(isErr(selectResult) ? [] : selectResult.value), ...saveEvents];
+    return ok({ fieldName, controlPath: cellPath, success: true, newValue: value, events: allEvents });
   }
 
   private resolveField(controlTree: ControlField[], fieldName: string): ControlField | undefined {

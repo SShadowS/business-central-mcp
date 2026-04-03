@@ -11,6 +11,10 @@ import { parseControlTree } from '../protocol/control-tree-parser.js';
 // DiscoveredChildForm is used by repo.registerDiscoveredChildForm, not directly here
 import type { Logger } from '../core/logger.js';
 
+export interface ClosePageResult {
+  events: BCEvent[];
+}
+
 export class PageService {
   constructor(
     private readonly session: BCSession,
@@ -140,19 +144,23 @@ export class PageService {
     }
   }
 
-  async closePage(pageContextId: string): Promise<Result<void, ProtocolError>> {
+  async closePage(pageContextId: string): Promise<Result<ClosePageResult, ProtocolError>> {
     const ctx = this.repo.get(pageContextId);
     if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
 
+    const allEvents: BCEvent[] = [];
     for (const formId of ctx.ownedFormIds) {
       const closeInteraction: CloseFormInteraction = { type: 'CloseForm', formId };
-      await this.session.invoke(closeInteraction, (event) => event.type === 'InvokeCompleted');
+      const result = await this.session.invoke(closeInteraction, (event) => event.type === 'InvokeCompleted');
+      if (isOk(result)) {
+        allEvents.push(...result.value);
+      }
       this.session.removeOpenForm(formId);
     }
 
     this.repo.remove(pageContextId);
     this.logger.info(`Page closed: ${pageContextId}`);
-    return ok(undefined);
+    return ok({ events: allEvents });
   }
 
   getPageContext(pageContextId: string): PageContext | undefined {
