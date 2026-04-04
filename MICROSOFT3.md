@@ -136,9 +136,9 @@ console.log('agent data, and all internal API calls.');
 
 **File:** `Microsoft.Dynamics.Nav.Core/RsaEncryptionProviderBase.cs:468-493`
 
-**Root cause:** Three compounding failures:
+**Root cause:** Two compounding failures:
 
-1. **Hardcoded 64-byte salt** (line 470-479):
+1. **Hardcoded 64-byte salt** (line 470-479) -- the same salt for every BC installation worldwide:
 ```csharp
 byte[] array = new byte[64]
 {
@@ -152,31 +152,30 @@ byte[] array = new byte[64]
 };
 ```
 
-2. **Invalid key size** (line 482):
-```csharp
-aesCryptoServiceProvider.Key = rfc2898DeriveBytes.GetBytes(aesCryptoServiceProvider.BlockSize / 4);
-// BlockSize = 128 bits = 16 bytes; 16 / 4 = 4 bytes = 32-bit key
-// AES requires 128, 192, or 256-bit keys. 32 bits is INVALID.
-```
-
-3. **Hardcoded IV derived from salt** (line 493):
+2. **Hardcoded IV derived from salt** (line 493):
 ```csharp
 aesCryptoServiceProvider.IV = array2; // Subset of the hardcoded salt
 ```
+
+Note: the key size is actually correct -- `BlockSize / 4 = 128 / 4 = 32 bytes = AES-256`. The `BlockSize` property returns 128 (bits), not 16 (bytes). The AES key itself is not brute-forceable.
 
 Additionally, legacy fallback (line 547) uses only 1000 PBKDF2 iterations:
 ```csharp
 Rfc2898DeriveBytes rfc2898DeriveBytes = new Rfc2898DeriveBytes(password, salt, 1000);
 ```
 
-**Impact:** All data encrypted by `RsaEncryptionProviderBase.AesCrypt()` uses:
-- Same salt for every encryption operation (rainbow tables feasible)
-- A 32-bit key (brute-forceable in seconds on modern hardware)
-- Predictable IV (derived from the constant salt)
+**Impact:** The key is derived from password + salt via PBKDF2. Since the salt is constant:
+- Rainbow tables / precomputed dictionaries work across ALL BC installations
+- Same password always produces the same key on every BC server worldwide
+- Static IV means identical plaintext + password = identical ciphertext (no semantic security)
+- Legacy path: 1000 PBKDF2 iterations + known salt = millions of password guesses/sec on GPU
+- An attacker with encrypted data can crack passwords offline using the published salt
 
-This likely affects encryption of stored credentials, license keys, and configuration secrets.
+This likely affects encryption of stored credentials, connection strings, and configuration secrets.
 
-**Proposed fix:** Generate random salt per encryption. Use correct key size (256 bits). Generate random IV per encryption. Increase PBKDF2 iterations to 600,000+.
+**Severity adjusted to HIGH** (not CRITICAL) because the AES key itself is 256 bits (not brute-forceable). The attack is password cracking with a known salt, not direct key recovery.
+
+**Proposed fix:** Generate random salt per encryption operation. Generate random IV per encryption. Increase PBKDF2 iterations to 600,000+. Store salt and IV alongside ciphertext.
 
 ### PoC
 
@@ -199,17 +198,17 @@ const HARDCODED_SALT = Buffer.from([
 console.log('Hardcoded AES salt (same for ALL BC installations):');
 console.log('  ' + HARDCODED_SALT.toString('hex'));
 console.log('');
-console.log('Key derivation bug:');
-console.log('  aesCryptoServiceProvider.BlockSize = 128 (bits)');
-console.log('  Key bytes = BlockSize / 4 = 128 / 4 = 32 bits = 4 bytes');
-console.log('  AES minimum key size: 128 bits (16 bytes)');
-console.log('  Actual key size used: 32 bits (4 bytes)');
+console.log('Key derivation:');
+console.log('  BlockSize = 128 (bits), GetBytes(128/4) = GetBytes(32) = 32 bytes = AES-256');
+console.log('  Key size is CORRECT (256 bits). Key itself is NOT brute-forceable.');
 console.log('');
-console.log('A 32-bit key has only 4,294,967,296 possible values.');
-console.log('At 1 billion AES operations/sec (modern GPU), brute force takes ~4 seconds.');
+console.log('The attack is PASSWORD CRACKING, not key cracking:');
+console.log('  Known salt + PBKDF2 = precomputed rainbow tables work everywhere.');
+console.log('  Legacy path: only 1000 iterations -> millions of guesses/sec on GPU.');
+console.log('  Same password on any BC server produces the same key.');
 console.log('');
-console.log('Combined with the constant salt and predictable IV,');
-console.log('ALL encrypted data in BC can be decrypted offline.');
+console.log('Static IV means identical plaintext + password = identical ciphertext.');
+console.log('An attacker can tell when two encrypted values are the same.');
 console.log('');
 console.log('Legacy path (RsaEncryptionProviderBase.cs:547):');
 console.log('  PBKDF2 with only 1000 iterations (standard: 600,000+)');
@@ -573,7 +572,7 @@ await session.closeGracefully();
 |---|---|---|---|---|---|
 | M | Command injection via malware scanner | ~~CRITICAL~~ MEDIUM | NO | NO | UseShellExecute=false limits to arg injection |
 | N | SSL cert validation disabled | CRITICAL | NO | **YES** (MITM all internal comms) | Code-level confirmed, 3 files |
-| O | Hardcoded AES salt + 32-bit key | CRITICAL | NO | **YES** (all installations) | Code-level, salt bytes extracted |
+| O | Hardcoded AES salt + static IV | HIGH | NO | **YES** (all installations) | Code-level, salt bytes extracted. Key is 256-bit (correct). Attack is password cracking. |
 | P | Copilot API session hijack (IDOR) | CRITICAL | NO | **YES** (cross-user) | Code-level, needs Copilot API enabled |
 | Q | Designer actions without auth | CRITICAL | NO | **YES** (modify pages for all users) | Needs live verification |
 | R | SavePropertyValue no whitelist | CRITICAL | NO | Depends on DesignerLevel | Needs live verification |
