@@ -18,6 +18,9 @@ An LLM connected to this server can open BC pages, read data, write fields, exec
 | `bc_navigate` | Select rows, drill down, lookup |
 | `bc_search_pages` | Find pages by name via Tell Me search |
 | `bc_close_page` | Close an open page context |
+| `bc_switch_company` | Switch to a different company within the session |
+| `bc_list_companies` | List all available companies |
+| `bc_run_report` | Execute a report and interact with its request page |
 
 ## Quick start
 
@@ -45,6 +48,11 @@ BC_USERNAME=your-user
 BC_PASSWORD=your-password
 BC_TENANT_ID=default
 LOG_LEVEL=info
+
+# Optional: session resilience tuning
+BC_INVOKE_TIMEOUT=30000       # Kill session if BC hangs longer than this (ms)
+BC_RECONNECT_MAX_RETRIES=4    # Retry attempts after session death
+BC_RECONNECT_BASE_DELAY=1000  # Base delay for exponential backoff (ms)
 ```
 
 ### Run
@@ -123,7 +131,15 @@ Header fields are grouped by tab (General, Invoice Details, Shipping and Billing
 Actions that trigger dialogs (Post, Copy Document, confirmations) return structured dialog info including parsed fields. Respond with `bc_respond_dialog`.
 
 ### Session recovery
-Dead sessions (InvalidSessionException, WebSocket disconnect) are automatically detected. The next tool call creates a fresh session and returns a clear error so the LLM can re-open pages.
+Dead sessions (InvalidSessionException, WebSocket disconnect) are automatically detected. The server reconnects with exponential backoff (1s, 2s, 4s, 8s) to wait out BC's ~15-second NTLM auth slot hold after a crash. The LLM receives a clear error listing invalidated page context IDs so it can re-open pages. Stale modal state from crashed sessions (`LogicalModalityViolationException`) is also handled with retry.
+
+If an invoke hangs indefinitely (a known BC bug), the session-level timeout kills the connection and triggers automatic recovery on the next request.
+
+### Multi-company
+Switch between companies within a session using `bc_switch_company`. All open pages are invalidated on switch since BC resets server-side page state. Use `bc_list_companies` to discover available companies.
+
+### Report execution
+Run BC reports via `bc_run_report`. Reports with request pages (parameter dialogs) return structured fields -- fill parameters with `bc_write_data` and execute with `bc_respond_dialog`. Report output capture (PDF/Excel download) is not yet supported -- use this for reports that perform server-side actions (batch posting, adjustments) or to inspect request page parameters.
 
 ### Paging
 Large lists support range-based reads with `range: { offset, limit }`. The server auto-scrolls via BC's `ScrollRepeater` protocol when the requested range exceeds the loaded viewport.
@@ -136,16 +152,16 @@ npm test                       # Unit + protocol tests
 npm run test:integration       # Integration tests against real BC
 ```
 
-Unit tests (109) run without BC. Integration tests (99+) require a running BC instance configured via `.env`.
+Unit tests (128) run without BC. Integration tests (103) require a running BC instance configured via `.env`.
 
 ## Known limitations
 
 ### License popup on fresh databases
-After restoring a BC database, the first session may encounter a license notification dialog. This is a special system-level dialog that the MCP server cannot dismiss programmatically. **Update the BC license before connecting the MCP server** to prevent this from blocking all subsequent operations.
+After restoring a BC database, the first session may encounter a license notification dialog. The server auto-dismisses license/evaluation/trial dialogs during session initialization. If auto-dismiss fails, update the BC license manually before connecting.
 
 ### Session modal state persistence (BC bug)
 
-If the MCP server disconnects without properly closing open forms (e.g., process crash), BC retains modal dialog state server-side, blocking new sessions for the same user with `LogicalModalityViolationException`. The server uses `closeGracefully()` to close all forms and dismiss dialogs before disconnecting, but abrupt termination can still trigger the bug. See [MICROSOFT.md](MICROSOFT.md) for the full analysis and proposed fix.
+If the MCP server crashes without closing forms, BC retains modal dialog state server-side, blocking new sessions for the same user with `LogicalModalityViolationException`. The server handles this automatically with retry/backoff during reconnection. Manual intervention is not normally needed.
 
 ### FactBox data on card pages opened without context
 FactBox data loads automatically on list pages (via SetCurrentRow) and card/document pages (via LoadForm with openForm). However, some factboxes may return empty values if BC's server-side data binding requires additional context that isn't provided during the initial page open.
