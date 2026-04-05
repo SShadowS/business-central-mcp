@@ -6,6 +6,9 @@ export interface BCConfig {
   clientVersionString: string;
   serverMajor: number;
   timeoutMs: number;
+  invokeTimeoutMs: number;
+  reconnectMaxRetries: number;
+  reconnectBaseDelayMs: number;
 }
 
 export interface LoggingConfig {
@@ -72,6 +75,9 @@ export function loadConfig(): AppConfig {
       clientVersionString: optionalEnv('BC_CLIENT_VERSION', '27.0.0.0'),
       serverMajor: optionalEnvInt('BC_SERVER_MAJOR', 27),
       timeoutMs: optionalEnvInt('BC_TIMEOUT', 120000),
+      invokeTimeoutMs: optionalEnvInt('BC_INVOKE_TIMEOUT', 30000),
+      reconnectMaxRetries: optionalEnvInt('BC_RECONNECT_MAX_RETRIES', 4),
+      reconnectBaseDelayMs: optionalEnvInt('BC_RECONNECT_BASE_DELAY', 1000),
     },
     logging: {
       level: optionalEnv('LOG_LEVEL', 'info'),
