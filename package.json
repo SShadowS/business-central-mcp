@@ -34,7 +34,7 @@
     "ai"
   ],
   "author": "Torben Leth",
-  "license": "ISC",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/TorbenLeth/business-central-mcp"

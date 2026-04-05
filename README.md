@@ -97,4 +97,4 @@ npm run test:integration     # 103 integration tests against real BC
 
 ## License
 
-ISC
+MIT
