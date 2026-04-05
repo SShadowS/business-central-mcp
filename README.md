@@ -9,7 +9,7 @@
 <p align="center">
   <a href="https://www.npmjs.com/package/business-central-mcp"><img src="https://img.shields.io/npm/v/business-central-mcp" alt="npm version"></a>
   <a href="https://www.npmjs.com/package/business-central-mcp"><img src="https://img.shields.io/npm/dm/business-central-mcp" alt="npm downloads"></a>
-  <a href="https://github.com/TorbenLeth/business-central-mcp/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/business-central-mcp" alt="license"></a>
+  <a href="https://github.com/SShadowS/business-central-mcp/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/business-central-mcp" alt="license"></a>
 </p>
 
 ---
@@ -87,7 +87,7 @@ One WebSocket connection per session. All operations serialized through a promis
 ## Development
 
 ```bash
-git clone https://github.com/TorbenLeth/business-central-mcp
+git clone https://github.com/SShadowS/business-central-mcp
 cd business-central-mcp
 npm install
 npm run start:stdio-direct   # Run from source

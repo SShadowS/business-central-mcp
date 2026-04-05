@@ -37,7 +37,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/TorbenLeth/business-central-mcp"
+    "url": "https://github.com/SShadowS/business-central-mcp"
   },
   "dependencies": {
     "cheerio": "^1.2.0",
