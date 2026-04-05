@@ -24,6 +24,8 @@ import { ClosePageOperation } from './operations/close-page.js';
 import { SearchPagesOperation } from './operations/search-pages.js';
 import { NavigateOperation } from './operations/navigate.js';
 import { RespondDialogOperation } from './operations/respond-dialog.js';
+import { SwitchCompanyOperation } from './operations/switch-company.js';
+import { ListCompaniesOperation } from './operations/list-companies.js';
 import { buildToolRegistry, type Operations } from './mcp/tool-registry.js';
 import { MCPHandler } from './mcp/handler.js';
 import { createApiRoutes } from './api/routes.js';
@@ -79,6 +81,8 @@ async function main() {
       searchPages: new SearchPagesOperation(searchService),
       navigate: new NavigateOperation(navigationService),
       respondDialog: new RespondDialogOperation(s, pageContextRepo),
+      switchCompany: new SwitchCompanyOperation(s, pageContextRepo, logger),
+      listCompanies: new ListCompaniesOperation(pageService, dataService, () => s.companyName, logger),
     };
 
     return { operations, tools: buildToolRegistry(operations) };

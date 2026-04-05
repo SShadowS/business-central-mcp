@@ -65,6 +65,12 @@ export const RespondDialogSchema = z.object({
   response: z.enum(['ok', 'cancel', 'yes', 'no', 'abort', 'close']).describe('"ok" confirms, "cancel" dismisses, "yes"/"no" answers a question, "abort" force-closes, "close" closes a modal info page.'),
 });
 
+export const SwitchCompanySchema = z.object({
+  companyName: z.string().min(1).describe('Exact company name to switch to. Use bc_list_companies to see available company names.'),
+});
+
+export const ListCompaniesSchema = z.object({});
+
 /**
  * Generate MCP-compatible JSON schema from a Zod schema.
  * Handles the OpenPageSchema specially since it uses .transform() which

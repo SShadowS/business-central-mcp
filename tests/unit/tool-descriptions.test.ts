@@ -10,6 +10,8 @@ const mockOps = {
   searchPages: { execute: async () => ({}) },
   navigate: { execute: async () => ({}) },
   respondDialog: { execute: async () => ({}) },
+  switchCompany: { execute: async () => ({}) },
+  listCompanies: { execute: async () => ({}) },
 } as unknown as Operations;
 
 describe('tool descriptions', () => {

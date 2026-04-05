@@ -8,6 +8,8 @@ import {
   SearchPagesSchema,
   NavigateSchema,
   RespondDialogSchema,
+  SwitchCompanySchema,
+  ListCompaniesSchema,
   toMcpJsonSchema,
 } from './schemas.js';
 import type { OpenPageOperation } from '../operations/open-page.js';
@@ -18,6 +20,8 @@ import type { ClosePageOperation } from '../operations/close-page.js';
 import type { SearchPagesOperation } from '../operations/search-pages.js';
 import type { NavigateOperation } from '../operations/navigate.js';
 import type { RespondDialogOperation } from '../operations/respond-dialog.js';
+import type { SwitchCompanyOperation } from '../operations/switch-company.js';
+import type { ListCompaniesOperation } from '../operations/list-companies.js';
 
 export interface ToolDefinition {
   name: string;
@@ -36,6 +40,8 @@ export interface Operations {
   searchPages: SearchPagesOperation;
   navigate: NavigateOperation;
   respondDialog: RespondDialogOperation;
+  switchCompany: SwitchCompanyOperation;
+  listCompanies: ListCompaniesOperation;
 }
 
 export function buildToolRegistry(ops: Operations): ToolDefinition[] {
@@ -176,6 +182,30 @@ Example: { "pageContextId": "abc", "dialogFormId": "dialog-123", "response": "ye
       inputSchema: toMcpJsonSchema(RespondDialogSchema),
       zodSchema: RespondDialogSchema,
       execute: (input) => ops.respondDialog.execute(input as Parameters<typeof ops.respondDialog.execute>[0]),
+    },
+    {
+      name: 'bc_switch_company',
+      description: `Switch to a different company within the current Business Central session. All currently open pages will be invalidated and their pageContextIds will become unusable -- you must call bc_open_page to re-open any pages you need in the new company context.
+
+Use bc_list_companies first to see the available company names and verify the target company exists. The companyName must be an exact match. After switching, all subsequent bc_open_page, bc_read_data, bc_write_data, and bc_execute_action calls will operate against the new company's data.
+
+Do NOT switch companies in the middle of a multi-step workflow (e.g., between creating a Sales Order and posting it). Complete all operations in the current company first, then switch.
+
+Example: { "companyName": "CRONUS International Ltd." }`,
+      inputSchema: toMcpJsonSchema(SwitchCompanySchema),
+      zodSchema: SwitchCompanySchema,
+      execute: (input) => ops.switchCompany.execute(input as Parameters<typeof ops.switchCompany.execute>[0]),
+    },
+    {
+      name: 'bc_list_companies',
+      description: `List all companies available in the current Business Central environment. Returns an array of company names along with the currently active company name. Use this before bc_switch_company to verify the target company exists and to discover available companies.
+
+This tool opens the BC Companies system page internally, reads all entries, and closes it. It does not affect your currently open pages or session state. No parameters are required.
+
+Do NOT use this if you already know the company name -- call bc_switch_company directly. If you need to work with data in a specific company, use bc_switch_company followed by bc_open_page.`,
+      inputSchema: toMcpJsonSchema(ListCompaniesSchema),
+      zodSchema: ListCompaniesSchema,
+      execute: () => ops.listCompanies.execute(),
     },
   ];
 }

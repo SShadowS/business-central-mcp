@@ -38,6 +38,10 @@ export class BCSession {
     return this._initialized;
   }
 
+  get companyName(): string {
+    return this.company;
+  }
+
   get isAlive(): boolean {
     return !this.dead && this.ws.isConnected;
   }
