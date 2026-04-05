@@ -1,6 +1,6 @@
 import { v4 as uuid } from 'uuid';
 import { ok, err, isOk, isErr, type Result } from '../core/result.js';
-import { ProtocolError } from '../core/errors.js';
+import { ProtocolError, TimeoutError } from '../core/errors.js';
 import type { BCWebSocket } from '../connection/bc-websocket.js';
 import type { BCEvent, BCInteraction, EventPredicate } from '../protocol/types.js';
 import { EventDecoder } from '../protocol/event-decoder.js';
@@ -97,7 +97,34 @@ export class BCSession {
     timeoutMs?: number,
   ): Promise<Result<BCEvent[], ProtocolError>> {
     if (this.dead) return err(new ProtocolError('Session is dead'));
-    return this.enqueue(() => this.invokeInternal(interaction, expect, timeoutMs ?? this.timeoutMs));
+    const effectiveTimeout = timeoutMs ?? this.timeoutMs;
+    try {
+      return await this.withTimeout(
+        this.enqueue(() => this.invokeInternal(interaction, expect, effectiveTimeout)),
+        effectiveTimeout + 5000, // Session-level timeout is 5s longer than RPC timeout
+        `Invoke(${interaction.type})`,
+      );
+    } catch (e) {
+      if (e instanceof TimeoutError) {
+        return err(new ProtocolError(e.message));
+      }
+      throw e;
+    }
+  }
+
+  private withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.logger.error(`${label} timed out after ${ms}ms, killing session`);
+        this.markDead();
+        this.ws.close();
+        reject(new TimeoutError(`BC did not respond within ${ms / 1000}s. Session has been killed and will reconnect on next request.`));
+      }, ms);
+      promise.then(
+        (val) => { clearTimeout(timer); resolve(val); },
+        (rejection) => { clearTimeout(timer); reject(rejection); },
+      );
+    });
   }
 
   private async invokeInternal(
