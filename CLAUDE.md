@@ -231,6 +231,11 @@ Document pages (Sales Order=42/43, Purchase Order=50/51) have both a header repe
 ### Session Recovery
 After a session-killing error, BC holds the NTLM slot for ~15 seconds. The SessionManager handles this with exponential backoff (up to 4 retries). If an invoke hangs indefinitely (confirmed BC bug), the session-level timeout (default 30s) kills the connection and triggers auto-recovery on the next request.
 
+### Report Output Capture (Phase 6)
+`bc_run_report` can execute reports and fill request pages, but cannot capture the rendered output (PDF/Excel/Word). After execution, BC delivers the report binary via `FileActionDialog` / `BrowserDownloadFileRequest` over a separate streaming channel (WCF `StreamTransfer`), not inline in the WebSocket response. Phase 6 will investigate intercepting this stream.
+
+Reference: `ReportResultSetDownloadDecorator.SendReportStreamToClient()`, `NSClientCallback.DownloadFileAction()`, `Connection.DownloadStream` (decompiled)
+
 ### Async Message Timing
 The invoke quiescence window (150ms) is a best-effort wait for trailing async `Message` notifications. In rare cases, late-arriving messages may be missed.
 
