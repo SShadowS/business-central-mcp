@@ -327,6 +327,22 @@ export class BCSession {
     this.ws.close();
   }
 
+  async runReport(reportId: number): Promise<Result<BCEvent[], ProtocolError>> {
+    if (this.dead) return err(new ProtocolError('Session is dead'));
+    // RunReport is dispatched via OpenForm with query "report=<id>".
+    // The BC web client uses FormPropertyBag with COMMAND=report, ID=<id>.
+    // Verified from decompiled NavRunReportPropertyBagInvokedAction.cs:
+    //   FormPropertyBag maps "report" key to COMMAND=report, ID=reportId
+    //   InvokePropertyBagAction calls IService.RunReport(reportId)
+    return this.invoke(
+      {
+        type: 'OpenForm',
+        query: `report=${reportId}&tenant=${this.tenantId}`,
+      },
+      (e) => e.type === 'InvokeCompleted' || e.type === 'DialogOpened' || e.type === 'FormCreated',
+    );
+  }
+
   close(): void {
     this.dead = true;
     this.ws.close();

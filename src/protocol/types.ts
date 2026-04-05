@@ -79,8 +79,7 @@ export type BCInteraction =
   | FilterInteraction
   | SetCurrentRowInteraction
   | ScrollRepeaterInteraction
-  | SessionActionInteraction
-  | RunReportInteraction;
+  | SessionActionInteraction;
 
 interface BaseInteraction {
   readonly formId?: string;
@@ -147,11 +146,6 @@ export interface SessionActionInteraction extends BaseInteraction {
   readonly type: 'SessionAction';
   readonly actionName: string;
   readonly namedParameters?: Record<string, unknown>;
-}
-
-export interface RunReportInteraction extends BaseInteraction {
-  readonly type: 'RunReport';
-  readonly reportId: number;
 }
 
 // -- Constants --

@@ -1,4 +1,4 @@
-import { ok, isOk, type Result } from '../core/result.js';
+import { ok, isErr, type Result } from '../core/result.js';
 import type { ProtocolError } from '../core/errors.js';
 import type { BCSession } from '../session/bc-session.js';
 import type { ControlField } from '../protocol/types.js';
@@ -28,12 +28,9 @@ export class RunReportOperation {
   async execute(input: RunReportInput): Promise<Result<RunReportOutput, ProtocolError>> {
     const reportId = parseInt(input.reportId, 10);
 
-    const result = await this.session.invoke(
-      { type: 'RunReport', reportId },
-      (e) => e.type === 'InvokeCompleted' || e.type === 'DialogOpened' || e.type === 'FormCreated',
-    );
+    const result = await this.session.runReport(reportId);
 
-    if (!isOk(result)) return result;
+    if (isErr(result)) return result;
 
     const events = result.value;
     const dialogsOpened = detectDialogs(events);
