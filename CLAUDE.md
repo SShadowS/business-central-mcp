@@ -26,7 +26,7 @@ This project is NOT released and in active development:
 | Username | sshadows | sshadows |
 | Password | 1234 | 1234 |
 | Auth | NavUserPassword | NavUserPassword |
-| License popup | Yes (dismiss on first use) | Yes (dismiss on first use) |
+| License popup | Auto-dismissed | Auto-dismissed |
 | Protocol version | 15041 | 15041 (identical) |
 
 Both use NavUserPassword authentication (not Windows/NTLM).
@@ -35,8 +35,8 @@ Both use NavUserPassword authentication (not Windows/NTLM).
 ```bash
 cd U:/git/bc-mcp
 npx tsc --noEmit                    # Type check
-npx vitest run                       # Unit + protocol tests (109 tests)
-npx vitest run --config vitest.integration.config.ts  # Integration tests against real BC (99 tests)
+npx vitest run                       # Unit + protocol tests (128 tests)
+npx vitest run --config vitest.integration.config.ts  # Integration tests against real BC (103 tests)
 npm start                            # HTTP server on port 3000
 npm run start:stdio-direct           # Direct stdio for Claude Desktop
 ```
@@ -78,13 +78,15 @@ BC supports multiple forms on one WebSocket connection, tracked by `formId` in e
 The v1 "per-page connection" was a workaround for an `openFormIds` tracking bug, not a BC requirement.
 
 ### Event-Driven Protocol
-BC sends handler arrays as responses. The EventDecoder transforms these into typed `BCEvent[]`. State is derived from events via `StateProjection` into `PageState`.
+BC sends handler arrays as responses. The EventDecoder transforms these into typed `BCEvent[]`. State is derived from events via `FormProjection` into per-form `FormState`, coordinated by `PageContext`.
 
 ### Invoke Queue
 All invokes are serialized via a promise queue in `BCSession`. BC's protocol is stateful -- concurrent sends corrupt sequence numbers.
 
 ### Session Lifecycle
-`SessionManager` (`src/session/session-manager.ts`) owns lazy session creation and dead-session recovery. Server entry points (`server.ts`, `stdio-server.ts`) use it instead of managing sessions directly. When a dead session is detected, all page contexts are cleared and `SessionLostError` is thrown.
+`SessionManager` (`src/session/session-manager.ts`) owns lazy session creation and dead-session recovery with exponential backoff (1s, 2s, 4s, 8s). Server entry points (`server.ts`, `stdio-server.ts`) use it instead of managing sessions directly. When a dead session is detected, all page contexts are cleared and `SessionLostError` is thrown. `LogicalModalityViolationException` (stale modal state from crashed sessions) is handled with the same retry logic. License/evaluation dialogs are auto-dismissed during session init.
+
+Configurable via env vars: `BC_INVOKE_TIMEOUT` (default 30s), `BC_RECONNECT_MAX_RETRIES` (default 4), `BC_RECONNECT_BASE_DELAY` (default 1s).
 
 ## BC Protocol Patterns (Verified from Decompiled Source)
 
@@ -141,6 +143,16 @@ BC DOES echo back validated/formatted field values as `PropertyChanged` events a
 
 Reference: `LogicalControlObserver.BeforeGetChanges` registers changed StringValue/ObjectValue.
 
+### Report Execution Protocol
+Reports are opened via `OpenForm` with `query: "report=<id>&tenant=<tenantId>"`. NOT a standalone `RunReport` RPC method or `InvokeSessionAction`. BC opens the report's request page as a `DialogOpened` event with `MappingHint: "RequestPage"`. Fill parameters with `SaveValue`, execute with `InvokeAction(OK)`.
+
+Reference: `NavRunReportPropertyBagInvokedAction.cs`, `RunReportAction.cs` (decompiled). Verified against live BC28: report 6 (Trial Balance) returns request page dialog.
+
+### Company Switching
+Uses `InvokeSessionAction` with `SystemAction: 500` (ChangeCompany). All server-side page state is reset. The `SessionSettingsChangedHandler` response carries the new company info.
+
+Reference: `ChangeCompanyAction.cs`, `NavSystemCodeunitSystemActionTriggers.cs` (decompiled). Wire format needs further protocol investigation -- the exact namedParameters may differ from the initial implementation.
+
 ### BC27 vs BC28 Wire Compatibility
 Wire format is identical: same handler types, type abbreviations (~50 aliases), compatibility version (15041). Only addition in BC28: `CopilotSettingsChanged` event (ignorable). A single codec handles both.
 
@@ -154,7 +166,7 @@ EditList=50, View=60, ViewList=70, OpenFullList=80,
 AssistEdit=100, Lookup=110, DrillDown=120,
 Ok=300, Cancel=310, Abort=320,
 LookupOk=330, LookupCancel=340, Yes=380, No=390,
-PageSearch=220
+PageSearch=220, RunReport=210, ChangeCompany=500
 ```
 
 Reference: `SystemAction.cs` (decompiled, identical BC27/BC28)
@@ -186,7 +198,7 @@ Verify against real BC first. Codify verified behavior as unit tests second. Nev
 ### Test Tiers
 1. **Unit tests** (`tests/unit/`, `tests/protocol/`): Pure logic, no BC needed. Run with `npx vitest run`.
 2. **Integration tests** (`tests/integration/`): Against real BC27/BC28. Run with `npx vitest run --config vitest.integration.config.ts`.
-3. **Workflow smoke tests**: Exercises all 8 MCP tools in realistic multi-step workflows.
+3. **Workflow smoke tests**: Exercises all 11 MCP tools in realistic multi-step workflows.
 4. **Edge case tests**: Protocol edge cases, error handling, cross-version compatibility.
 
 ### Stale Server Process
@@ -217,7 +229,7 @@ Source: https://platform.claude.com/docs/en/docs/agents-and-tools/tool-use/defin
 Document pages (Sales Order=42/43, Purchase Order=50/51) have both a header repeater and a lines subpage repeater. The current PageState only tracks one repeater. Drilling down from document list pages may use the wrong repeater's bookmarks. This is a known architectural limitation to be addressed.
 
 ### Session Recovery
-After a session-killing error, BC holds the NTLM slot for ~15 seconds. The MCP server detects dead sessions and creates new ones on the next request, but there's a brief window where connections fail.
+After a session-killing error, BC holds the NTLM slot for ~15 seconds. The SessionManager handles this with exponential backoff (up to 4 retries). If an invoke hangs indefinitely (confirmed BC bug), the session-level timeout (default 30s) kills the connection and triggers auto-recovery on the next request.
 
 ### Async Message Timing
 The invoke quiescence window (150ms) is a best-effort wait for trailing async `Message` notifications. In rare cases, late-arriving messages may be missed.
