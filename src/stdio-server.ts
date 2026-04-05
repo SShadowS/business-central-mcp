@@ -53,9 +53,12 @@ async function main() {
 
   // Session — created lazily on first tools/call, with automatic recovery
   const sessionFactory = new SessionFactory(
-    connectionFactory, decoder, encoder, logger, config.bc.tenantId,
+    connectionFactory, decoder, encoder, logger, config.bc.tenantId, config.bc.invokeTimeoutMs,
   );
-  const sessionManager = new SessionManager(sessionFactory, pageContextRepo, logger);
+  const sessionManager = new SessionManager(sessionFactory, pageContextRepo, logger, {
+    maxRetries: config.bc.reconnectMaxRetries,
+    baseDelayMs: config.bc.reconnectBaseDelayMs,
+  });
 
   let realTools: ReturnType<typeof buildToolRegistry> | null = null;
 

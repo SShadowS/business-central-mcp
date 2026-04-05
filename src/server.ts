@@ -54,9 +54,12 @@ async function main() {
 
   // Session — created lazily on first request, with automatic recovery
   const sessionFactory = new SessionFactory(
-    connectionFactory, decoder, encoder, logger, config.bc.tenantId,
+    connectionFactory, decoder, encoder, logger, config.bc.tenantId, config.bc.invokeTimeoutMs,
   );
-  const sessionManager = new SessionManager(sessionFactory, pageContextRepo, logger);
+  const sessionManager = new SessionManager(sessionFactory, pageContextRepo, logger, {
+    maxRetries: config.bc.reconnectMaxRetries,
+    baseDelayMs: config.bc.reconnectBaseDelayMs,
+  });
 
   // Services — built once after session is available
   function buildServices(s: BCSession): { operations: Operations; tools: ReturnType<typeof buildToolRegistry> } {
