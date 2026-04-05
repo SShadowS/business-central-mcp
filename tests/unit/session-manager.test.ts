@@ -43,6 +43,13 @@ function createMockLogger() {
   };
 }
 
+/** SessionManager subclass that skips real delays */
+class TestSessionManager extends SessionManager {
+  protected override delay(_ms: number): Promise<void> {
+    return Promise.resolve();
+  }
+}
+
 describe('SessionManager', () => {
   let logger: ReturnType<typeof createMockLogger>;
   let repo: ReturnType<typeof createMockPageContextRepo>;
@@ -55,7 +62,7 @@ describe('SessionManager', () => {
   it('creates a session on first call', async () => {
     const mockSession = createMockSession();
     const factory = createMockSessionFactory(mockSession);
-    const mgr = new SessionManager(factory as any, repo as any, logger as any);
+    const mgr = new TestSessionManager(factory as any, repo as any, logger as any);
 
     const session = await mgr.getSession();
     expect(session).toBe(mockSession);
@@ -65,7 +72,7 @@ describe('SessionManager', () => {
   it('returns existing alive session without recreating', async () => {
     const mockSession = createMockSession();
     const factory = createMockSessionFactory(mockSession);
-    const mgr = new SessionManager(factory as any, repo as any, logger as any);
+    const mgr = new TestSessionManager(factory as any, repo as any, logger as any);
 
     await mgr.getSession();
     const session2 = await mgr.getSession();
@@ -74,38 +81,31 @@ describe('SessionManager', () => {
   });
 
   it('throws SessionLostError when session is dead, after creating new session', async () => {
-    const deadSession = createMockSession(false); // isAlive = false
+    const aliveSession = createMockSession(true);
     const newSession = createMockSession(true);
 
-    const factory = createMockSessionFactory(deadSession);
-    const mgr = new SessionManager(factory as any, repo as any, logger as any);
-
-    // First call: get the session (alive at creation)
-    // We need to manually set the internal session to the dead one
-    // Do this by creating, then making it dead
-    const aliveSession = createMockSession(true);
-    const factory2 = {
+    const factory = {
       create: vi.fn()
         .mockResolvedValueOnce(ok(aliveSession))
         .mockResolvedValueOnce(ok(newSession)),
     };
-    const mgr2 = new SessionManager(factory2 as any, repo as any, logger as any);
+    const mgr = new TestSessionManager(factory as any, repo as any, logger as any);
 
     // First call succeeds
-    const s1 = await mgr2.getSession();
+    const s1 = await mgr.getSession();
     expect(s1).toBe(aliveSession);
 
     // Now mark the session as dead by mutating isAlive
     (aliveSession as any).isAlive = false;
 
     // Next call should detect death, recover, and throw SessionLostError
-    await expect(mgr2.getSession()).rejects.toThrow(SessionLostError);
+    await expect(mgr.getSession()).rejects.toThrow(SessionLostError);
 
     // Verify recovery actions
     expect(aliveSession.close).toHaveBeenCalled();
     expect(repo.clearAll).toHaveBeenCalled();
-    expect(factory2.create).toHaveBeenCalledTimes(2);
-    expect(mgr2.needsServiceRebuild).toBe(true);
+    expect(factory.create).toHaveBeenCalledTimes(2);
+    expect(mgr.needsServiceRebuild).toBe(true);
   });
 
   it('SessionLostError includes impacted page context IDs', async () => {
@@ -117,7 +117,7 @@ describe('SessionManager', () => {
         .mockResolvedValueOnce(ok(aliveSession))
         .mockResolvedValueOnce(ok(newSession)),
     };
-    const mgr = new SessionManager(factory as any, repo as any, logger as any);
+    const mgr = new TestSessionManager(factory as any, repo as any, logger as any);
 
     await mgr.getSession();
     (aliveSession as any).isAlive = false;
@@ -140,7 +140,7 @@ describe('SessionManager', () => {
         .mockResolvedValueOnce(ok(aliveSession))
         .mockResolvedValueOnce(ok(newSession)),
     };
-    const mgr = new SessionManager(factory as any, repo as any, logger as any);
+    const mgr = new TestSessionManager(factory as any, repo as any, logger as any);
 
     await mgr.getSession();
     (aliveSession as any).isAlive = false;
@@ -153,33 +153,41 @@ describe('SessionManager', () => {
     expect(s).toBe(newSession);
   });
 
-  it('throws regular error if recovery fails', async () => {
+  it('throws SessionLostError with reconnectFailed when all retries exhausted', async () => {
     const aliveSession = createMockSession(true);
 
     const factory = {
       create: vi.fn()
         .mockResolvedValueOnce(ok(aliveSession))
-        .mockResolvedValueOnce(err(new ConnectionError('recovery failed'))),
+        .mockResolvedValue(err(new ConnectionError('recovery failed'))),
     };
-    const mgr = new SessionManager(factory as any, repo as any, logger as any);
+    const mgr = new TestSessionManager(factory as any, repo as any, logger as any, { maxRetries: 2, baseDelayMs: 100 });
 
     await mgr.getSession();
     (aliveSession as any).isAlive = false;
 
-    await expect(mgr.getSession()).rejects.toThrow('Session recovery failed: recovery failed');
+    try {
+      await mgr.getSession();
+      expect.fail('Should have thrown SessionLostError');
+    } catch (e) {
+      expect(e).toBeInstanceOf(SessionLostError);
+      expect((e as SessionLostError).reconnectFailed).toBe(true);
+    }
   });
 
-  it('throws regular error if initial creation fails', async () => {
-    const factory = createMockSessionFactory('error');
-    const mgr = new SessionManager(factory as any, repo as any, logger as any);
+  it('throws regular error if initial creation fails after retries', async () => {
+    const factory = {
+      create: vi.fn().mockResolvedValue(err(new ConnectionError('connection refused'))),
+    };
+    const mgr = new TestSessionManager(factory as any, repo as any, logger as any, { maxRetries: 1, baseDelayMs: 100 });
 
-    await expect(mgr.getSession()).rejects.toThrow('Session creation failed: connection refused');
+    await expect(mgr.getSession()).rejects.toThrow('Session creation failed after all retry attempts');
   });
 
   it('close() closes the session', async () => {
     const mockSession = createMockSession(true);
     const factory = createMockSessionFactory(mockSession);
-    const mgr = new SessionManager(factory as any, repo as any, logger as any);
+    const mgr = new TestSessionManager(factory as any, repo as any, logger as any);
 
     await mgr.getSession();
     mgr.close();
@@ -196,7 +204,7 @@ describe('SessionManager', () => {
         .mockResolvedValueOnce(ok(aliveSession))
         .mockResolvedValueOnce(ok(newSession)),
     };
-    const mgr = new SessionManager(factory as any, repo as any, logger as any);
+    const mgr = new TestSessionManager(factory as any, repo as any, logger as any);
 
     await mgr.getSession();
     (aliveSession as any).isAlive = false;

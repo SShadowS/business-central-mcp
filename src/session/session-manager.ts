@@ -5,6 +5,13 @@ import type { SessionFactory } from './session-factory.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { Logger } from '../core/logger.js';
 
+export interface ReconnectOptions {
+  maxRetries: number;
+  baseDelayMs: number;
+}
+
+const DEFAULT_RECONNECT: ReconnectOptions = { maxRetries: 4, baseDelayMs: 1000 };
+
 /**
  * Manages the BC session lifecycle including lazy creation and automatic recovery
  * after session death (InvalidSessionException, WebSocket disconnect).
@@ -12,20 +19,31 @@ import type { Logger } from '../core/logger.js';
  * When a dead session is detected, the manager:
  * 1. Closes the old session
  * 2. Clears all page contexts (they reference the dead session's form IDs)
- * 3. Creates a fresh session
+ * 3. Creates a fresh session with exponential backoff
  * 4. Throws SessionLostError so the caller can inform the LLM
  *
- * The next tool call after recovery will work against the new session.
+ * BC holds the NTLM auth slot for ~15 seconds after a session crash,
+ * so immediate reconnect typically fails. The exponential backoff
+ * (1s, 2s, 4s, 8s by default) covers this window.
  */
 export class SessionManager {
   private session: BCSession | null = null;
   private servicesInvalidated = false;
+  private readonly reconnectOptions: ReconnectOptions;
+
+  /** Exposed for testing -- override to avoid real delays. */
+  protected delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
 
   constructor(
     private readonly sessionFactory: SessionFactory,
     private readonly pageContextRepo: PageContextRepository,
     private readonly logger: Logger,
-  ) {}
+    reconnectOptions?: ReconnectOptions,
+  ) {
+    this.reconnectOptions = reconnectOptions ?? DEFAULT_RECONNECT;
+  }
 
   get currentSession(): BCSession | null {
     return this.session;
@@ -45,7 +63,7 @@ export class SessionManager {
    * If the existing session is dead, performs recovery:
    * - Closes the dead session
    * - Clears all page contexts
-   * - Creates a new session
+   * - Creates a new session with exponential backoff
    * - Throws SessionLostError with the list of invalidated page context IDs
    */
   async getSession(): Promise<BCSession> {
@@ -69,13 +87,18 @@ export class SessionManager {
       this.pageContextRepo.clearAll();
       this.servicesInvalidated = true;
 
-      // Create new session
-      const result = await this.sessionFactory.create();
-      if (isErr(result)) {
-        throw new Error(`Session recovery failed: ${result.error.message}`);
+      // Attempt reconnect with exponential backoff
+      const newSession = await this.createWithBackoff();
+
+      if (newSession === null) {
+        throw new SessionLostError(
+          'Session was lost and all reconnect attempts failed. The server cannot reach Business Central.',
+          impactedIds,
+          { reconnectFailed: true },
+        );
       }
 
-      this.session = result.value;
+      this.session = newSession;
       this.logger.info('Session recovered successfully');
 
       // Throw SessionLostError so the MCP handler returns a clear message to the LLM
@@ -85,15 +108,47 @@ export class SessionManager {
       );
     }
 
-    // No session yet -- create one (first call)
-    const result = await this.sessionFactory.create();
-    if (isErr(result)) {
-      throw new Error(`Session creation failed: ${result.error.message}`);
+    // No session yet -- create one (first call), also with backoff for LogicalModalityViolation
+    const newSession = await this.createWithBackoff();
+    if (newSession === null) {
+      throw new Error('Session creation failed after all retry attempts');
     }
 
-    this.session = result.value;
+    this.session = newSession;
     this.logger.info('BC session established');
     return this.session;
+  }
+
+  /**
+   * Attempt to create a session with exponential backoff.
+   * Returns the new BCSession on success, or null if all retries are exhausted.
+   */
+  private async createWithBackoff(): Promise<BCSession | null> {
+    const { maxRetries, baseDelayMs } = this.reconnectOptions;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      if (attempt > 0) {
+        const delayMs = baseDelayMs * Math.pow(2, attempt - 1);
+        this.logger.info(`Reconnect attempt ${attempt}/${maxRetries} after ${delayMs}ms delay...`);
+        await this.delay(delayMs);
+      }
+
+      const result = await this.sessionFactory.create();
+
+      if (!isErr(result)) {
+        return result.value;
+      }
+
+      const errorMsg = result.error.message;
+
+      if (errorMsg.includes('LogicalModalityViolation')) {
+        this.logger.warn(`LogicalModalityViolation on attempt ${attempt + 1}, will retry: ${errorMsg}`);
+      } else {
+        this.logger.warn(`Session create failed on attempt ${attempt + 1}: ${errorMsg}`);
+      }
+    }
+
+    return null;
   }
 
   /** Gracefully close the session, sending CloseForm for all open forms. */
