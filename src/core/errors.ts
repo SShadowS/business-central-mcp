@@ -31,9 +31,11 @@ export class ProtocolError extends BCError {
 }
 export class SessionLostError extends BCError {
   public readonly impactedPageContextIds: string[];
-  constructor(message: string, impactedPageContextIds: string[], context?: Record<string, unknown>) {
-    super(message, 'SESSION_LOST', context);
+  public readonly reconnectFailed: boolean;
+  constructor(message: string, impactedPageContextIds: string[], options?: { reconnectFailed?: boolean; context?: Record<string, unknown> }) {
+    super(message, 'SESSION_LOST', options?.context);
     this.impactedPageContextIds = impactedPageContextIds;
+    this.reconnectFailed = options?.reconnectFailed ?? false;
   }
 }
 export class ValidationError extends BCError {
