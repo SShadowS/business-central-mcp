@@ -30,54 +30,16 @@ An LLM connected to this server can open BC pages, read data, write fields, exec
 - A Business Central instance with NavUserPassword authentication
 - A BC user account
 
-### Install
-
-```bash
-git clone <repo-url>
-cd bc-mcp
-npm install
-```
-
-### Configure
-
-Create a `.env` file:
-
-```env
-BC_BASE_URL=http://your-bc-server/BC
-BC_USERNAME=your-user
-BC_PASSWORD=your-password
-BC_TENANT_ID=default
-LOG_LEVEL=info
-
-# Optional: session resilience tuning
-BC_INVOKE_TIMEOUT=30000       # Kill session if BC hangs longer than this (ms)
-BC_RECONNECT_MAX_RETRIES=4    # Retry attempts after session death
-BC_RECONNECT_BASE_DELAY=1000  # Base delay for exponential backoff (ms)
-```
-
-### Run
-
-**HTTP server** (for multi-client access):
-```bash
-npm start
-# MCP endpoint: POST http://localhost:3000/mcp
-# REST API:     POST http://localhost:3000/api/v1/...
-```
-
-**Stdio server** (for Claude Desktop):
-```bash
-npm run start:stdio-direct
-```
-
 ### Claude Desktop configuration
+
+Add to your Claude Desktop config (`claude_desktop_config.json`):
 
 ```json
 {
   "mcpServers": {
     "business-central": {
-      "command": "node",
-      "args": ["<path-to-repo>/node_modules/tsx/dist/cli.mjs", "<path-to-repo>/src/stdio-server.ts"],
-      "cwd": "<path-to-repo>",
+      "command": "npx",
+      "args": ["-y", "business-central-mcp"],
       "env": {
         "BC_BASE_URL": "http://your-bc-server/BC",
         "BC_USERNAME": "your-user",
@@ -89,7 +51,29 @@ npm run start:stdio-direct
 }
 ```
 
-Note: Use the direct `tsx` path (`node_modules/tsx/dist/cli.mjs`), not `npx tsx`, which pollutes stdout and breaks JSON-RPC.
+### Optional environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `BC_BASE_URL` | (required) | BC server URL |
+| `BC_USERNAME` | (required) | BC username |
+| `BC_PASSWORD` | (required) | BC password |
+| `BC_TENANT_ID` | `default` | BC tenant ID |
+| `LOG_LEVEL` | `info` | Log level (debug, info, warn, error) |
+| `LOG_DIR` | `./logs` | Log file directory |
+| `BC_INVOKE_TIMEOUT` | `30000` | Kill session if BC hangs longer than this (ms) |
+| `BC_RECONNECT_MAX_RETRIES` | `4` | Retry attempts after session death |
+| `BC_RECONNECT_BASE_DELAY` | `1000` | Base delay for exponential backoff (ms) |
+
+### Development setup
+
+```bash
+git clone https://github.com/TorbenLeth/business-central-mcp
+cd business-central-mcp
+npm install
+npm run start:stdio-direct   # Run from source via tsx
+npm start                    # HTTP server on port 3000
+```
 
 ## Architecture
 

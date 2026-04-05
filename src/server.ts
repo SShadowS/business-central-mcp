@@ -1,5 +1,4 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { config as dotenvConfig } from 'dotenv';
 import { loadConfig } from './core/config.js';
 import { createLogger } from './core/logger.js';
 import { NTLMAuthProvider } from './connection/auth/ntlm-provider.js';
@@ -32,8 +31,6 @@ import { MCPHandler } from './mcp/handler.js';
 import { createApiRoutes } from './api/routes.js';
 import { parseJsonBody, checkApiToken } from './api/middleware.js';
 // isErr no longer needed — SessionManager handles session creation errors internally
-
-dotenvConfig();
 
 async function main() {
   const config = loadConfig();

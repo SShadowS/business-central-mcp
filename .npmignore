@@ -1,0 +1,22 @@
+tests/
+reference/
+docs/
+poc/
+src/
+.env*
+.state/
+logs/
+coverage/
+*.tsbuildinfo
+vitest*.config.ts
+tsconfig.json
+CLAUDE.md
+MICROSOFT*.md
+PHASE*.md
+DISCOVERIES.md
+SECURITY-AUDIT-PROMPT.md
+step*.png
+test-output.txt
+.mcp.json
+.playwright-mcp/
+Expanded Permissions.xlsx

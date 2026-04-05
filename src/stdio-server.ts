@@ -1,5 +1,5 @@
+#!/usr/bin/env node
 import { createInterface } from 'node:readline';
-import { config as dotenvConfig } from 'dotenv';
 import { loadConfig } from './core/config.js';
 import { createLogger } from './core/logger.js';
 import { NTLMAuthProvider } from './connection/auth/ntlm-provider.js';
@@ -30,8 +30,6 @@ import { RunReportOperation } from './operations/run-report.js';
 import { buildToolRegistry, type Operations } from './mcp/tool-registry.js';
 import { MCPHandler } from './mcp/handler.js';
 // isErr no longer needed — SessionManager handles session creation errors internally
-
-dotenvConfig();
 
 async function main() {
   const config = loadConfig();

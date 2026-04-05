@@ -1,9 +1,15 @@
 {
-  "name": "bc-mcp",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "name": "business-central-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for Microsoft Dynamics 365 Business Central -- speaks BC's native WebSocket protocol directly",
+  "main": "dist/server.js",
   "type": "module",
+  "bin": {
+    "business-central-mcp": "dist/stdio-server.js"
+  },
+  "files": [
+    "dist/"
+  ],
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
@@ -14,24 +20,38 @@
     "test:watch": "vitest",
     "start": "tsx src/server.ts",
     "start:stdio": "tsx src/stdio-adapter.ts",
-    "start:stdio-direct": "tsx src/stdio-server.ts"
+    "start:stdio-direct": "tsx src/stdio-server.ts",
+    "prepublishOnly": "tsc --noEmit && tsc"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "mcp",
+    "business-central",
+    "dynamics-365",
+    "bc",
+    "erp",
+    "model-context-protocol",
+    "claude",
+    "ai"
+  ],
+  "author": "Torben Leth",
   "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TorbenLeth/business-central-mcp"
+  },
   "dependencies": {
     "cheerio": "^1.2.0",
-    "dotenv": "^17.4.0",
     "uuid": "^13.0.0",
     "ws": "^8.20.0",
     "zod": "^4.3.6",
     "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
-    "@types/node": "^25.5.0",
+    "@types/node": "^25.5.2",
     "@types/uuid": "^10.0.0",
     "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "^4.1.2",
+    "dotenv": "^17.4.1",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2",
     "vitest": "^4.1.2"
