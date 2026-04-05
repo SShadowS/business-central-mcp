@@ -65,6 +65,22 @@ export class BCSession {
     this.updateFormTracking(events);
 
     this._initialized = true;
+
+    // Auto-dismiss license notification dialogs (present on fresh/evaluation databases)
+    const licenseDialog = this.findLicenseDialog(events);
+    if (licenseDialog) {
+      this.logger.info('Auto-dismissing license notification dialog');
+      try {
+        await this.invoke(
+          { type: 'InvokeAction', formId: licenseDialog.formId, controlPath: 'server:', systemAction: 300 }, // Ok=300
+          (e) => e.type === 'InvokeCompleted',
+        );
+        this._openFormIds.delete(licenseDialog.formId);
+      } catch {
+        this.logger.warn('Failed to auto-dismiss license dialog, continuing anyway');
+      }
+    }
+
     this.logger.info(`Session initialized: ${this.sessionId}, company: ${this.company}`);
 
     return ok(events);
@@ -229,6 +245,18 @@ export class BCSession {
     } finally {
       unsubscribe();
     }
+  }
+
+  private findLicenseDialog(events: BCEvent[]): (BCEvent & { type: 'DialogOpened' }) | undefined {
+    return events.find((e): e is BCEvent & { type: 'DialogOpened' } => {
+      if (e.type !== 'DialogOpened') return false;
+      const tree = e.controlTree as Record<string, unknown> | undefined;
+      if (!tree) return false;
+      const caption = ((tree.Caption ?? tree.caption ?? '') as string).toLowerCase();
+      const message = ((tree.Message ?? tree.message ?? '') as string).toLowerCase();
+      const text = caption + ' ' + message;
+      return text.includes('license') || text.includes('evaluation') || text.includes('trial');
+    });
   }
 
   private updateFormTracking(events: BCEvent[]): void {
