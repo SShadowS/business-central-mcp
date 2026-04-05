@@ -12,6 +12,7 @@ const mockOps = {
   respondDialog: { execute: async () => ({}) },
   switchCompany: { execute: async () => ({}) },
   listCompanies: { execute: async () => ({}) },
+  runReport: { execute: async () => ({}) },
 } as unknown as Operations;
 
 describe('tool descriptions', () => {

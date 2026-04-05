@@ -26,6 +26,7 @@ import { NavigateOperation } from './operations/navigate.js';
 import { RespondDialogOperation } from './operations/respond-dialog.js';
 import { SwitchCompanyOperation } from './operations/switch-company.js';
 import { ListCompaniesOperation } from './operations/list-companies.js';
+import { RunReportOperation } from './operations/run-report.js';
 import { buildToolRegistry, type Operations } from './mcp/tool-registry.js';
 import { MCPHandler } from './mcp/handler.js';
 import { createApiRoutes } from './api/routes.js';
@@ -83,6 +84,7 @@ async function main() {
       respondDialog: new RespondDialogOperation(s, pageContextRepo),
       switchCompany: new SwitchCompanyOperation(s, pageContextRepo, logger),
       listCompanies: new ListCompaniesOperation(pageService, dataService, () => s.companyName, logger),
+      runReport: new RunReportOperation(s),
     };
 
     return { operations, tools: buildToolRegistry(operations) };

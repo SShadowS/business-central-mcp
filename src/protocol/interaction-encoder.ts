@@ -144,6 +144,8 @@ export class InteractionEncoder {
         return { interactionName: 'ScrollRepeater', formId: interaction.formId, controlPath: interaction.controlPath, namedParameters: JSON.stringify({ delta: interaction.delta }), callbackId };
       case 'SessionAction':
         return { interactionName: interaction.actionName, namedParameters: JSON.stringify(interaction.namedParameters ?? {}), controlPath: interaction.controlPath ?? 'server:c[0]', callbackId };
+      case 'RunReport':
+        return { interactionName: 'RunReport', namedParameters: JSON.stringify({ reportId: interaction.reportId }), callbackId };
     }
   }
 }

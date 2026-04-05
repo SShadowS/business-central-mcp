@@ -69,6 +69,10 @@ export const SwitchCompanySchema = z.object({
   companyName: z.string().min(1).describe('Exact company name to switch to. Use bc_list_companies to see available company names.'),
 });
 
+export const RunReportSchema = z.object({
+  reportId: StringOrNumber.describe('Numeric BC report ID to execute (e.g., 1306 for Customer Statement, 6 for Trial Balance).'),
+});
+
 export const ListCompaniesSchema = z.object({});
 
 /**
@@ -83,6 +87,13 @@ export function toMcpJsonSchema(schema: z.ZodType): Record<string, unknown> {
       pageId: StringOrNumberInput.describe('Numeric BC page ID (e.g., 22 for Customer List, 21 for Customer Card). Use bc_search_pages to find IDs.'),
       bookmark: z.string().optional().describe('Open the page to a specific record. Bookmarks come from list row results in bc_open_page or bc_read_data.'),
       tenantId: z.string().optional().describe('BC tenant ID. Defaults to the server-configured tenant. Only needed in multi-tenant deployments.'),
+    });
+    return z.toJSONSchema(safe) as Record<string, unknown>;
+  }
+  // RunReportSchema uses StringOrNumber with .transform() — use the safe variant
+  if (schema === RunReportSchema) {
+    const safe = z.object({
+      reportId: StringOrNumberInput.describe('Numeric BC report ID to execute (e.g., 1306 for Customer Statement, 6 for Trial Balance).'),
     });
     return z.toJSONSchema(safe) as Record<string, unknown>;
   }
