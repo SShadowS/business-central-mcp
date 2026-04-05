@@ -346,5 +346,12 @@ export class PageContextRepository {
   }
 
   listPageContextIds(): string[] { return Array.from(this.pages.keys()); }
+
+  listPageContextSummaries(): Array<{ id: string; caption: string }> {
+    return Array.from(this.pages.entries()).map(([id, ctx]) => ({
+      id,
+      caption: ctx.caption || `Page (${ctx.pageType})`,
+    }));
+  }
   get size(): number { return this.pages.size; }
 }
