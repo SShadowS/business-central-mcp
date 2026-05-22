@@ -10,7 +10,7 @@
   <a href="https://www.npmjs.com/package/business-central-mcp"><img src="https://img.shields.io/npm/v/business-central-mcp" alt="npm version"></a>
   <a href="https://www.npmjs.com/package/business-central-mcp"><img src="https://img.shields.io/npm/dm/business-central-mcp" alt="npm downloads"></a>
   <a href="https://github.com/SShadowS/business-central-mcp/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/business-central-mcp" alt="license"></a>
-  <a href="vscode:mcp/install?%7B%22name%22%3A%22business-central%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22business-central-mcp%22%5D%7D"><img src="https://img.shields.io/badge/VSCode-Install-007ACC?logo=visualstudiocode" alt="Install in VSCode"></a>
+  <a href="vscode:mcp/install?%7B%22name%22%3A%22business-central%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22business-central-mcp%22%5D%2C%22inputs%22%3A%5B%7B%22id%22%3A%22bc_base_url%22%2C%22type%22%3A%22promptString%22%2C%22description%22%3A%22BC%20base%20URL%20%28e.g.%20http%3A%2F%2Fyour-bc-server%2FBC%29%22%7D%2C%7B%22id%22%3A%22bc_username%22%2C%22type%22%3A%22promptString%22%2C%22description%22%3A%22BC%20username%22%7D%2C%7B%22id%22%3A%22bc_password%22%2C%22type%22%3A%22promptString%22%2C%22description%22%3A%22BC%20password%22%2C%22password%22%3Atrue%7D%5D%2C%22env%22%3A%7B%22BC_BASE_URL%22%3A%22%24%7Binput%3Abc_base_url%7D%22%2C%22BC_USERNAME%22%3A%22%24%7Binput%3Abc_username%7D%22%2C%22BC_PASSWORD%22%3A%22%24%7Binput%3Abc_password%7D%22%7D%7D"><img src="https://img.shields.io/badge/VSCode-Install-007ACC?logo=visualstudiocode" alt="Install in VSCode"></a>
   <a href="https://github.com/SShadowS/business-central-mcp/releases/latest"><img src="https://img.shields.io/badge/Claude%20Desktop-Download%20.dxt-d97757" alt="Download .dxt for Claude Desktop"></a>
 </p>
 
@@ -32,11 +32,9 @@
 
 ### VSCode
 
-[![Install in VSCode](https://img.shields.io/badge/VSCode-Install-007ACC?logo=visualstudiocode)](vscode:mcp/install?%7B%22name%22%3A%22business-central%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22business-central-mcp%22%5D%7D)
+[![Install in VSCode](https://img.shields.io/badge/VSCode-Install-007ACC?logo=visualstudiocode)](vscode:mcp/install?%7B%22name%22%3A%22business-central%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22business-central-mcp%22%5D%2C%22inputs%22%3A%5B%7B%22id%22%3A%22bc_base_url%22%2C%22type%22%3A%22promptString%22%2C%22description%22%3A%22BC%20base%20URL%20%28e.g.%20http%3A%2F%2Fyour-bc-server%2FBC%29%22%7D%2C%7B%22id%22%3A%22bc_username%22%2C%22type%22%3A%22promptString%22%2C%22description%22%3A%22BC%20username%22%7D%2C%7B%22id%22%3A%22bc_password%22%2C%22type%22%3A%22promptString%22%2C%22description%22%3A%22BC%20password%22%2C%22password%22%3Atrue%7D%5D%2C%22env%22%3A%7B%22BC_BASE_URL%22%3A%22%24%7Binput%3Abc_base_url%7D%22%2C%22BC_USERNAME%22%3A%22%24%7Binput%3Abc_username%7D%22%2C%22BC_PASSWORD%22%3A%22%24%7Binput%3Abc_password%7D%22%7D%7D)
 
-Click the badge. VSCode opens, prompts to add the server, and writes to your user `mcp.json`.
-
-You will still need to set `BC_BASE_URL`, `BC_USERNAME`, and `BC_PASSWORD` in the entry's `env` block. VSCode opens the file for you to edit.
+Click the badge. VSCode opens and prompts for your BC URL, username, and password, then writes the configured entry to your user `mcp.json`.
 
 <details>
 <summary><strong>Manual install</strong></summary>
