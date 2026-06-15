@@ -8,6 +8,8 @@ import { InteractionEncoder, type EncodeContext } from '../protocol/interaction-
 import { decompressPayload } from '../protocol/decompression.js';
 import type { Logger } from '../core/logger.js';
 import { ModalStack } from './modal-stack.js';
+import { isFatalRpcError } from './rpc-error-classifier.js';
+import { findLicenseDialog } from './license-dialog.js';
 
 const DEFAULT_TIMEOUT_MS = 30000;
 const QUIESCENCE_MS = 150; // Trailing window for async Message bursts
@@ -74,7 +76,7 @@ export class BCSession {
     this._initialized = true;
 
     // Auto-dismiss license notification dialogs (present on fresh/evaluation databases)
-    const licenseDialog = this.findLicenseDialog(events);
+    const licenseDialog = findLicenseDialog(events);
     if (licenseDialog) {
       this.logger.info('Auto-dismissing license notification dialog');
       try {
@@ -218,7 +220,7 @@ export class BCSession {
       const rpcResult = await this.ws.sendRpc(encoded.method, encoded.params, timeoutMs);
       if (isErr(rpcResult)) {
         const msg = rpcResult.error.message;
-        if (msg.includes('InvalidSessionException') || msg.includes('"code":1')) {
+        if (isFatalRpcError(msg)) {
           this.markDead();
           return rpcResult;
         }
@@ -309,18 +311,6 @@ export class BCSession {
     } finally {
       unsubscribe();
     }
-  }
-
-  private findLicenseDialog(events: BCEvent[]): (BCEvent & { type: 'DialogOpened' }) | undefined {
-    return events.find((e): e is BCEvent & { type: 'DialogOpened' } => {
-      if (e.type !== 'DialogOpened') return false;
-      const tree = e.controlTree as Record<string, unknown> | undefined;
-      if (!tree) return false;
-      const caption = ((tree.Caption ?? tree.caption ?? '') as string).toLowerCase();
-      const message = ((tree.Message ?? tree.message ?? '') as string).toLowerCase();
-      const text = caption + ' ' + message;
-      return text.includes('license') || text.includes('evaluation') || text.includes('trial');
-    });
   }
 
   private updateFormTracking(events: BCEvent[]): void {
