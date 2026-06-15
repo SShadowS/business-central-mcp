@@ -164,6 +164,13 @@ export class BCSession {
     expect: EventPredicate,
     timeoutMs: number,
   ): Promise<Result<BCEvent[], ProtocolError>> {
+    // Drain-on-death: once the session is dead, every queued invoke fast-fails
+    // here instead of reaching ws.sendRpc and eating a full timeout. The queue is
+    // serial, so the task that detects death (markDead) is immediately followed by
+    // the remaining queued tasks, each short-circuiting through this guard.
+    if (this.dead) {
+      return err(new ProtocolError('Session is dead'));
+    }
     const callbackId = uuid();
     const allEvents: BCEvent[] = [];
     const asyncEvents: BCEvent[] = [];
