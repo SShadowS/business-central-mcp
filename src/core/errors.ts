@@ -76,3 +76,56 @@ export class CardPartStubError extends ProtocolError {
     super(message, context, 'CARDPART_STUB');
   }
 }
+
+/**
+ * Thrown when BC rejects a SaveValue due to field-level validation.
+ * Maps to BC `ValidationResults` with Severity='Error' in PropertyChanged events.
+ * Use `fieldErrors` to surface per-field messages to the MCP caller.
+ */
+export class BusinessValidationError extends BCError {
+  public readonly fieldErrors: Array<{ field?: string; description: string; descriptionShort?: string }>;
+  constructor(fieldErrors: Array<{ field?: string; description: string; descriptionShort?: string }>) {
+    super(fieldErrors.map(e => e.description).join('; '), 'VALIDATION_ERROR');
+    this.fieldErrors = fieldErrors;
+  }
+  public override toJSON(): Record<string, unknown> {
+    return { ...super.toJSON(), fieldErrors: this.fieldErrors };
+  }
+}
+
+/**
+ * Thrown when BC raises a non-validation business error via MessageToShow
+ * (messageType='Error'|'Fatal') or an ErrorDialog (MappingHint='ErrorDialog').
+ * `source` tells the caller which channel surfaced the error.
+ */
+export class BusinessError extends BCError {
+  public readonly bcText: string;
+  public readonly severity: string;
+  public readonly source: 'message' | 'dialog';
+  constructor(opts: { bcText: string; severity: string; source: 'message' | 'dialog' }) {
+    super(opts.bcText, 'BUSINESS_ERROR');
+    this.bcText = opts.bcText;
+    this.severity = opts.severity;
+    this.source = opts.source;
+  }
+  public override toJSON(): Record<string, unknown> {
+    return { ...super.toJSON(), bcText: this.bcText, severity: this.severity, source: this.source };
+  }
+}
+
+const ERROR_HINTS: Record<string, string> = {
+  VALIDATION_ERROR: 'Correct the field value(s) and retry with bc_write_data.',
+  BUSINESS_ERROR: 'BC rejected the operation. Read the message, adjust inputs, and retry.',
+  SESSION_LOST: 'The session was reconnected. Re-open any pages with bc_open_page, then retry.',
+  MODAL_RECONCILE_ERROR: 'A stuck modal was cleared by resetting the session. Re-open the page and retry.',
+  TIMEOUT_ERROR: 'BC did not respond in time. Retry; if it persists the operation may be too heavy.',
+};
+
+/**
+ * Returns a short, actionable hint for an MCP caller given an error code.
+ * Returns `undefined` for codes that have no registered hint (e.g. PROTOCOL_ERROR,
+ * CONNECTION_ERROR) — callers should show the raw error message in that case.
+ */
+export function errorHint(code: string): string | undefined {
+  return ERROR_HINTS[code];
+}
