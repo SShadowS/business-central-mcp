@@ -26,6 +26,7 @@ import { NavigationService } from '../../src/services/navigation-service.js';
 import { SearchService } from '../../src/services/search-service.js';
 import type { BCConfig } from '../../src/core/config.js';
 import { isOk, isErr, unwrap } from '../../src/core/result.js';
+import { integrationPool, type PooledLease } from './helpers/session-pool.js';
 
 dotenvConfig();
 
@@ -47,8 +48,10 @@ describe('Document Page Workflows (BC27)', () => {
   let sessionDead = false;
   let recreationFailed = false;
   let sessionFactory: SessionFactory;
+  let lease: PooledLease;
 
   beforeAll(async () => {
+    // Build sessionFactory for recreateSession() emergency use
     const appConfig = loadConfig();
     const auth = new NTLMAuthProvider({
       baseUrl: appConfig.bc.baseUrl,
@@ -61,9 +64,9 @@ describe('Document Page Workflows (BC27)', () => {
     const encoder = new InteractionEncoder(appConfig.bc.clientVersionString);
     sessionFactory = new SessionFactory(connFactory, decoder, encoder, logger, appConfig.bc.tenantId);
 
-    const result = await sessionFactory.create();
-    expect(isOk(result)).toBe(true);
-    session = unwrap(result);
+    // Get initial session from pool
+    lease = await integrationPool.checkOut();
+    session = lease.session;
     rebuildServices();
   }, 30_000);
 
@@ -71,7 +74,7 @@ describe('Document Page Workflows (BC27)', () => {
     for (const pageCtx of openedPages) {
       try { await pageService.closePage(pageCtx, { discardChanges: true }); } catch { /* ignore */ }
     }
-    await session?.closeGracefully().catch(() => {});
+    if (lease) await integrationPool.checkIn(lease, { poisoned: !session?.isAlive });
   });
 
   function rebuildServices(): void {
@@ -516,8 +519,10 @@ describe('BC28 Cross-Version Tests', () => {
   let sessionDead = false;
   let recreationFailed = false;
   let sessionFactory: SessionFactory;
+  let lease2: PooledLease;
 
   beforeAll(async () => {
+    // Build sessionFactory for recreateSession() emergency use
     const auth = new NTLMAuthProvider({
       baseUrl: BC28_CONFIG.baseUrl,
       username: BC28_CONFIG.username,
@@ -529,15 +534,9 @@ describe('BC28 Cross-Version Tests', () => {
     const encoder = new InteractionEncoder(BC28_CONFIG.clientVersionString);
     sessionFactory = new SessionFactory(connFactory, decoder, encoder, logger, BC28_CONFIG.tenantId);
 
-    const result = await sessionFactory.create();
-    if (isErr(result)) {
-      console.error(`[BC28] Session creation FAILED: ${result.error.message}`);
-      console.error('[BC28] Is the Cronus28 container running? All BC28 tests will be skipped.');
-      // Don't throw -- let individual tests skip gracefully
-      sessionDead = true;
-      return;
-    }
-    session = unwrap(result);
+    // Get initial session from pool
+    lease2 = await integrationPool.checkOut();
+    session = lease2.session;
     rebuildServices();
     console.error('[BC28] Session created successfully');
   }, 30_000);
@@ -546,7 +545,7 @@ describe('BC28 Cross-Version Tests', () => {
     for (const pageCtx of openedPages) {
       try { await pageService?.closePage(pageCtx, { discardChanges: true }); } catch { /* ignore */ }
     }
-    await session?.closeGracefully().catch(() => {});
+    if (lease2) await integrationPool.checkIn(lease2, { poisoned: !session?.isAlive });
   });
 
   function rebuildServices(): void {

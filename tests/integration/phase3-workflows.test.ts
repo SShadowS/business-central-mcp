@@ -2,19 +2,12 @@
  * Phase 3 integration tests: posting, approvals, validation errors,
  * cascading refresh, and close-with-unsaved-changes.
  *
- * These tests run against real BC27 at http://cronus27/BC.
+ * These tests run against real BC28 (Cronus28) via the shared integration session pool.
  * They exercise document page workflows that go beyond basic CRUD.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { config as dotenvConfig } from 'dotenv';
-import { loadConfig } from '../../src/core/config.js';
 import { createNullLogger } from '../../src/core/logger.js';
-import { NTLMAuthProvider } from '../../src/connection/auth/ntlm-provider.js';
-import { ConnectionFactory } from '../../src/connection/connection-factory.js';
-import { EventDecoder } from '../../src/protocol/event-decoder.js';
-import { InteractionEncoder } from '../../src/protocol/interaction-encoder.js';
 import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
-import { SessionFactory } from '../../src/session/session-factory.js';
 import type { BCSession } from '../../src/session/bc-session.js';
 import { PageService } from '../../src/services/page-service.js';
 import { DataService } from '../../src/services/data-service.js';
@@ -25,8 +18,7 @@ import type { BCEvent } from '../../src/protocol/types.js';
 import { detectDialogs, detectChangedSections } from '../../src/protocol/mutation-result.js';
 import { actions as treeActions, repeaters as treeRepeaters } from '../../src/protocol/form-views.js';
 import { isOk, isErr, unwrap } from '../../src/core/result.js';
-
-dotenvConfig();
+import { integrationPool, type PooledLease } from './helpers/session-pool.js';
 
 // =============================================================================
 // Helper: session + service bootstrap (shared pattern across integration tests)
@@ -34,6 +26,7 @@ dotenvConfig();
 
 function createTestHarness() {
   const logger = createNullLogger();
+  let lease: PooledLease;
   let session: BCSession;
   let pageService: PageService;
   let dataService: DataService;
@@ -44,21 +37,8 @@ function createTestHarness() {
   const openedPages: string[] = [];
 
   async function setup() {
-    const appConfig = loadConfig();
-    const auth = new NTLMAuthProvider({
-      baseUrl: appConfig.bc.baseUrl,
-      username: appConfig.bc.username,
-      password: appConfig.bc.password,
-      tenantId: appConfig.bc.tenantId,
-    }, logger);
-    const connFactory = new ConnectionFactory(auth, appConfig.bc, logger);
-    const decoder = new EventDecoder();
-    const encoder = new InteractionEncoder(appConfig.bc.clientVersionString);
-    const sessionFactory = new SessionFactory(connFactory, decoder, encoder, logger, appConfig.bc.tenantId);
-
-    const result = await sessionFactory.create();
-    expect(isOk(result)).toBe(true);
-    session = unwrap(result);
+    lease = await integrationPool.checkOut();
+    session = lease.session;
 
     repo = new PageContextRepository();
     pageService = new PageService(session, repo, logger);
@@ -71,7 +51,7 @@ function createTestHarness() {
     for (const ctx of openedPages) {
       try { await pageService.closePage(ctx, { discardChanges: true }); } catch { /* ignore */ }
     }
-    await session?.closeGracefully().catch(() => {});
+    if (lease) await integrationPool.checkIn(lease, { poisoned: !session?.isAlive });
   }
 
   async function openAndTrack(pageId: string) {

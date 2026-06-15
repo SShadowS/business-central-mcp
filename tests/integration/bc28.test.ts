@@ -1,50 +1,24 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createNullLogger } from '../../src/core/logger.js';
-import { NTLMAuthProvider } from '../../src/connection/auth/ntlm-provider.js';
-import { ConnectionFactory } from '../../src/connection/connection-factory.js';
-import { EventDecoder } from '../../src/protocol/event-decoder.js';
-import { InteractionEncoder } from '../../src/protocol/interaction-encoder.js';
 import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
 import { derivePageState } from '../../src/protocol/types.js';
 import { repeaters } from '../../src/protocol/form-views.js';
-import { SessionFactory } from '../../src/session/session-factory.js';
-import { BCSession } from '../../src/session/bc-session.js';
+import type { BCSession } from '../../src/session/bc-session.js';
 import { PageService } from '../../src/services/page-service.js';
 import { DataService } from '../../src/services/data-service.js';
 import { isOk, unwrap } from '../../src/core/result.js';
-import type { BCConfig } from '../../src/core/config.js';
-
-const BC28_CONFIG: BCConfig = {
-  baseUrl: 'http://cronus28/BC',
-  username: 'sshadows',
-  password: '1234',
-  tenantId: 'default',
-  clientVersionString: '28.0.0.0',
-  serverMajor: 28,
-  timeoutMs: 120000,
-};
+import { integrationPool, type PooledLease } from './helpers/session-pool.js';
 
 describe('BC28 Compatibility (integration)', () => {
+  let lease: PooledLease;
   let session: BCSession;
   let pageService: PageService;
   let dataService: DataService;
   const logger = createNullLogger();
 
   beforeAll(async () => {
-    const auth = new NTLMAuthProvider({
-      baseUrl: BC28_CONFIG.baseUrl,
-      username: BC28_CONFIG.username,
-      password: BC28_CONFIG.password,
-      tenantId: BC28_CONFIG.tenantId,
-    }, logger);
-    const connFactory = new ConnectionFactory(auth, BC28_CONFIG, logger);
-    const decoder = new EventDecoder();
-    const encoder = new InteractionEncoder(BC28_CONFIG.clientVersionString);
-    const sessionFactory = new SessionFactory(connFactory, decoder, encoder, logger, BC28_CONFIG.tenantId);
-
-    const result = await sessionFactory.create();
-    expect(isOk(result)).toBe(true);
-    session = unwrap(result);
+    lease = await integrationPool.checkOut();
+    session = lease.session;
 
     const repo = new PageContextRepository();
     pageService = new PageService(session, repo, logger);
@@ -52,7 +26,7 @@ describe('BC28 Compatibility (integration)', () => {
   }, 60000);
 
   afterAll(async () => {
-    await session?.closeGracefully().catch(() => {});
+    if (lease) await integrationPool.checkIn(lease, { poisoned: !session?.isAlive });
   });
 
   it('connects and establishes session on BC28', () => {
@@ -61,7 +35,7 @@ describe('BC28 Compatibility (integration)', () => {
   });
 
   it('opens Customer List (page 22) with fields and rows', async () => {
-    const result = await pageService.openPage('22', { tenantId: BC28_CONFIG.tenantId });
+    const result = await pageService.openPage('22', { tenantId: 'default' });
     expect(isOk(result)).toBe(true);
     const ctx = unwrap(result);
     const state = derivePageState(ctx);
@@ -92,7 +66,7 @@ describe('BC28 Compatibility (integration)', () => {
   }, 30000);
 
   it('opens Customer Card (page 21) with fields', async () => {
-    const result = await pageService.openPage('21', { tenantId: BC28_CONFIG.tenantId });
+    const result = await pageService.openPage('21', { tenantId: 'default' });
     expect(isOk(result)).toBe(true);
     const state = derivePageState(unwrap(result));
 
@@ -112,7 +86,7 @@ describe('BC28 Compatibility (integration)', () => {
   }, 30000);
 
   it('reads data rows from Customer List', async () => {
-    const openResult = await pageService.openPage('22', { tenantId: BC28_CONFIG.tenantId });
+    const openResult = await pageService.openPage('22', { tenantId: 'default' });
     expect(isOk(openResult)).toBe(true);
     const state = derivePageState(unwrap(openResult));
 

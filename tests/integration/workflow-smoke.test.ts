@@ -25,6 +25,7 @@ import { FilterService } from '../../src/services/filter-service.js';
 import { NavigationService } from '../../src/services/navigation-service.js';
 import { SearchService } from '../../src/services/search-service.js';
 import { isOk, isErr, unwrap } from '../../src/core/result.js';
+import { integrationPool, type PooledLease } from './helpers/session-pool.js';
 
 dotenvConfig();
 
@@ -47,7 +48,11 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
   /** Kept at describe scope so recreateSession() can use it. */
   let sessionFactory: SessionFactory;
 
+  /** Pool lease for the initial session. */
+  let lease: PooledLease;
+
   beforeAll(async () => {
+    // Build sessionFactory for recreateSession() emergency use
     const appConfig = loadConfig();
     const auth = new NTLMAuthProvider({
       baseUrl: appConfig.bc.baseUrl,
@@ -60,9 +65,9 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
     const encoder = new InteractionEncoder(appConfig.bc.clientVersionString);
     sessionFactory = new SessionFactory(connFactory, decoder, encoder, logger, appConfig.bc.tenantId);
 
-    const result = await sessionFactory.create();
-    expect(isOk(result)).toBe(true);
-    session = unwrap(result);
+    // Get initial session from pool
+    lease = await integrationPool.checkOut();
+    session = lease.session;
 
     const repo = new PageContextRepository();
     pageService = new PageService(session, repo, logger);
@@ -82,7 +87,7 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
         // ignore
       }
     }
-    await session?.closeGracefully().catch(() => {});
+    if (lease) await integrationPool.checkIn(lease, { poisoned: !session?.isAlive });
   });
 
   // ---------------------------------------------------------------------------

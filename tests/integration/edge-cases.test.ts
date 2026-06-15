@@ -27,6 +27,7 @@ import { NavigationService } from '../../src/services/navigation-service.js';
 import { SearchService } from '../../src/services/search-service.js';
 import { SystemAction } from '../../src/protocol/types.js';
 import { isOk, isErr, unwrap } from '../../src/core/result.js';
+import { integrationPool, type PooledLease } from './helpers/session-pool.js';
 
 dotenvConfig();
 
@@ -44,8 +45,10 @@ describe('Edge Case & Stress Tests', () => {
   let sessionDead = false;
   let recreationFailed = false;
   let sessionFactory: SessionFactory;
+  let lease: PooledLease;
 
   beforeAll(async () => {
+    // Build sessionFactory for recreateSession() emergency use
     const appConfig = loadConfig();
     const auth = new NTLMAuthProvider({
       baseUrl: appConfig.bc.baseUrl,
@@ -58,9 +61,9 @@ describe('Edge Case & Stress Tests', () => {
     const encoder = new InteractionEncoder(appConfig.bc.clientVersionString);
     sessionFactory = new SessionFactory(connFactory, decoder, encoder, logger, appConfig.bc.tenantId);
 
-    const result = await sessionFactory.create();
-    expect(isOk(result)).toBe(true);
-    session = unwrap(result);
+    // Get initial session from pool
+    lease = await integrationPool.checkOut();
+    session = lease.session;
 
     rebuildServices();
   }, 30_000);
@@ -69,7 +72,7 @@ describe('Edge Case & Stress Tests', () => {
     for (const pageCtx of openedPages) {
       try { await pageService.closePage(pageCtx, { discardChanges: true }); } catch { /* ignore */ }
     }
-    await session?.closeGracefully().catch(() => {});
+    if (lease) await integrationPool.checkIn(lease, { poisoned: !session?.isAlive });
   });
 
   // ---------------------------------------------------------------------------

@@ -1,14 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { config as dotenvConfig } from 'dotenv';
-import { loadConfig } from '../../src/core/config.js';
 import { createNullLogger } from '../../src/core/logger.js';
-import { NTLMAuthProvider } from '../../src/connection/auth/ntlm-provider.js';
-import { ConnectionFactory } from '../../src/connection/connection-factory.js';
-import { EventDecoder } from '../../src/protocol/event-decoder.js';
-import { InteractionEncoder } from '../../src/protocol/interaction-encoder.js';
 import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
-import { SessionFactory } from '../../src/session/session-factory.js';
-import { BCSession } from '../../src/session/bc-session.js';
+import type { BCSession } from '../../src/session/bc-session.js';
 import { PageService } from '../../src/services/page-service.js';
 import { DataService } from '../../src/services/data-service.js';
 import { ActionService } from '../../src/services/action-service.js';
@@ -16,11 +9,10 @@ import { isOk, unwrap } from '../../src/core/result.js';
 import { RespondDialogOperation } from '../../src/operations/respond-dialog.js';
 import { repeaters as treeRepeaters } from '../../src/protocol/form-views.js';
 import type { PageContext } from '../../src/protocol/page-context.js';
-import type { BCConfig } from '../../src/core/config.js';
-
-dotenvConfig();
+import { integrationPool, type PooledLease } from './helpers/session-pool.js';
 
 describe.sequential('Multi-Section: Sales Order (page 42)', () => {
+  let lease: PooledLease;
   let session: BCSession;
   let pageService: PageService;
   let dataService: DataService;
@@ -32,20 +24,8 @@ describe.sequential('Multi-Section: Sales Order (page 42)', () => {
   const logger = createNullLogger();
 
   beforeAll(async () => {
-    const appConfig = loadConfig();
-    const auth = new NTLMAuthProvider({
-      baseUrl: appConfig.bc.baseUrl,
-      username: appConfig.bc.username,
-      password: appConfig.bc.password,
-      tenantId: appConfig.bc.tenantId,
-    }, logger);
-    const connFactory = new ConnectionFactory(auth, appConfig.bc, logger);
-    const decoder = new EventDecoder();
-    const encoder = new InteractionEncoder(appConfig.bc.clientVersionString);
-    const sessionFactory = new SessionFactory(connFactory, decoder, encoder, logger, appConfig.bc.tenantId);
-
-    const result = await sessionFactory.create();
-    session = unwrap(result);
+    lease = await integrationPool.checkOut();
+    session = lease.session;
 
     repo = new PageContextRepository();
     pageService = new PageService(session, repo, logger);
@@ -58,7 +38,7 @@ describe.sequential('Multi-Section: Sales Order (page 42)', () => {
     if (pageContextId) {
       await pageService.closePage(pageContextId, { discardChanges: true });
     }
-    await session?.closeGracefully().catch(() => {});
+    if (lease) await integrationPool.checkIn(lease, { poisoned: !session?.isAlive });
   });
 
   it('opens page 42 and finds sections', async () => {
@@ -351,6 +331,7 @@ describe.sequential('Multi-Section: Sales Order (page 42)', () => {
 });
 
 describe.sequential('Multi-Section: Sales Order on BC28', () => {
+  let lease: PooledLease;
   let session: BCSession;
   let pageService: PageService;
   let dataService: DataService;
@@ -358,28 +339,8 @@ describe.sequential('Multi-Section: Sales Order on BC28', () => {
   const logger = createNullLogger();
 
   beforeAll(async () => {
-    const bc28Config: BCConfig = {
-      baseUrl: 'http://cronus28/BC',
-      username: 'sshadows',
-      password: '1234',
-      tenantId: 'default',
-      clientVersionString: '28.0.0.0',
-      serverMajor: 28,
-      timeoutMs: 120000,
-    };
-    const auth = new NTLMAuthProvider({
-      baseUrl: bc28Config.baseUrl,
-      username: bc28Config.username,
-      password: bc28Config.password,
-      tenantId: bc28Config.tenantId,
-    }, logger);
-    const connFactory = new ConnectionFactory(auth, bc28Config, logger);
-    const decoder = new EventDecoder();
-    const encoder = new InteractionEncoder(bc28Config.clientVersionString);
-    const sessionFactory = new SessionFactory(connFactory, decoder, encoder, logger, bc28Config.tenantId);
-
-    const result = await sessionFactory.create();
-    session = unwrap(result);
+    lease = await integrationPool.checkOut();
+    session = lease.session;
 
     const repo = new PageContextRepository();
     pageService = new PageService(session, repo, logger);
@@ -390,7 +351,7 @@ describe.sequential('Multi-Section: Sales Order on BC28', () => {
     if (pageContextId) {
       await pageService.closePage(pageContextId, { discardChanges: true });
     }
-    await session?.closeGracefully().catch(() => {});
+    if (lease) await integrationPool.checkIn(lease, { poisoned: !session?.isAlive });
   });
 
   it('opens Sales Order page 42 on BC28 with multi-section', async () => {
