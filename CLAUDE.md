@@ -258,6 +258,8 @@ Run `pwsh ./scripts/provision-test-users.ps1` once to create the pool users on C
 
 `BCSession` now drains all queued invokes immediately on session death (fast-fail), so a crashed session no longer causes every pending call to eat a full 30-second timeout before the next test file can proceed.
 
+Residual risk: `connection.test.ts` and `mcp-endpoint.test.ts` do not build an in-process `BCSession` (they test the raw connection layer and the HTTP server respectively) and still authenticate as `sshadows` outside the pool. If either crashes a session, a pool checkout landing on the `sshadows` slot within the ~15s NTLM hold could fail. Low-probability in practice; a future change could move them to a dedicated non-pool user.
+
 ## Tool Descriptions (2026 Best Practices)
 
 Following Anthropic's official guidance:
