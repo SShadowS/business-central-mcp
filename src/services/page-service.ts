@@ -5,15 +5,17 @@ import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { PageContext } from '../protocol/page-context.js';
 import type {
-  BCEvent, OpenFormInteraction, LoadFormInteraction, CloseFormInteraction, InvokeActionInteraction, SetCurrentRowInteraction,
+  BCEvent, OpenFormInteraction, LoadFormInteraction, CloseFormInteraction, InvokeActionInteraction,
 } from '../protocol/types.js';
 import { buildFormTree } from '../protocol/form-tree-builder.js';
-import { fields as treeFields, repeaters as treeRepeaters, cues as treeCues } from '../protocol/form-views.js';
+import { fields as treeFields, cues as treeCues } from '../protocol/form-views.js';
 import { walkTree } from '../protocol/form-tree-walk.js';
 import { isFormHostNode, isGroupNode, isLogicalFormNode } from '../protocol/form-node.js';
 import type { Logger } from '../core/logger.js';
 import type { SectionKind } from '../protocol/section-resolver.js';
 import type { WizardState } from '../protocol/types.js';
+import { RoleCenterHydrationStrategy } from './strategies/role-center-hydration.js';
+import { FactboxHydrationStrategy } from './strategies/factbox-hydration.js';
 
 /**
  * Recognise the NavigatePage / multi-step wizard pattern. Returns null for
@@ -64,6 +66,8 @@ export const DEFAULT_AUTO_LOAD_SECTIONS: readonly SectionKind[] = ['header', 'li
 
 export class PageService {
   private readonly autoLoadSections: readonly SectionKind[];
+  private readonly roleCenterHydration: RoleCenterHydrationStrategy;
+  private readonly factboxHydration: FactboxHydrationStrategy;
 
   constructor(
     private readonly session: BCSession,
@@ -72,6 +76,8 @@ export class PageService {
     options?: { autoLoadSections?: readonly SectionKind[] },
   ) {
     this.autoLoadSections = options?.autoLoadSections ?? DEFAULT_AUTO_LOAD_SECTIONS;
+    this.roleCenterHydration = new RoleCenterHydrationStrategy(session, repo);
+    this.factboxHydration = new FactboxHydrationStrategy(session, repo);
   }
 
   async openPage(pageId: string, options?: { bookmark?: string; tenantId?: string }): Promise<Result<PageContext, ProtocolError>> {
@@ -222,26 +228,12 @@ export class PageService {
       }
 
       if (isRoleCenterChild) {
-        // Cue StringValues are computed server-side in response to a refresh
-        // on the hosted CardPart. Without this, cue tiles parse correctly
-        // but their values stay at the initial "0" stub.
-        // controlPath: 'server:' targets the form root — cuegroup CardParts
-        // have no top-level repeater, and form-root Refresh triggers
-        // recomputation of the bound stackc StringValues via
-        // PropertyChanged events.
-        const refreshInteraction: InvokeActionInteraction = {
-          type: 'InvokeAction',
-          formId: childFormId,
-          controlPath: 'server:',
-          systemAction: 30, // SystemAction.Refresh
-        };
-        const refreshResult = await this.session.invoke(
-          refreshInteraction,
-          (event) => event.type === 'InvokeCompleted' || event.type === 'PropertyChanged',
-        );
-        if (isOk(refreshResult)) {
-          this.repo.applyToPage(pageContextId, refreshResult.value);
-        }
+        // Cue StringValues are computed server-side in response to a Refresh
+        // on the hosted CardPart. The LoadForm above populates form metadata
+        // but leaves cue tiles at their "0" stub. RoleCenterHydrationStrategy
+        // sends the follow-up Refresh (systemAction:30, controlPath:'server:')
+        // to trigger recomputation of bound stackc StringValues.
+        await this.roleCenterHydration.hydrate(pageContextId, childFormId);
       }
 
       // Step 2: Refresh the child form's repeater to trigger DataLoaded.
@@ -270,7 +262,11 @@ export class PageService {
     // BC populates factbox data server-side in response to SetCurrentRow on the
     // parent repeater. Without this, factbox forms have field metadata but empty values.
     // Verified from decompiled WebLogicalFormObserver.cs and live WebSocket capture.
-    await this.triggerFactboxRefresh(pageContextId);
+    const ctxForFactbox = this.repo.get(pageContextId);
+    if (ctxForFactbox) {
+      const factboxSections = Array.from(ctxForFactbox.sections.entries()).filter(([, s]) => s.kind === 'factbox');
+      await this.factboxHydration.hydrate(pageContextId, factboxSections);
+    }
 
     // After factbox refresh: any factbox section whose form yielded no field
     // nodes is dead (BC returned a stub). buildFormTree already skips
@@ -292,50 +288,6 @@ export class PageService {
           this.repo.invalidateSection(pageContextId, sectionId);
         }
       }
-    }
-  }
-
-  private async triggerFactboxRefresh(pageContextId: string): Promise<void> {
-    const ctx = this.repo.get(pageContextId);
-    if (!ctx) return;
-
-    // Collect factbox sections
-    const factboxSections = Array.from(ctx.sections.entries()).filter(([, s]) => s.kind === 'factbox');
-    if (factboxSections.length === 0) return;
-
-    // Find the root form's repeater to select a row (triggers server-side factbox Query change)
-    const rootForm = ctx.forms.get(ctx.rootFormId);
-    if (!rootForm) return;
-
-    for (const [repPath] of treeRepeaters(rootForm.root)) {
-      const repRows = rootForm.rows.get(repPath) ?? [];
-      const firstRow = repRows[0];
-      if (!firstRow?.bookmark) continue;
-
-      // Step 1: Select the first row to trigger factbox Query property change on the server.
-      // The server-side WebLogicalFormObserver registers a "Query" change on child forms.
-      const selectResult = await this.session.invoke(
-        { type: 'SetCurrentRow', formId: ctx.rootFormId, controlPath: repPath, key: firstRow.bookmark } as SetCurrentRowInteraction,
-        (event) => event.type === 'InvokeCompleted',
-      );
-      if (isOk(selectResult)) {
-        this.repo.applyToPage(pageContextId, selectResult.value);
-      }
-
-      // Step 2: Re-load each factbox with openForm+loadData to force data refresh.
-      // LoadFormInteraction.CanLoadData() only returns true if DataLoaded is false.
-      // After the initial LoadForm, DataLoaded is true. OpenForm resets form state.
-      // Verified from decompiled LoadFormInteraction.cs: OpenForm -> LoadData chain.
-      for (const [, sec] of factboxSections) {
-        const loadResult = await this.session.invoke(
-          { type: 'LoadForm', formId: sec.formId, loadData: true, delayed: true, openForm: true } as LoadFormInteraction,
-          (event) => event.type === 'InvokeCompleted' || event.type === 'PropertyChanged' || event.type === 'DataLoaded',
-        );
-        if (isOk(loadResult)) {
-          this.repo.applyToPage(pageContextId, loadResult.value);
-        }
-      }
-      break;
     }
   }
 
