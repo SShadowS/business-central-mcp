@@ -20,23 +20,23 @@ This project is NOT released and in active development:
 
 ### BC Test Environments
 
-| | BC27 | BC28 |
-|---|---|---|
-| URL | http://cronus27/BC/?tenant=default | http://cronus28/BC/?tenant=default |
-| Username | sshadows | sshadows |
-| Password | 1234 | 1234 |
-| Auth | NavUserPassword | NavUserPassword |
-| License popup | Auto-dismissed | Auto-dismissed |
-| Protocol version | 15041 | 15041 (identical) |
+| | BC28 |
+|---|---|
+| URL | http://cronus28/BC/?tenant=default |
+| Username | sshadows |
+| Password | 1234 |
+| Auth | NavUserPassword |
+| License popup | Auto-dismissed |
+| Protocol version | 15041 |
 
-Both use NavUserPassword authentication (not Windows/NTLM).
+Uses NavUserPassword authentication (not Windows/NTLM).
 
 ### Essential Commands
 ```bash
 cd U:/git/bc-mcp
 npx tsc --noEmit                    # Type check
-npx vitest run                       # Unit + protocol tests (128 tests)
-npx vitest run --config vitest.integration.config.ts  # Integration tests against real BC (103 tests)
+npx vitest run                       # Unit + protocol tests (292 tests)
+npx vitest run --config vitest.integration.config.ts  # Integration tests against real BC28 (111 tests)
 npm start                            # HTTP server on port 3000
 npm run start:stdio-direct           # Direct stdio for Claude Desktop
 ```
@@ -239,8 +239,8 @@ DN.ExtensionObjectChangeHandler     -- Control add-in changes
 Verify against real BC first. Codify verified behavior as unit tests second. Never mock what you don't understand.
 
 ### Test Tiers
-1. **Unit tests** (`tests/unit/`, `tests/protocol/`): Pure logic, no BC needed. Run with `npx vitest run`.
-2. **Integration tests** (`tests/integration/`): Against real BC27/BC28. Run with `npx vitest run --config vitest.integration.config.ts`.
+1. **Unit tests** (`tests/unit/`, `tests/protocol/`): Pure logic, no BC needed. Run with `npx vitest run` (37 files, 292 tests).
+2. **Integration tests** (`tests/integration/`): Against real BC28 (Cronus28). Run with `npx vitest run --config vitest.integration.config.ts` (18 files, 111 tests).
 3. **Workflow smoke tests**: Exercises all 11 MCP tools in realistic multi-step workflows.
 4. **Edge case tests**: Protocol edge cases, error handling, cross-version compatibility.
 
@@ -251,8 +251,12 @@ netstat -ano | grep 3456 | grep LISTEN
 taskkill //F //PID <pid>
 ```
 
-### Session Death Cascading
-A single protocol error (InvalidSessionException, ArgumentOutOfRangeException) can kill the BC session, causing all subsequent tests to fail. The test suite has `recreateSession()` helpers, but BC holds the NTLM auth slot for ~15 seconds after a crash, preventing immediate reconnection.
+### Session Death Cascading (Resolved)
+Integration tests run single-process serial via `vitest.integration.config.ts` (`fileParallelism: false`, pool: `forks`, `isolate: false`) against Cronus28 only. All integration test files obtain sessions via `tests/integration/helpers/session-pool.ts` (`IntegrationSessionPool`), which rotates three SUPER users (`sshadows`, `bcmcp_test1`, `bcmcp_test2`) and enforces a 16-second post-poison cooldown before reusing a slot, so a single poisoned NTLM auth slot can never cascade into the next test file.
+
+Run `pwsh ./scripts/provision-test-users.ps1` once to create the pool users on Cronus28 (idempotent; skips already-present users).
+
+`BCSession` now drains all queued invokes immediately on session death (fast-fail), so a crashed session no longer causes every pending call to eat a full 30-second timeout before the next test file can proceed.
 
 ## Tool Descriptions (2026 Best Practices)
 
