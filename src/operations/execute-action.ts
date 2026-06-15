@@ -34,7 +34,7 @@ export class ExecuteActionOperation {
     private readonly repo: PageContextRepository,
   ) {}
 
-  async execute(input: ExecuteActionInput): Promise<Result<ExecuteActionOutput, BCError | ProtocolError>> {
+  async execute(input: ExecuteActionInput): Promise<Result<ExecuteActionOutput, BCError>> {
     if (input.cue) {
       if (!input.section) {
         return err(new ProtocolError('cue requires a section (e.g. "subpage:Activities")'));

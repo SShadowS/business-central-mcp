@@ -138,7 +138,7 @@ export class MCPHandler {
     // Execute the tool
     try {
       const result = await tool.execute(parseResult.data);
-      // Result is a Result<T, ProtocolError>
+      // Result is a Result<T, BCError>
       const r = result as { ok: boolean; value?: unknown; error?: { message: string } };
       if (r.ok) {
         return {

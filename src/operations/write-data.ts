@@ -1,5 +1,5 @@
 import { isOk, ok, err, type Result } from '../core/result.js';
-import type { BCError, ProtocolError } from '../core/errors.js';
+import type { BCError } from '../core/errors.js';
 import type { DataService, FieldWriteResult } from '../services/data-service.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import { detectChangedSections, detectDialogs, extractValidationErrors } from '../protocol/mutation-result.js';
@@ -36,7 +36,7 @@ export class WriteDataOperation {
     private readonly repo: PageContextRepository,
   ) {}
 
-  async execute(input: WriteDataInput): Promise<Result<WriteDataOutput, BCError | ProtocolError>> {
+  async execute(input: WriteDataInput): Promise<Result<WriteDataOutput, BCError>> {
     const result = await this.dataService.writeFields(input.pageContextId, input.fields, {
       sectionId: input.section,
       rowIndex: input.rowIndex,
