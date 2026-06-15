@@ -38,8 +38,14 @@ export class IntegrationSessionPool {
   async checkOut(): Promise<PooledLease> {
     const user = await this.acquireUser();
     this.inUse.add(user);
-    const session = await this.buildSession(user);
-    return { session, user };
+    try {
+      const session = await this.buildSession(user);
+      return { session, user };
+    } catch (e) {
+      // Release the slot so a build failure does not strand the user forever.
+      this.inUse.delete(user);
+      throw e;
+    }
   }
 
   async checkIn(lease: PooledLease, opts: { poisoned: boolean }): Promise<void> {
@@ -74,6 +80,9 @@ export class IntegrationSessionPool {
         .filter(u => !this.inUse.has(u))
         .map(u => (this.cooldownUntil.get(u) ?? 0) - now)
         .filter(w => w > 0);
+      // The `: 10` branch is unreachable in practice -- any not-in-use user with no
+      // pending cooldown would already have been returned by the scan above. The 10ms
+      // is a defensive minimal sleep to avoid a tight busy-wait, not a polling interval.
       const wait = waits.length > 0 ? Math.min(...waits) : 10;
       await sleep(wait);
     }

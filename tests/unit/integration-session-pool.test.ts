@@ -40,6 +40,7 @@ describe('IntegrationSessionPool', () => {
 
     const lease1 = await pool.checkOut();          // u1
     await pool.checkIn(lease1, { poisoned: true }); // u1 now cooling for 15s
+    expect(lease1.session.closeGracefully).toHaveBeenCalledOnce();
 
     const lease2 = await pool.checkOut();           // must be u2, not u1
     expect(lease2.user).toBe('u2');
