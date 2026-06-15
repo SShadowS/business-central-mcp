@@ -166,4 +166,45 @@ describe('EventDecoder', () => {
       expect(closed.formId).toBe('closedForm123');
     }
   });
+
+  it('decodes MessageToShow with full payload', () => {
+    const handlers = [{
+      handlerType: HANDLER_TYPES.LogicalClientEventRaising,
+      parameters: ['MessageToShow', {
+        Text: 'Caution: Your program license expires in 1 days.',
+        Type: 'Warning',
+        Actions: ['Ok'],
+        DefaultAction: 'Ok',
+        AutomationId: '00000000-0000-0000-0300-0000836bd2d2',
+      }],
+    }];
+    const events = decoder.decode(handlers);
+    const msg = events.find(e => e.type === 'MessageToShow');
+    expect(msg).toBeDefined();
+    if (msg?.type === 'MessageToShow') {
+      expect(msg.formId).toBe('');
+      expect(msg.text).toBe('Caution: Your program license expires in 1 days.');
+      expect(msg.messageType).toBe('Warning');
+      expect(msg.actions).toEqual(['Ok']);
+      expect(msg.defaultAction).toBe('Ok');
+      expect(msg.automationId).toBe('00000000-0000-0000-0300-0000836bd2d2');
+    }
+  });
+
+  it('decodes MessageToShow applying defaults when optional fields are absent', () => {
+    const handlers = [{
+      handlerType: HANDLER_TYPES.LogicalClientEventRaising,
+      parameters: ['MessageToShow', { Text: 'Something happened.' }],
+    }];
+    const events = decoder.decode(handlers);
+    const msg = events.find(e => e.type === 'MessageToShow');
+    expect(msg).toBeDefined();
+    if (msg?.type === 'MessageToShow') {
+      expect(msg.text).toBe('Something happened.');
+      expect(msg.messageType).toBe('None');
+      expect(msg.actions).toEqual(['Ok']);
+      expect(msg.defaultAction).toBe('Ok');
+      expect(msg.automationId).toBeUndefined();
+    }
+  });
 });

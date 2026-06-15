@@ -1,5 +1,5 @@
 // src/protocol/mutation-result.ts
-import type { BCEvent, DialogOpenedEvent, ControlField } from './types.js';
+import type { BCEvent, DialogOpenedEvent, PropertyChangedEvent, ValidationResultItem, ControlField } from './types.js';
 import type { PageContext } from './page-context.js';
 import { buildFormTree } from './form-tree-builder.js';
 import { fields as treeFields } from './form-views.js';
@@ -51,6 +51,37 @@ export function detectChangedSections(
   }
 
   return changedSections;
+}
+
+/**
+ * Extract field-level validation errors from PropertyChanged events.
+ *
+ * BC delivers validation errors inline: when SaveValue is rejected, one or
+ * more PropertyChanged events carry `changes.ValidationResults` arrays on the
+ * offending control, its parent group, and the root form. We de-duplicate by
+ * Id and return only the distinct items, hoisting them to the top level so
+ * callers don't need to scan every PropertyChanged.
+ *
+ * An empty ValidationResults array (error cleared) produces no items here.
+ *
+ * Reference: ValidationResultItemSerializer.Write() in decompiled
+ * Microsoft.Dynamics.Framework.UI.Client (confirmed via live BC28 probe).
+ */
+export function extractValidationErrors(events: BCEvent[]): ValidationResultItem[] {
+  const seen = new Set<number>();
+  const out: ValidationResultItem[] = [];
+  for (const event of events) {
+    if (event.type !== 'PropertyChanged') continue;
+    const raw = (event as PropertyChangedEvent).changes['ValidationResults'];
+    if (!Array.isArray(raw) || raw.length === 0) continue;
+    for (const item of raw as ValidationResultItem[]) {
+      if (typeof item?.Id === 'number' && !seen.has(item.Id)) {
+        seen.add(item.Id);
+        out.push(item);
+      }
+    }
+  }
+  return out;
 }
 
 /**

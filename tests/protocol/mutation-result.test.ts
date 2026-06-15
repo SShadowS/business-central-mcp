@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { detectChangedSections, detectDialogs } from '../../src/protocol/mutation-result.js';
+import { detectChangedSections, detectDialogs, extractValidationErrors } from '../../src/protocol/mutation-result.js';
 import type { PageContext } from '../../src/protocol/page-context.js';
 import type { BCEvent } from '../../src/protocol/types.js';
 
@@ -158,5 +158,86 @@ describe('detectDialogs', () => {
     const dialogs = detectDialogs(events);
     expect(dialogs).toHaveLength(1);
     expect(dialogs[0]!.fields).toBeUndefined();
+  });
+});
+
+describe('extractValidationErrors', () => {
+  it('returns empty when no PropertyChanged events carry ValidationResults', () => {
+    const events: BCEvent[] = [
+      { type: 'PropertyChanged', formId: 'f1', controlPath: 'server:c[0]', changes: { StringValue: 'hello' } },
+      { type: 'InvokeCompleted', sequenceNumber: 1, completedInteractions: [] },
+    ];
+    expect(extractValidationErrors(events)).toEqual([]);
+  });
+
+  it('extracts ValidationResultItem from a PropertyChanged event', () => {
+    const events: BCEvent[] = [
+      {
+        type: 'PropertyChanged',
+        formId: 'f1',
+        controlPath: 'server:c[2]/c[0]',
+        changes: {
+          ValidationResults: [
+            {
+              Id: 17,
+              Description: 'The length of the string is 22, but it must be less than or equal to 10 characters.',
+              Severity: 'Error',
+              IsLocal: true,
+              OriginatingControl: 'server:c[2]/c[0]',
+              Title: null,
+              TroubleshootInfo: null,
+            },
+          ],
+        },
+      },
+    ];
+    const errors = extractValidationErrors(events);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.Id).toBe(17);
+    expect(errors[0]!.Severity).toBe('Error');
+    expect(errors[0]!.Description).toContain('less than or equal to 10 characters');
+  });
+
+  it('de-duplicates items that appear on multiple controls (same Id)', () => {
+    // BC emits the same ValidationResultItem on the field, parent group,
+    // and root form — all three PropertyChanged events carry identical Id.
+    const item = {
+      Id: 42,
+      Description: 'Value must be positive.',
+      Severity: 'Error' as const,
+      IsLocal: true,
+    };
+    const events: BCEvent[] = [
+      { type: 'PropertyChanged', formId: 'f1', controlPath: 'server:c[1]/c[0]', changes: { ValidationResults: [item] } },
+      { type: 'PropertyChanged', formId: 'f1', controlPath: 'server:c[1]', changes: { ValidationResults: [item] } },
+      { type: 'PropertyChanged', formId: 'f1', controlPath: 'server:', changes: { ValidationResults: [item] } },
+    ];
+    const errors = extractValidationErrors(events);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.Id).toBe(42);
+  });
+
+  it('returns empty array when ValidationResults is cleared (empty array)', () => {
+    const events: BCEvent[] = [
+      { type: 'PropertyChanged', formId: 'f1', controlPath: 'server:c[0]', changes: { ValidationResults: [] } },
+    ];
+    expect(extractValidationErrors(events)).toEqual([]);
+  });
+
+  it('collects multiple distinct validation errors', () => {
+    const events: BCEvent[] = [
+      {
+        type: 'PropertyChanged', formId: 'f1', controlPath: 'server:c[0]',
+        changes: {
+          ValidationResults: [
+            { Id: 1, Description: 'Error A', Severity: 'Error' as const },
+            { Id: 2, Description: 'Warning B', Severity: 'Warning' as const },
+          ],
+        },
+      },
+    ];
+    const errors = extractValidationErrors(events);
+    expect(errors).toHaveLength(2);
+    expect(errors.map(e => e.Id)).toEqual([1, 2]);
   });
 });

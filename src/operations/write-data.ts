@@ -2,7 +2,8 @@ import { isOk, ok, type Result } from '../core/result.js';
 import type { ProtocolError } from '../core/errors.js';
 import type { DataService, FieldWriteResult } from '../services/data-service.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
-import { detectChangedSections, detectDialogs } from '../protocol/mutation-result.js';
+import { detectChangedSections, detectDialogs, extractValidationErrors } from '../protocol/mutation-result.js';
+import type { ValidationResultItem } from '../protocol/types.js';
 
 export interface WriteDataInput {
   pageContextId: string;
@@ -18,6 +19,14 @@ export interface WriteDataOutput {
   changedSections: string[];
   dialogsOpened: Array<{ formId: string; message?: string; fields?: import('../protocol/types.js').ControlField[] }>;
   requiresDialogResponse: boolean;
+  /**
+   * De-duplicated field-level validation errors extracted from PropertyChanged
+   * events. Non-empty when BC rejects a SaveValue (e.g. invalid date, value
+   * out of range, AL FieldError/Error trigger). Severity "Error" means the
+   * value was rejected and not committed; "Warning" is informational but the
+   * value was accepted.
+   */
+  validationErrors: ValidationResultItem[];
 }
 
 export class WriteDataOperation {
@@ -38,6 +47,7 @@ export class WriteDataOperation {
     const ctx = this.repo.get(input.pageContextId);
     const changedSections = ctx ? detectChangedSections(ctx, events) : [];
     const dialogsOpened = detectDialogs(events);
+    const validationErrors = extractValidationErrors(events);
 
     return ok({
       results,
@@ -45,6 +55,7 @@ export class WriteDataOperation {
       changedSections,
       dialogsOpened,
       requiresDialogResponse: dialogsOpened.length > 0,
+      validationErrors,
     });
   }
 }

@@ -4,6 +4,7 @@ export type BCEvent =
   | FormCreatedEvent
   | FormClosedEvent
   | DialogOpenedEvent
+  | MessageToShowEvent
   | DataLoadedEvent
   | PropertyChangedEvent
   | BookmarkChangedEvent
@@ -28,6 +29,61 @@ export interface DialogOpenedEvent {
   readonly formId: string;
   readonly ownerFormId?: string;
   readonly controlTree: unknown;
+}
+
+/**
+ * Non-modal toast message raised by BC's AL `Message()` / license-expiry
+ * warning / other non-blocking session notifications.
+ *
+ * Wire: DN.LogicalClientEventRaisingHandler, params[0]="MessageToShow",
+ * params[1] = { Text, Type?, Actions?, DefaultAction?, AutomationId? }.
+ *
+ * Type values (MessageFormIcon): None | Warning | Info | Error | Fatal |
+ * Confirm | Permission. Serialised as the enum name string when the browser
+ * UseEnumNames flag is true (default for the web client).
+ *
+ * Reference: LogicalMessageSerializer.Write() and
+ * UISessionObserver.UiSessionMessageToShow() in decompiled
+ * Microsoft.Dynamics.Framework.UI.Client / Microsoft.Dynamics.Framework.UI.Web.
+ */
+export interface MessageToShowEvent {
+  readonly type: 'MessageToShow';
+  /** Always empty string — MessageToShow is a session-level event, not form-scoped. */
+  readonly formId: '';
+  readonly text: string;
+  /** Serialised MessageFormIcon enum name. Defaults to "None" when absent on wire. */
+  readonly messageType: 'None' | 'Warning' | 'Info' | 'Error' | 'Fatal' | 'Confirm' | 'Permission';
+  /** Available response actions. Defaults to ["Ok"] when omitted on wire. */
+  readonly actions: string[];
+  /** Default action name. Defaults to "Ok" when omitted on wire. */
+  readonly defaultAction: string;
+  readonly automationId?: string;
+}
+
+/**
+ * A single validation result item that BC attaches to PropertyChanged events
+ * as `changes.ValidationResults: ValidationResultItem[]`. An empty array clears
+ * a previous error on the control.
+ *
+ * These arrive inline in PropertyChanged events (not as a separate event type)
+ * when SaveValue is rejected by BC validation. The same items appear on the
+ * offending control, its parent group, and the root form simultaneously.
+ *
+ * Severity values: "Error" (0) | "Warning" (1) | "Info" (2).
+ *
+ * Reference: ValidationResultItemSerializer.Write() in decompiled
+ * Microsoft.Dynamics.Framework.UI.Client.
+ */
+export interface ValidationResultItem {
+  /** Unique result-item identifier used for change tracking across events. */
+  readonly Id: number;
+  readonly Description: string;
+  readonly Severity: 'Error' | 'Warning' | 'Info';
+  /** True when the error is local (not from a remote sub-page). */
+  readonly IsLocal?: boolean;
+  readonly OriginatingControl?: string;
+  readonly Title?: string | null;
+  readonly TroubleshootInfo?: string | null;
 }
 
 export interface DataLoadedEvent {

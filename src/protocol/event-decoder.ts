@@ -1,8 +1,9 @@
 import { HANDLER_TYPES } from './handler-types.js';
 import { resolveChangeType, SESSION_EVENTS } from './wire-types.js';
 import type {
-  BCEvent, FormCreatedEvent, FormClosedEvent, DialogOpenedEvent, DataLoadedEvent,
-  PropertyChangedEvent, BookmarkChangedEvent, InvokeCompletedEvent, SessionInfoEvent,
+  BCEvent, FormCreatedEvent, FormClosedEvent, DialogOpenedEvent, MessageToShowEvent,
+  DataLoadedEvent, PropertyChangedEvent, BookmarkChangedEvent, InvokeCompletedEvent,
+  SessionInfoEvent,
 } from './types.js';
 
 export class EventDecoder {
@@ -84,6 +85,24 @@ export class EventDecoder {
       case SESSION_EVENTS.ClosePendingForm:
         events.push({ type: 'FormClosed', formId: (eventData.ServerId ?? eventData.formId ?? eventData.FormId ?? '') as string } satisfies FormClosedEvent);
         break;
+      case SESSION_EVENTS.MessageToShow: {
+        // Non-modal toast: AL Message(), license-expiry warnings, etc.
+        // Wire: params[1] = { Text, Type?, Actions?, DefaultAction?, AutomationId? }
+        // Reference: LogicalMessageSerializer.Write() (decompiled
+        //   Microsoft.Dynamics.Framework.UI.Client), confirmed via live BC28 probe.
+        const rawActions = eventData.Actions as string[] | undefined;
+        const rawDefault = eventData.DefaultAction as string | undefined;
+        events.push({
+          type: 'MessageToShow',
+          formId: '',
+          text: (eventData.Text as string | undefined) ?? '',
+          messageType: (eventData.Type as MessageToShowEvent['messageType'] | undefined) ?? 'None',
+          actions: rawActions ?? ['Ok'],
+          defaultAction: rawDefault ?? 'Ok',
+          automationId: eventData.AutomationId as string | undefined,
+        } satisfies MessageToShowEvent);
+        break;
+      }
     }
     return events;
   }
