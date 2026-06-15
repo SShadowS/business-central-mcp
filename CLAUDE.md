@@ -80,11 +80,18 @@ The v1 "per-page connection" was a workaround for an `openFormIds` tracking bug,
 ### Event-Driven Protocol
 BC sends handler arrays as responses. The EventDecoder transforms these into typed `BCEvent[]`. State is derived from events via `FormProjection` into per-form `FormState`, coordinated by `PageContext`.
 
+`PageContextRepository` (`src/protocol/page-context-repo.ts`) is a thin facade over a CQRS trio:
+- `PageContextStore` (`src/protocol/page-context-store.ts`) -- pure storage, no business logic.
+- `PageEventRouter` (`src/protocol/page-event-router.ts`) -- pure routing decisions, returns a `RoutingDecision` union without mutating state.
+- `FormStateReducer` (`src/protocol/form-state-reducer.ts`) -- applies routed events to produce the next `FormState`.
+
+The public API of `PageContextRepository` is unchanged; callers do not need to know about the split.
+
 ### Invoke Queue
-All invokes are serialized via a promise queue in `BCSession`. BC's protocol is stateful -- concurrent sends corrupt sequence numbers.
+All invokes are serialized via a promise queue in `BCSession` (`src/session/bc-session.ts`). BC's protocol is stateful -- concurrent sends corrupt sequence numbers. The queue, drain-on-death, quiescence window, and modal retry logic all remain in `BCSession`. Two pure helpers were extracted: `isFatalRpcError` (`src/session/rpc-error-classifier.ts`) classifies fatal vs. retriable RPC errors; `findLicenseDialog` (`src/session/license-dialog.ts`) locates license/evaluation dialog events for auto-dismissal during session init.
 
 ### Session Lifecycle
-`SessionManager` (`src/session/session-manager.ts`) owns lazy session creation and dead-session recovery with exponential backoff (1s, 2s, 4s, 8s). Server entry points (`server.ts`, `stdio-server.ts`) use it instead of managing sessions directly. When a dead session is detected, all page contexts are cleared and `SessionLostError` is thrown. `LogicalModalityViolationException` (stale modal state from crashed sessions) is handled with the same retry logic. License/evaluation dialogs are auto-dismissed during session init.
+`SessionManager` (`src/session/session-manager.ts`) owns lazy session creation and dead-session recovery with exponential backoff (1s, 2s, 4s, 8s). Server entry points (`server.ts`, `stdio-server.ts`) use it instead of managing sessions directly. When a dead session is detected, all page contexts are cleared and `SessionLostError` is thrown. `LogicalModalityViolationException` (stale modal state from crashed sessions) is handled with the same retry logic. License/evaluation dialogs are auto-dismissed during session init (via `findLicenseDialog`).
 
 Configurable via env vars: `BC_INVOKE_TIMEOUT` (default 30s), `BC_RECONNECT_MAX_RETRIES` (default 4), `BC_RECONNECT_BASE_DELAY` (default 1s), `BC_PROFILE` (BC profile id e.g. `BUSINESS MANAGER`; empty = server default — see Tell Me Search section).
 
@@ -127,7 +134,7 @@ Reference: `InvokeSessionActionExecutionStrategy.cs`, `SystemAction.cs` (PageSea
 
 ### Cuegroups (Role-Center cue tiles)
 
-Cuegroups are AL `cuegroup` containers that compile to a `stackgc` wire type (NOT a generic `gc` with a mapping hint, despite older docs). Children are `stackc` cue tiles inside an inner `gc { MappingHint: 'STACKGROUP' }`. Cue values (`StringValue`) arrive via `PropertyChanged` events AFTER `LoadForm(loadData:true)` — not in the initial FormCreated. `PageService.discoverAndLoadChildForms` sends `LoadForm { openForm:true }` plus `InvokeAction(Refresh=30)` for Role Center hosted CardParts to trigger cue computation.
+Cuegroups are AL `cuegroup` containers that compile to a `stackgc` wire type (NOT a generic `gc` with a mapping hint, despite older docs). Children are `stackc` cue tiles inside an inner `gc { MappingHint: 'STACKGROUP' }`. Cue values (`StringValue`) arrive via `PropertyChanged` events AFTER `LoadForm(loadData:true)` — not in the initial FormCreated. `PageService.discoverAndLoadChildForms` sends `LoadForm { openForm:true }` plus `InvokeAction(Refresh=30)` for Role Center hosted CardParts to trigger cue computation. The Role Center and factbox hydration sequences have been extracted from `PageService` into dedicated strategy classes: `FactboxHydrationStrategy` (`src/services/strategies/factbox-hydration.ts`) and `RoleCenterHydrationStrategy` (`src/services/strategies/role-center-hydration.ts`).
 
 `StackGroupNode` and `CueFieldNode` are first-class FormNode variants. `cues(root)` is a memoised view; `Section.cues` is the MCP DTO field. `bc_execute_action { section, cue }` sends `SystemAction.DrillDown=120` against the cue's controlPath; the resulting ownerless FormCreated is registered as a fresh `session:page:cue:*` pcId returned in `openedPages`.
 
@@ -262,6 +269,8 @@ Residual risk: `connection.test.ts` and `mcp-endpoint.test.ts` do not build an i
 
 ## Tool Descriptions (2026 Best Practices)
 
+Each MCP tool's definition (description, schema, input_examples) is colocated with its operation as a sibling `src/operations/<name>.tool.ts` module that exports `createToolDefinition(ops): ToolDefinition`. `src/mcp/tool-registry.ts` is a thin aggregator that imports all sibling modules and wires them together; it contains no per-tool description text.
+
 Following Anthropic's official guidance:
 - Minimum 3-4 sentences per tool description
 - Include when to use / when NOT to use
@@ -314,7 +323,7 @@ Note: `tsx` via `npx` pollutes stdout with `◇ injecting...` which breaks JSON-
 
 ## AI Assistant Guidelines
 
-- When dispatching parallel worktree agents, group by file overlap (not by feature). Files like `types.ts`, `schemas.ts`, `page-context-repo.ts` are touched by many features -- put them in one agent to avoid merge conflicts.
+- When dispatching parallel worktree agents, group by file overlap (not by feature). Files like `types.ts`, `schemas.ts`, `page-context-repo.ts`, `page-context-store.ts`, and `form-state-reducer.ts` are touched by many features -- put them in one agent to avoid merge conflicts.
 - If stuck on a protocol issue, use the decompiled BC source (`bc-decompiled-analyzer` agent)
 - Use `gpt5 high` or `zen` for second opinions on complex issues
 - Use `Gemini 2.5 pro` for large file analysis
