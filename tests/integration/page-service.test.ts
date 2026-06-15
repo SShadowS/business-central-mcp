@@ -1,47 +1,28 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { config as dotenvConfig } from 'dotenv';
-import { loadConfig } from '../../src/core/config.js';
 import { createNullLogger } from '../../src/core/logger.js';
-import { NTLMAuthProvider } from '../../src/connection/auth/ntlm-provider.js';
-import { ConnectionFactory } from '../../src/connection/connection-factory.js';
-import { EventDecoder } from '../../src/protocol/event-decoder.js';
-import { InteractionEncoder } from '../../src/protocol/interaction-encoder.js';
+import type { BCSession } from '../../src/session/bc-session.js';
 import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
 import { derivePageState } from '../../src/protocol/types.js';
-import { SessionFactory } from '../../src/session/session-factory.js';
-import { BCSession } from '../../src/session/bc-session.js';
 import { PageService } from '../../src/services/page-service.js';
 import { isOk, unwrap } from '../../src/core/result.js';
-
-dotenvConfig();
+import { integrationPool, type PooledLease } from './helpers/session-pool.js';
 
 describe('PageService (integration)', () => {
+  let lease: PooledLease;
   let session: BCSession;
   let pageService: PageService;
   const logger = createNullLogger();
 
   beforeAll(async () => {
-    const appConfig = loadConfig();
-    const auth = new NTLMAuthProvider({
-      baseUrl: appConfig.bc.baseUrl,
-      username: appConfig.bc.username,
-      password: appConfig.bc.password,
-      tenantId: appConfig.bc.tenantId,
-    }, logger);
-    const connFactory = new ConnectionFactory(auth, appConfig.bc, logger);
-    const decoder = new EventDecoder();
-    const encoder = new InteractionEncoder(appConfig.bc.clientVersionString);
-    const sessionFactory = new SessionFactory(connFactory, decoder, encoder, logger, appConfig.bc.tenantId);
-
-    const result = await sessionFactory.create();
-    session = unwrap(result);
+    lease = await integrationPool.checkOut();
+    session = lease.session;
 
     const repo = new PageContextRepository();
     pageService = new PageService(session, repo, logger);
   });
 
   afterAll(async () => {
-    await session?.closeGracefully().catch(() => {});
+    if (lease) await integrationPool.checkIn(lease, { poisoned: !session?.isAlive });
   });
 
   it('opens Customer List (page 22) and returns PageState', async () => {

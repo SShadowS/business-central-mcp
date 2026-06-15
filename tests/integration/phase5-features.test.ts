@@ -1,14 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { config as dotenvConfig } from 'dotenv';
-import { loadConfig } from '../../src/core/config.js';
 import { createNullLogger } from '../../src/core/logger.js';
-import { NTLMAuthProvider } from '../../src/connection/auth/ntlm-provider.js';
-import { ConnectionFactory } from '../../src/connection/connection-factory.js';
-import { EventDecoder } from '../../src/protocol/event-decoder.js';
-import { InteractionEncoder } from '../../src/protocol/interaction-encoder.js';
+import type { BCSession } from '../../src/session/bc-session.js';
 import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
-import { SessionFactory } from '../../src/session/session-factory.js';
-import { BCSession } from '../../src/session/bc-session.js';
 import { PageService } from '../../src/services/page-service.js';
 import { DataService } from '../../src/services/data-service.js';
 import { isOk, isErr, unwrap } from '../../src/core/result.js';
@@ -16,10 +9,10 @@ import { validatePageContextId } from '../../src/mcp/page-context-validator.js';
 import { InputValidationError } from '../../src/core/errors.js';
 import type { BCEvent, InvokeActionInteraction } from '../../src/protocol/types.js';
 import { SystemAction } from '../../src/protocol/types.js';
-
-dotenvConfig();
+import { integrationPool, type PooledLease } from './helpers/session-pool.js';
 
 describe('Phase 5 features (integration)', () => {
+  let lease: PooledLease;
   let session: BCSession;
   let pageService: PageService;
   let dataService: DataService;
@@ -27,21 +20,8 @@ describe('Phase 5 features (integration)', () => {
   const logger = createNullLogger();
 
   beforeAll(async () => {
-    const appConfig = loadConfig();
-    const auth = new NTLMAuthProvider({
-      baseUrl: appConfig.bc.baseUrl,
-      username: appConfig.bc.username,
-      password: appConfig.bc.password,
-      tenantId: appConfig.bc.tenantId,
-    }, logger);
-    const connFactory = new ConnectionFactory(auth, appConfig.bc, logger);
-    const decoder = new EventDecoder();
-    const encoder = new InteractionEncoder(appConfig.bc.clientVersionString);
-    const sessionFactory = new SessionFactory(connFactory, decoder, encoder, logger, appConfig.bc.tenantId);
-
-    const result = await sessionFactory.create();
-    expect(isOk(result)).toBe(true);
-    session = unwrap(result);
+    lease = await integrationPool.checkOut();
+    session = lease.session;
 
     pageContextRepo = new PageContextRepository();
     pageService = new PageService(session, pageContextRepo, logger);
@@ -49,7 +29,7 @@ describe('Phase 5 features (integration)', () => {
   }, 60000);
 
   afterAll(async () => {
-    await session?.closeGracefully().catch(() => {});
+    if (lease) await integrationPool.checkIn(lease, { poisoned: !session?.isAlive });
   });
 
   /**
