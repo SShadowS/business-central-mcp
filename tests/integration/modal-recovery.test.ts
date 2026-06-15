@@ -18,15 +18,8 @@
 // own session and tears it down (closeGracefully) afterwards.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { config as dotenvConfig } from 'dotenv';
-import { loadConfig } from '../../src/core/config.js';
-import { createNullLogger } from '../../src/core/logger.js';
-import { NTLMAuthProvider } from '../../src/connection/auth/ntlm-provider.js';
-import { ConnectionFactory } from '../../src/connection/connection-factory.js';
-import { EventDecoder } from '../../src/protocol/event-decoder.js';
-import { InteractionEncoder } from '../../src/protocol/interaction-encoder.js';
-import { SessionFactory } from '../../src/session/session-factory.js';
-import { BCSession } from '../../src/session/bc-session.js';
+import { integrationPool, type PooledLease } from './helpers/session-pool.js';
+import type { BCSession } from '../../src/session/bc-session.js';
 import { isOk, unwrap } from '../../src/core/result.js';
 import type {
   BCEvent,
@@ -37,26 +30,6 @@ import type {
 } from '../../src/protocol/types.js';
 import { repeaters as treeRepeaters } from '../../src/protocol/form-views.js';
 import { buildFormTree } from '../../src/protocol/form-tree-builder.js';
-
-dotenvConfig();
-
-async function createSession(): Promise<BCSession> {
-  const logger = createNullLogger();
-  const appConfig = loadConfig();
-  const auth = new NTLMAuthProvider({
-    baseUrl: appConfig.bc.baseUrl,
-    username: appConfig.bc.username,
-    password: appConfig.bc.password,
-    tenantId: appConfig.bc.tenantId,
-  }, logger);
-  const connFactory = new ConnectionFactory(auth, appConfig.bc, logger);
-  const decoder = new EventDecoder();
-  const encoder = new InteractionEncoder(appConfig.bc.clientVersionString);
-  const sessionFactory = new SessionFactory(connFactory, decoder, encoder, logger, appConfig.bc.tenantId);
-  const result = await sessionFactory.create();
-  expect(isOk(result)).toBe(true);
-  return unwrap(result);
-}
 
 /**
  * Open Customer List (page 22) and discover the repeater's controlPath from
@@ -115,16 +88,19 @@ async function triggerDeleteConfirm(
 
 describe('Modal stack reconciliation (integration, BC28)', () => {
   let session: BCSession;
+  let lease: PooledLease;
 
   // Fresh session per test -- BC's confirm-dialog state is sticky server-side
   // (no FormClosed on Abort), so reusing a session across tests would leak
   // dialog state and trip LogicalModalityViolation on the next OpenForm.
   beforeEach(async () => {
-    session = await createSession();
+    lease = await integrationPool.checkOut();
+    session = lease.session;
   }, 60_000);
 
   afterEach(async () => {
-    await session?.closeGracefully().catch(() => { /* best effort */ });
+    // Always poison: delete-confirm dialog leaves dirty modal state server-side.
+    if (lease) await integrationPool.checkIn(lease, { poisoned: true });
   });
 
   it('tracks the Delete-confirm DialogOpened on modalStack', async () => {
