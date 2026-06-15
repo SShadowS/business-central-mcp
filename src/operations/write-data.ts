@@ -1,8 +1,9 @@
-import { isOk, ok, type Result } from '../core/result.js';
-import type { ProtocolError } from '../core/errors.js';
+import { isOk, ok, err, type Result } from '../core/result.js';
+import type { BCError, ProtocolError } from '../core/errors.js';
 import type { DataService, FieldWriteResult } from '../services/data-service.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import { detectChangedSections, detectDialogs, extractValidationErrors } from '../protocol/mutation-result.js';
+import { classifyBusinessError } from '../protocol/error-classifier.js';
 import type { ValidationResultItem } from '../protocol/types.js';
 
 export interface WriteDataInput {
@@ -20,13 +21,13 @@ export interface WriteDataOutput {
   dialogsOpened: Array<{ formId: string; message?: string; fields?: import('../protocol/types.js').ControlField[] }>;
   requiresDialogResponse: boolean;
   /**
-   * De-duplicated field-level validation errors extracted from PropertyChanged
-   * events. Non-empty when BC rejects a SaveValue (e.g. invalid date, value
-   * out of range, AL FieldError/Error trigger). Severity "Error" means the
-   * value was rejected and not committed; "Warning" is informational but the
-   * value was accepted.
+   * De-duplicated field-level validation warnings from PropertyChanged events.
+   * Non-empty when BC emits Severity "Warning" or "Info" ValidationResults —
+   * the value WAS accepted but BC flagged it informational. Severity "Error"
+   * items cause the operation to return an Err(BusinessValidationError) instead
+   * of appearing here.
    */
-  validationErrors: ValidationResultItem[];
+  validationWarnings: ValidationResultItem[];
 }
 
 export class WriteDataOperation {
@@ -35,7 +36,7 @@ export class WriteDataOperation {
     private readonly repo: PageContextRepository,
   ) {}
 
-  async execute(input: WriteDataInput): Promise<Result<WriteDataOutput, ProtocolError>> {
+  async execute(input: WriteDataInput): Promise<Result<WriteDataOutput, BCError | ProtocolError>> {
     const result = await this.dataService.writeFields(input.pageContextId, input.fields, {
       sectionId: input.section,
       rowIndex: input.rowIndex,
@@ -44,10 +45,15 @@ export class WriteDataOperation {
     if (!isOk(result)) return result;
 
     const { results, events } = result.value;
+
+    // Classify business errors before building the ok output.
+    const bizErr = classifyBusinessError(events);
+    if (bizErr !== null) return err(bizErr);
+
     const ctx = this.repo.get(input.pageContextId);
     const changedSections = ctx ? detectChangedSections(ctx, events) : [];
     const dialogsOpened = detectDialogs(events);
-    const validationErrors = extractValidationErrors(events);
+    const validationWarnings = extractValidationErrors(events).filter(v => v.Severity !== 'Error');
 
     return ok({
       results,
@@ -55,7 +61,7 @@ export class WriteDataOperation {
       changedSections,
       dialogsOpened,
       requiresDialogResponse: dialogsOpened.length > 0,
-      validationErrors,
+      validationWarnings,
     });
   }
 }

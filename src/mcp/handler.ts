@@ -1,6 +1,6 @@
 import type { ToolDefinition } from './tool-registry.js';
 import type { Logger } from '../core/logger.js';
-import { SessionLostError } from '../core/errors.js';
+import { SessionLostError, BCError, errorHint } from '../core/errors.js';
 
 interface JsonRpcRequest {
   jsonrpc: string;
@@ -17,6 +17,25 @@ interface JsonRpcResponse {
 }
 
 const MCP_PROTOCOL_VERSION = '2025-06-18';
+
+/**
+ * Format a BCError (or any error-like object with an optional code) into a
+ * human-readable string suitable for MCP tool call output. When `errorHint`
+ * returns a hint for the code, appends it on a second line.
+ *
+ * Examples:
+ *   { code: 'VALIDATION_ERROR', message: 'bad' }
+ *     -> "Error [VALIDATION_ERROR]: bad\nHint: Correct the field value(s)..."
+ *   { code: 'PROTOCOL_ERROR', message: 'x' }
+ *     -> "Error [PROTOCOL_ERROR]: x"   (no hint — PROTOCOL_ERROR has none)
+ *   { message: 'y' }
+ *     -> "Error: y"
+ */
+export function formatBcError(e: { code?: string; message: string }): string {
+  const header = e.code ? `Error [${e.code}]: ${e.message}` : `Error: ${e.message}`;
+  const hint = e.code ? errorHint(e.code) : undefined;
+  return hint ? `${header}\nHint: ${hint}` : header;
+}
 
 export class MCPHandler {
   private initialized = false;
@@ -130,24 +149,32 @@ export class MCPHandler {
           },
         };
       } else {
+        const errObj = r.error as { code?: string; message?: string } | undefined;
+        const text = (errObj && typeof errObj.code === 'string')
+          ? formatBcError(errObj as { code: string; message: string })
+          : `Error: ${errObj?.message ?? 'Unknown error'}`;
         return {
           jsonrpc: '2.0',
           id: request.id,
           result: {
-            content: [{ type: 'text', text: `Error: ${r.error?.message ?? 'Unknown error'}` }],
+            content: [{ type: 'text', text }],
             isError: true,
           },
         };
       }
     } catch (e) {
-      // Session recovery: return a clear message so the LLM knows to re-open pages
-      if (e instanceof SessionLostError) {
-        this.logger.info(`Session recovered during ${params.name}. Impacted contexts: ${e.impactedPageContextIds.join(', ') || 'none'}`);
+      // BCError subclasses (BusinessValidationError, BusinessError, SessionLostError, etc.)
+      if (e instanceof BCError) {
+        if (e instanceof SessionLostError) {
+          this.logger.info(`Session recovered during ${params.name}. Impacted contexts: ${e.impactedPageContextIds.join(', ') || 'none'}`);
+        } else {
+          this.logger.error(`Tool ${params.name} threw BCError [${e.code}]: ${e.message}`);
+        }
         return {
           jsonrpc: '2.0',
           id: request.id,
           result: {
-            content: [{ type: 'text', text: e.message }],
+            content: [{ type: 'text', text: formatBcError(e) }],
             isError: true,
           },
         };

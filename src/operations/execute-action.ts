@@ -1,5 +1,6 @@
-import { err, mapResult, type Result } from '../core/result.js';
-import { ProtocolError } from '../core/errors.js';
+import { err, ok, isOk, type Result } from '../core/result.js';
+import { ProtocolError, type BCError } from '../core/errors.js';
+import { classifyBusinessError } from '../protocol/error-classifier.js';
 import type { ActionService, ActionResult } from '../services/action-service.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { ControlField } from '../protocol/types.js';
@@ -33,19 +34,25 @@ export class ExecuteActionOperation {
     private readonly repo: PageContextRepository,
   ) {}
 
-  async execute(input: ExecuteActionInput): Promise<Result<ExecuteActionOutput, ProtocolError>> {
+  async execute(input: ExecuteActionInput): Promise<Result<ExecuteActionOutput, BCError | ProtocolError>> {
     if (input.cue) {
       if (!input.section) {
         return err(new ProtocolError('cue requires a section (e.g. "subpage:Activities")'));
       }
       const result = await this.actionService.executeOnCue(input.pageContextId, input.section, input.cue);
-      return mapResult(result, (ar) => this.buildOutput(input.pageContextId, ar));
+      if (!isOk(result)) return result;
+      const bizErr = classifyBusinessError(result.value.events);
+      if (bizErr !== null) return err(bizErr);
+      return ok(this.buildOutput(input.pageContextId, result.value));
     }
     if (!input.action) {
       return err(new ProtocolError('Provide exactly one of: action, cue'));
     }
     const result = await this.actionService.executeAction(input.pageContextId, input.action, input.section);
-    return mapResult(result, (ar) => this.buildOutput(input.pageContextId, ar));
+    if (!isOk(result)) return result;
+    const bizErr = classifyBusinessError(result.value.events);
+    if (bizErr !== null) return err(bizErr);
+    return ok(this.buildOutput(input.pageContextId, result.value));
   }
 
   private buildOutput(pageContextId: string, ar: ActionResult): ExecuteActionOutput {
