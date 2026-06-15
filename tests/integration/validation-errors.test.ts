@@ -169,7 +169,7 @@ describe('Validation errors (integration)', () => {
     // Look for the new card page created by the DrillDown.
     // DrillDown on a list row creates a new pageContext registered by PageService.
     // Check recently-added pageContextIds from repo.
-    const allCtxIds = [...repo['pages'].keys()];
+    const allCtxIds = repo.listPageContextIds();
     console.error(`[ValErr] All page context IDs: ${allCtxIds.join(', ')}`);
 
     // Alternatively, look for newly opened pages in the events.
