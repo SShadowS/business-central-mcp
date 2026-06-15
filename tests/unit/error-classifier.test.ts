@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { classifyBusinessError } from '../../src/protocol/error-classifier.js';
 import type { BCEvent } from '../../src/protocol/types.js';
+import type { BusinessValidationError, BusinessError } from '../../src/core/errors.js';
 
 // Helper: build a PropertyChanged event carrying ValidationResults
 function makeValidationEvent(items: Array<{
@@ -37,7 +38,7 @@ describe('classifyBusinessError', () => {
       expect(result!.code).toBe('VALIDATION_ERROR');
       expect(result!.constructor.name).toBe('BusinessValidationError');
       // Cast to access fieldErrors
-      const vErr = result as import('../../src/core/errors.js').BusinessValidationError;
+      const vErr = result as BusinessValidationError;
       expect(vErr.fieldErrors).toHaveLength(1);
       expect(vErr.fieldErrors[0]!.description).toBe('The value must be positive.');
       expect(vErr.fieldErrors[0]!.field).toBe('server:c[2]/c[0]');
@@ -62,7 +63,7 @@ describe('classifyBusinessError', () => {
       ];
       const result = classifyBusinessError(events);
       expect(result).not.toBeNull();
-      const vErr = result as import('../../src/core/errors.js').BusinessValidationError;
+      const vErr = result as BusinessValidationError;
       expect(vErr.fieldErrors[0]!.field).toBeUndefined();
     });
 
@@ -73,7 +74,7 @@ describe('classifyBusinessError', () => {
         makeValidationEvent([item]),
       ];
       const result = classifyBusinessError(events);
-      const vErr = result as import('../../src/core/errors.js').BusinessValidationError;
+      const vErr = result as BusinessValidationError;
       expect(vErr.fieldErrors).toHaveLength(1);
     });
   });
@@ -94,7 +95,7 @@ describe('classifyBusinessError', () => {
       expect(result).not.toBeNull();
       expect(result!.code).toBe('BUSINESS_ERROR');
       expect(result!.constructor.name).toBe('BusinessError');
-      const bErr = result as import('../../src/core/errors.js').BusinessError;
+      const bErr = result as BusinessError;
       expect(bErr.bcText).toBe('You cannot delete this record.');
       expect(bErr.source).toBe('message');
     });
@@ -113,7 +114,7 @@ describe('classifyBusinessError', () => {
       const result = classifyBusinessError(events);
       expect(result).not.toBeNull();
       expect(result!.code).toBe('BUSINESS_ERROR');
-      const bErr = result as import('../../src/core/errors.js').BusinessError;
+      const bErr = result as BusinessError;
       expect(bErr.bcText).toBe('Fatal error occurred.');
       expect(bErr.source).toBe('message');
     });
@@ -163,7 +164,7 @@ describe('classifyBusinessError', () => {
       const result = classifyBusinessError(events);
       expect(result).not.toBeNull();
       expect(result!.code).toBe('BUSINESS_ERROR');
-      const bErr = result as import('../../src/core/errors.js').BusinessError;
+      const bErr = result as BusinessError;
       expect(bErr.source).toBe('dialog');
       expect(bErr.bcText).toBe('Something went wrong.');
     });
@@ -181,9 +182,24 @@ describe('classifyBusinessError', () => {
       ];
       const result = classifyBusinessError(events);
       expect(result).not.toBeNull();
-      const bErr = result as import('../../src/core/errors.js').BusinessError;
+      const bErr = result as BusinessError;
       expect(bErr.source).toBe('dialog');
       expect(bErr.bcText).toBe('The record cannot be processed.');
+    });
+
+    it('uses a fallback bcText when ErrorDialog has neither Message nor Caption', () => {
+      const events: BCEvent[] = [
+        {
+          type: 'DialogOpened',
+          formId: 'dlg-empty',
+          controlTree: { MappingHint: 'ErrorDialog' },
+        },
+      ];
+      const result = classifyBusinessError(events);
+      expect(result).not.toBeNull();
+      const bErr = result as BusinessError;
+      expect(bErr.source).toBe('dialog');
+      expect(bErr.bcText).toBe('(BC raised an error dialog with no message text)');
     });
 
     it('ignores non-error dialogs (no MappingHint or different hint)', () => {

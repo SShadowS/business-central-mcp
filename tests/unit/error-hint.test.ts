@@ -32,6 +32,12 @@ describe('errorHint', () => {
     );
   });
 
+  it('maps CARDPART_STUB', () => {
+    expect(errorHint('CARDPART_STUB')).toBe(
+      'This page is a CardPart stub when opened standalone. See the hostHint in this error and open that host page instead.',
+    );
+  });
+
   it('returns undefined for unknown codes', () => {
     expect(errorHint('PROTOCOL_ERROR')).toBeUndefined();
     expect(errorHint('NOPE')).toBeUndefined();

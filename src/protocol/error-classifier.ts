@@ -49,7 +49,10 @@ export function classifyBusinessError(
       if (hint !== 'ErrorDialog') continue;
       const message = (tree['Message'] ?? tree['message']) as string | undefined;
       const caption = (tree['Caption'] ?? tree['caption']) as string | undefined;
-      const bcText = (typeof message === 'string' && message) || (typeof caption === 'string' && caption) || '';
+      const bcText =
+        (typeof message === 'string' && message) ||
+        (typeof caption === 'string' && caption) ||
+        '(BC raised an error dialog with no message text)';
       return new BusinessError({ bcText, severity: 'Error', source: 'dialog' });
     }
   }

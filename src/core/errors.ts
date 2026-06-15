@@ -50,9 +50,6 @@ export class ModalReconcileError extends ProtocolError {
     super(message, context, 'MODAL_RECONCILE_ERROR');
   }
 }
-export class ValidationError extends BCError {
-  constructor(message: string, context?: Record<string, unknown>) { super(message, 'VALIDATION_ERROR', context); }
-}
 export class InputValidationError extends BCError {
   public readonly fieldErrors: Array<{ path: string; message: string }>;
   constructor(fieldErrors: Array<{ path: string; message: string }>) {
@@ -119,6 +116,7 @@ const ERROR_HINTS: Record<string, string> = {
   SESSION_LOST: 'The session was reconnected. Re-open any pages with bc_open_page, then retry.',
   MODAL_RECONCILE_ERROR: 'A stuck modal was cleared by resetting the session. Re-open the page and retry.',
   TIMEOUT_ERROR: 'BC did not respond in time. Retry; if it persists the operation may be too heavy.',
+  CARDPART_STUB: 'This page is a CardPart stub when opened standalone. See the hostHint in this error and open that host page instead.',
 };
 
 /**
