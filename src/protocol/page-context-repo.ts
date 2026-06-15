@@ -1,15 +1,23 @@
 // src/protocol/page-context-repo.ts
+//
+// FACADE — composes PageContextStore (storage), PageEventRouter (routing),
+// and FormStateReducer (state reduction) behind the original public API.
+// All consumers depend only on this class; the three sub-units are internal.
+//
+// See CQRS split notes:
+//   page-context-store.ts  — Maps + formId index
+//   page-event-router.ts   — routing decisions (pure, no mutation)
+//   form-state-reducer.ts  — FormState reduction (wraps FormProjection)
 import type { BCEvent } from './types.js';
 import type { PageContext } from './page-context.js';
 import type { FormState } from './form-state.js';
-import { FormProjection } from './form-state.js';
 import { SectionResolver } from './section-resolver.js';
 import { buildFormTree } from './form-tree-builder.js';
 import { isLogicalFormNode, type FormNode } from './form-node.js';
-import {
-  fields as treeFields, repeaters as treeRepeaters,
-} from './form-views.js';
 import { applyPropertyChange } from './form-tree-mutator.js';
+import { PageContextStore } from './page-context-store.js';
+import { PageEventRouter } from './page-event-router.js';
+import { FormStateReducer } from './form-state-reducer.js';
 
 /**
  * Descriptor for a child form discovered inside a parent form's control tree
@@ -32,18 +40,17 @@ function tryBuildFormTree(raw: unknown): FormNode | null {
 }
 
 export class PageContextRepository {
-  private readonly pages = new Map<string, PageContext>();
-  private readonly formIdIndex = new Map<string, string>();  // formId -> pageContextId
-  private readonly formProjection = new FormProjection();
+  private readonly store = new PageContextStore();
+  private readonly router = new PageEventRouter();
+  private readonly reducer = new FormStateReducer();
   private readonly sectionResolver = new SectionResolver();
 
   get(pageContextId: string): PageContext | undefined {
-    return this.pages.get(pageContextId);
+    return this.store.get(pageContextId);
   }
 
   getByFormId(formId: string): PageContext | undefined {
-    const id = this.formIdIndex.get(formId);
-    return id ? this.pages.get(id) : undefined;
+    return this.store.getByFormId(formId);
   }
 
   create(
@@ -51,7 +58,7 @@ export class PageContextRepository {
     rootFormId: string,
     options?: { isModal?: boolean; wizardState?: PageContext['wizardState'] },
   ): PageContext {
-    const rootForm = this.formProjection.createInitial(rootFormId);
+    const rootForm = this.reducer.createInitial(rootFormId);
     const headerSection = this.sectionResolver.createHeaderSection(rootFormId);
 
     const ctx: PageContext = {
@@ -67,8 +74,8 @@ export class PageContextRepository {
       wizardState: options?.wizardState ?? null,
     };
 
-    this.pages.set(pageContextId, ctx);
-    this.formIdIndex.set(rootFormId, pageContextId);
+    this.store.set(pageContextId, ctx);
+    this.store.indexFormId(rootFormId, pageContextId);
     return ctx;
   }
 
@@ -82,7 +89,7 @@ export class PageContextRepository {
    * authoritative source of step state on bc-mcp's side.
    */
   advanceWizardStep(pageContextId: string, newIndex: number): void {
-    const page = this.pages.get(pageContextId);
+    const page = this.store.get(pageContextId);
     if (!page || !page.wizardState) return;
     const ws = page.wizardState;
     if (newIndex < 0 || newIndex >= ws.stepPaths.length) return;
@@ -102,7 +109,7 @@ export class PageContextRepository {
     const forms = new Map(page.forms);
     forms.set(page.rootFormId, updatedRoot);
 
-    this.pages.set(pageContextId, {
+    this.store.set(pageContextId, {
       ...page,
       forms,
       wizardState: { stepPaths: ws.stepPaths, currentStepIndex: newIndex },
@@ -119,119 +126,104 @@ export class PageContextRepository {
     for (const event of events) {
       this.applyEvent(event, pageContextId);
     }
-    return this.pages.get(pageContextId);
+    return this.store.get(pageContextId);
   }
 
   private applyEvent(event: BCEvent, targetPcId?: string): void {
-    const formId = 'formId' in event ? (event as { formId: string }).formId : undefined;
-    if (!formId) return;
+    const decision = this.router.route(event, this.store, targetPcId);
 
-    // New child form: route by parentFormId (not indexed yet)
-    if (event.type === 'FormCreated' && event.parentFormId) {
-      const parentPcId = targetPcId ?? this.formIdIndex.get(event.parentFormId);
-      if (parentPcId) {
-        this.addChildForm(parentPcId, event);
-      }
-      return;
-    }
+    switch (decision.kind) {
+      case 'Unmatched':
+        return;
 
-    // FormCreated for root form (no parentFormId): update existing form
-    if (event.type === 'FormCreated' && !event.parentFormId) {
-      const pcId = targetPcId ?? this.formIdIndex.get(formId);
-      if (pcId) {
-        this.updateRootForm(pcId, event);
-      }
-      return;
-    }
+      case 'AddChildForm':
+        this.addChildForm(decision.pcId, event as BCEvent & { type: 'FormCreated' });
+        return;
 
-    // FormClosed: mark sections referencing this form as invalid
-    if (event.type === 'FormClosed') {
-      const pcId = targetPcId ?? this.formIdIndex.get(formId);
-      if (pcId) {
-        this.markFormClosed(pcId, formId);
-      }
-      return;
-    }
+      case 'UpdateRootForm':
+        this.applyRootControlTree(
+          decision.pcId,
+          (event as BCEvent & { type: 'FormCreated' }).formId,
+          (event as BCEvent & { type: 'FormCreated' }).controlTree,
+        );
+        return;
 
-    // Dialog: when the dialog's formId IS a page's rootFormId (modal-rooted page),
-    // treat the dialog's controlTree as the page's root layout. Otherwise it's a
-    // child dialog opened over an existing page (route via ownerFormId, fall back
-    // to targetPcId when an ownerless dialog arrives during the open invocation).
-    if (event.type === 'DialogOpened') {
-      const directPcId = targetPcId ?? this.formIdIndex.get(formId);
-      if (directPcId) {
-        const page = this.pages.get(directPcId);
-        if (page && page.rootFormId === formId) {
-          this.applyRootControlTree(directPcId, formId, event.controlTree);
-          return;
-        }
-      }
-      const ownerPcId = event.ownerFormId
-        ? (targetPcId ?? this.formIdIndex.get(event.ownerFormId))
-        : targetPcId;
-      if (ownerPcId) {
-        this.addDialog(ownerPcId, event);
-      }
-      return;
-    }
+      case 'FormClosed':
+        this.markFormClosed(decision.pcId, decision.formId);
+        return;
 
-    // All other events: route by formId
-    const pcId = targetPcId ?? this.formIdIndex.get(formId);
-    if (!pcId) return;
+      case 'ModalRootLayout':
+        this.applyRootControlTree(
+          decision.pcId,
+          decision.formId,
+          (event as BCEvent & { type: 'DialogOpened' }).controlTree,
+        );
+        return;
 
-    const page = this.pages.get(pcId);
-    if (!page) return;
+      case 'AddDialog':
+        this.addDialog(decision.pcId, event as BCEvent & { type: 'DialogOpened' });
+        return;
 
-    const form = page.forms.get(formId);
-    if (form) {
-      const updated = this.formProjection.apply(form, event);
+      case 'ApplyToForm': {
+        const page = this.store.get(decision.pcId);
+        if (!page) return;
 
-      // Check if the event was actually applied (repeater matched).
-      // If not, and this is a DataLoaded/PropertyChanged/BookmarkChanged with a controlPath,
-      // try routing to a child form whose repeater matches that controlPath.
-      // BC sends lines data with the ROOT formId but a controlPath matching the child repeater.
-      const controlPath = 'controlPath' in event ? (event as { controlPath: string }).controlPath : undefined;
-      if (controlPath && updated === form) {
-        const childForm = this.findChildFormByRepeaterPath(page, formId, controlPath);
-        if (childForm) {
-          const childUpdated = this.formProjection.apply(childForm, event);
-          if (childUpdated !== childForm) {
-            const forms = new Map(page.forms);
-            forms.set(childForm.formId, childUpdated);
-            this.pages.set(pcId, { ...page, forms });
-            return;
+        const form = page.forms.get(decision.formId);
+        if (!form) return;
+
+        const updated = this.reducer.apply(form, event);
+
+        // If the primary form didn't accept the event (no-op) and we have a
+        // child repeater candidate, try routing to it.
+        // BC sends lines data with the ROOT formId but the child repeater's controlPath.
+        if (updated === form && decision.childRepeaterFormId) {
+          const childForm = page.forms.get(decision.childRepeaterFormId);
+          if (childForm) {
+            const childUpdated = this.reducer.apply(childForm, event);
+            if (childUpdated !== childForm) {
+              const forms = new Map(page.forms);
+              forms.set(childForm.formId, childUpdated);
+              this.store.set(decision.pcId, { ...page, forms });
+              return;
+            }
           }
         }
-      }
 
-      // Route PropertyChanged events to factbox forms when the controlPath matches a factbox field.
-      // BC sends factbox data changes on the ROOT formId. The controlPath matches a factbox
-      // form's field controlPath. Verified from decompiled WebLogicalFormObserver.cs.
-      if (controlPath && event.type === 'PropertyChanged' && formId === page.rootFormId) {
-        const factboxForm = this.findFactboxFormByFieldPath(page, controlPath);
-        if (factboxForm) {
-          const childUpdated = this.formProjection.apply(factboxForm, event);
-          if (childUpdated !== factboxForm) {
-            const forms = new Map(page.forms);
-            forms.set(factboxForm.formId, childUpdated);
-            this.pages.set(pcId, { ...page, forms });
-            return; // Don't also apply to root form
+        // Route PropertyChanged events to factbox forms when the controlPath
+        // matches a factbox field. BC sends factbox data changes on the ROOT
+        // formId. This fires regardless of whether the primary form accepted
+        // the event (the factbox field path takes priority over root). Only
+        // skipped if child-repeater already handled the event (early return above).
+        // Verified from decompiled WebLogicalFormObserver.cs.
+        if (decision.factboxFormId) {
+          const factboxForm = page.forms.get(decision.factboxFormId);
+          if (factboxForm) {
+            const factboxUpdated = this.reducer.apply(factboxForm, event);
+            if (factboxUpdated !== factboxForm) {
+              const forms = new Map(page.forms);
+              forms.set(factboxForm.formId, factboxUpdated);
+              this.store.set(decision.pcId, { ...page, forms });
+              return; // Don't also apply to root form
+            }
           }
         }
-      }
 
-      const forms = new Map(page.forms);
-      forms.set(formId, updated);
-      this.pages.set(pcId, { ...page, forms });
+        // Commit the primary result (may be unchanged if it was truly a no-op
+        // and no child route matched).
+        const forms = new Map(page.forms);
+        forms.set(decision.formId, updated);
+        this.store.set(decision.pcId, { ...page, forms });
+        return;
+      }
     }
   }
 
   private addChildForm(pcId: string, event: BCEvent & { type: 'FormCreated' }): void {
-    const page = this.pages.get(pcId);
+    const page = this.store.get(pcId);
     if (!page) return;
 
     // Create FormState for child
-    const childForm = this.formProjection.createInitial(event.formId, event.parentFormId);
+    const childForm = this.reducer.createInitial(event.formId, event.parentFormId);
     const tree = tryBuildFormTree(event.controlTree) ?? childForm.root;
     const withData: FormState = {
       ...childForm,
@@ -254,7 +246,7 @@ export class PageContextRepository {
       if (s.kind === 'lines') { pageType = 'Document'; break; }
     }
 
-    this.pages.set(pcId, {
+    this.store.set(pcId, {
       ...page,
       forms,
       sections,
@@ -263,11 +255,7 @@ export class PageContextRepository {
     });
 
     // Index the new formId AFTER creation
-    this.formIdIndex.set(event.formId, pcId);
-  }
-
-  private updateRootForm(pcId: string, event: BCEvent & { type: 'FormCreated' }): void {
-    this.applyRootControlTree(pcId, event.formId, event.controlTree);
+    this.store.indexFormId(event.formId, pcId);
   }
 
   /**
@@ -276,11 +264,11 @@ export class PageContextRepository {
    * as wizards / request pages).
    */
   private applyRootControlTree(pcId: string, formId: string, controlTree: unknown): void {
-    const page = this.pages.get(pcId);
+    const page = this.store.get(pcId);
     if (!page) return;
 
     const existingForm = page.forms.get(formId);
-    const base = existingForm ?? this.formProjection.createInitial(formId);
+    const base = existingForm ?? this.reducer.createInitial(formId);
     const tree = tryBuildFormTree(controlTree) ?? base.root;
     const updated: FormState = { ...base, root: tree };
 
@@ -291,7 +279,7 @@ export class PageContextRepository {
     const forms = new Map(page.forms);
     forms.set(formId, updated);
 
-    this.pages.set(pcId, {
+    this.store.set(pcId, {
       ...page,
       forms,
       pageType: updatedPageType,
@@ -301,17 +289,17 @@ export class PageContextRepository {
 
   /** Mark a section as invalid (no longer surfaced via buildSection / buildAllSections). */
   invalidateSection(pageContextId: string, sectionId: string): void {
-    const page = this.pages.get(pageContextId);
+    const page = this.store.get(pageContextId);
     if (!page) return;
     const old = page.sections.get(sectionId);
     if (!old || !old.valid) return;
     const sections = new Map(page.sections);
     sections.set(sectionId, { ...old, valid: false });
-    this.pages.set(pageContextId, { ...page, sections });
+    this.store.set(pageContextId, { ...page, sections });
   }
 
   private markFormClosed(pcId: string, formId: string): void {
-    const page = this.pages.get(pcId);
+    const page = this.store.get(pcId);
     if (!page) return;
 
     // Mark any sections that reference this formId as invalid
@@ -325,45 +313,25 @@ export class PageContextRepository {
     }
     if (!changed) return;
 
-    this.pages.set(pcId, { ...page, sections });
+    this.store.set(pcId, { ...page, sections });
   }
 
   private addDialog(pcId: string, event: BCEvent & { type: 'DialogOpened' }): void {
-    const page = this.pages.get(pcId);
+    const page = this.store.get(pcId);
     if (!page) return;
 
-    this.pages.set(pcId, {
+    this.store.set(pcId, {
       ...page,
       dialogs: [...page.dialogs, { formId: event.formId, ownerFormId: event.ownerFormId, controlTree: event.controlTree }],
       ownedFormIds: [...page.ownedFormIds, event.formId],
     });
 
-    this.formIdIndex.set(event.formId, pcId);
-  }
-
-  /** Find a child form (not rootFormId) that has a repeater at the given controlPath. */
-  private findChildFormByRepeaterPath(page: PageContext, excludeFormId: string, controlPath: string): FormState | undefined {
-    for (const [fId, form] of page.forms) {
-      if (fId === excludeFormId) continue;
-      if (treeRepeaters(form.root).has(controlPath)) return form;
-    }
-    return undefined;
-  }
-
-  /** Find a factbox form that has a field at the given controlPath. */
-  private findFactboxFormByFieldPath(page: PageContext, controlPath: string): FormState | undefined {
-    for (const [, section] of page.sections) {
-      if (section.kind !== 'factbox') continue;
-      const form = page.forms.get(section.formId);
-      if (!form) continue;
-      if (treeFields(form.root).some(f => f.controlPath === controlPath)) return form;
-    }
-    return undefined;
+    this.store.indexFormId(event.formId, pcId);
   }
 
   /** Register a child form discovered from fhc/lf nodes in the control tree. */
   registerDiscoveredChildForm(pcId: string, child: DiscoveredChildForm): void {
-    const page = this.pages.get(pcId);
+    const page = this.store.get(pcId);
     if (!page) return;
 
     // Don't re-register if already known
@@ -372,7 +340,7 @@ export class PageContextRepository {
     // Build the child form's state from the tree
     const tree = tryBuildFormTree(child.controlTree);
     const childForm: FormState = {
-      ...this.formProjection.createInitial(child.serverId, page.rootFormId),
+      ...this.reducer.createInitial(child.serverId, page.rootFormId),
       ...(tree ? { root: tree } : {}),
     };
 
@@ -390,7 +358,7 @@ export class PageContextRepository {
     let pageType = page.pageType;
     if (section.kind === 'lines') pageType = 'Document';
 
-    this.pages.set(pcId, {
+    this.store.set(pcId, {
       ...page,
       forms,
       sections,
@@ -398,7 +366,7 @@ export class PageContextRepository {
       ownedFormIds: [...page.ownedFormIds, child.serverId],
     });
 
-    this.formIdIndex.set(child.serverId, pcId);
+    this.store.indexFormId(child.serverId, pcId);
   }
 
   private deriveFactboxSection(page: PageContext, child: DiscoveredChildForm) {
@@ -421,26 +389,19 @@ export class PageContextRepository {
   }
 
   remove(pageContextId: string): void {
-    const page = this.pages.get(pageContextId);
-    if (page) {
-      for (const fId of page.ownedFormIds) this.formIdIndex.delete(fId);
-    }
-    this.pages.delete(pageContextId);
+    this.store.removePage(pageContextId);
   }
 
   /** Remove all page contexts (e.g., after session recovery). */
   clearAll(): void {
-    this.pages.clear();
-    this.formIdIndex.clear();
+    this.store.clear();
   }
 
-  listPageContextIds(): string[] { return Array.from(this.pages.keys()); }
+  listPageContextIds(): string[] { return this.store.listPageContextIds(); }
 
   listPageContextSummaries(): Array<{ id: string; caption: string }> {
-    return Array.from(this.pages.entries()).map(([id, ctx]) => ({
-      id,
-      caption: ctx.caption || `Page (${ctx.pageType})`,
-    }));
+    return this.store.listPageContextSummaries();
   }
-  get size(): number { return this.pages.size; }
+
+  get size(): number { return this.store.size; }
 }
