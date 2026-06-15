@@ -5,52 +5,27 @@
 // runTarget, ...) and the empty-result note remediation.
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { config as dotenvConfig } from 'dotenv';
-import { loadConfig } from '../../src/core/config.js';
 import { createNullLogger } from '../../src/core/logger.js';
-import { NTLMAuthProvider } from '../../src/connection/auth/ntlm-provider.js';
-import { ConnectionFactory } from '../../src/connection/connection-factory.js';
-import { EventDecoder } from '../../src/protocol/event-decoder.js';
-import { InteractionEncoder } from '../../src/protocol/interaction-encoder.js';
-import { SessionFactory } from '../../src/session/session-factory.js';
-import { BCSession } from '../../src/session/bc-session.js';
+import type { BCSession } from '../../src/session/bc-session.js';
 import { SearchService } from '../../src/services/search-service.js';
 import { SearchPagesOperation } from '../../src/operations/search-pages.js';
-import { isOk, unwrap } from '../../src/core/result.js';
-
-dotenvConfig();
-
-async function buildSession(profile: string): Promise<BCSession> {
-  const logger = createNullLogger();
-  const ac = loadConfig();
-  const auth = new NTLMAuthProvider({
-    baseUrl: ac.bc.baseUrl,
-    username: ac.bc.username,
-    password: ac.bc.password,
-    tenantId: ac.bc.tenantId,
-  }, logger);
-  const cf = new ConnectionFactory(auth, ac.bc, logger);
-  const decoder = new EventDecoder();
-  const encoder = new InteractionEncoder(ac.bc.clientVersionString);
-  const sf = new SessionFactory(cf, decoder, encoder, logger, ac.bc.tenantId, ac.bc.invokeTimeoutMs, profile);
-  const result = await sf.create();
-  expect(isOk(result)).toBe(true);
-  return unwrap(result);
-}
+import { integrationPool, type PooledLease } from './helpers/session-pool.js';
 
 describe('bc_search_pages live extraction (BC28)', () => {
   describe('with BUSINESS MANAGER profile (populated index)', () => {
+    let lease: PooledLease;
     let session: BCSession;
     let op: SearchPagesOperation;
 
     beforeAll(async () => {
-      session = await buildSession('BUSINESS MANAGER');
+      lease = await integrationPool.checkOut({ profile: 'BUSINESS MANAGER' });
+      session = lease.session;
       const searchService = new SearchService(session, createNullLogger());
       op = new SearchPagesOperation(searchService);
     }, 60_000);
 
     afterAll(async () => {
-      await session?.closeGracefully().catch(() => { /* best effort */ });
+      if (lease) await integrationPool.checkIn(lease, { poisoned: !session?.isAlive });
     });
 
     it('returns structured results for "customer"', async () => {
@@ -74,17 +49,19 @@ describe('bc_search_pages live extraction (BC28)', () => {
   });
 
   describe('with default profile (potentially empty index)', () => {
+    let lease: PooledLease;
     let session: BCSession;
     let op: SearchPagesOperation;
 
     beforeAll(async () => {
-      session = await buildSession('');
+      lease = await integrationPool.checkOut({ profile: '' });
+      session = lease.session;
       const searchService = new SearchService(session, createNullLogger());
       op = new SearchPagesOperation(searchService);
     }, 60_000);
 
     afterAll(async () => {
-      await session?.closeGracefully().catch(() => { /* best effort */ });
+      if (lease) await integrationPool.checkIn(lease, { poisoned: !session?.isAlive });
     });
 
     it('returns either populated results OR a profile-hint note when empty', async () => {

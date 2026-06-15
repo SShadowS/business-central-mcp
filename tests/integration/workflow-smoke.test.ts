@@ -7,16 +7,9 @@
  * because they share a single BCSession.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { config as dotenvConfig } from 'dotenv';
-import { loadConfig } from '../../src/core/config.js';
 import { createNullLogger } from '../../src/core/logger.js';
-import { NTLMAuthProvider } from '../../src/connection/auth/ntlm-provider.js';
-import { ConnectionFactory } from '../../src/connection/connection-factory.js';
-import { EventDecoder } from '../../src/protocol/event-decoder.js';
-import { InteractionEncoder } from '../../src/protocol/interaction-encoder.js';
 import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
 import { derivePageState } from '../../src/protocol/types.js';
-import { SessionFactory } from '../../src/session/session-factory.js';
 import type { BCSession } from '../../src/session/bc-session.js';
 import { PageService } from '../../src/services/page-service.js';
 import { DataService } from '../../src/services/data-service.js';
@@ -26,8 +19,6 @@ import { NavigationService } from '../../src/services/navigation-service.js';
 import { SearchService } from '../../src/services/search-service.js';
 import { isOk, isErr, unwrap } from '../../src/core/result.js';
 import { integrationPool, type PooledLease } from './helpers/session-pool.js';
-
-dotenvConfig();
 
 describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
   let session: BCSession;
@@ -45,30 +36,10 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
   /** Set to true when the BC session dies (InvalidSessionException). Later tests skip. */
   let sessionDead = false;
 
-  /** Kept at describe scope so recreateSession() can use it. */
-  let sessionFactory: SessionFactory;
-
-  /** Pool lease for the initial session. */
+  /** Pool lease for the current session. */
   let lease: PooledLease;
 
-  beforeAll(async () => {
-    // Build sessionFactory for recreateSession() emergency use
-    const appConfig = loadConfig();
-    const auth = new NTLMAuthProvider({
-      baseUrl: appConfig.bc.baseUrl,
-      username: appConfig.bc.username,
-      password: appConfig.bc.password,
-      tenantId: appConfig.bc.tenantId,
-    }, logger);
-    const connFactory = new ConnectionFactory(auth, appConfig.bc, logger);
-    const decoder = new EventDecoder();
-    const encoder = new InteractionEncoder(appConfig.bc.clientVersionString);
-    sessionFactory = new SessionFactory(connFactory, decoder, encoder, logger, appConfig.bc.tenantId);
-
-    // Get initial session from pool
-    lease = await integrationPool.checkOut();
-    session = lease.session;
-
+  function rebuildServices(): void {
     const repo = new PageContextRepository();
     pageService = new PageService(session, repo, logger);
     dataService = new DataService(session, repo, logger);
@@ -76,6 +47,12 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
     filterService = new FilterService(session, repo, logger);
     navigationService = new NavigationService(session, repo, logger);
     searchService = new SearchService(session, logger);
+  }
+
+  beforeAll(async () => {
+    lease = await integrationPool.checkOut();
+    session = lease.session;
+    rebuildServices();
   }, 30_000);
 
   afterAll(async () => {
@@ -131,35 +108,21 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
    * hasn't been fully cleaned up on the server side.
    */
   async function recreateSession(): Promise<boolean> {
-    console.error('[SESSION] Recreating session (old one is dead)...');
-    try { await session?.closeGracefully().catch(() => {}); } catch { /* ignore */ }
-
-    // BC may briefly reject logins right after a session is killed — retry with backoff
-    let result = await sessionFactory.create();
-    const delays = [3000, 5000, 10000, 15000];
-    for (let i = 0; isErr(result) && i < delays.length; i++) {
-      const delay = delays[i]!;
-      console.error(`[SESSION] Attempt ${i + 1} failed (${result.error.message}), retrying in ${delay / 1000}s...`);
-      await new Promise(resolve => setTimeout(resolve, delay));
-      result = await sessionFactory.create();
-    }
-    if (isErr(result)) {
-      console.error(`[SESSION] Recreation failed after all retries: ${result.error.message}`);
-      console.error('[SESSION] BC server is likely holding the NTLM session slot — cannot reconnect in this test run');
+    console.error('[SESSION] Recreating session via pool (old one is dead)...');
+    try {
+      // Return the dead lease as poisoned so the pool cools its NTLM slot,
+      // then check out a fresh session on a different (cool) pool user.
+      await integrationPool.checkIn(lease, { poisoned: true });
+      lease = await integrationPool.checkOut();
+      session = lease.session;
+      rebuildServices();
+      sessionDead = false;
+      console.error('[SESSION] Recreated session successfully');
+      return true;
+    } catch (e) {
+      console.error(`[SESSION] Recreation failed: ${e instanceof Error ? e.message : String(e)}`);
       return false;
     }
-    session = unwrap(result);
-
-    const repo = new PageContextRepository();
-    pageService = new PageService(session, repo, logger);
-    dataService = new DataService(session, repo, logger);
-    actionService = new ActionService(session, repo, logger);
-    filterService = new FilterService(session, repo, logger);
-    navigationService = new NavigationService(session, repo, logger);
-    searchService = new SearchService(session, logger);
-    sessionDead = false;
-    console.error('[SESSION] Recreated session successfully');
-    return true;
   }
 
   /** Log session health — call after each workflow completes. */

@@ -16,7 +16,7 @@ export interface PooledLease {
 interface PoolOptions {
   users: string[];
   cooldownMs: number;
-  buildSession: (user: string) => Promise<BCSession>;
+  buildSession: (user: string, profile?: string) => Promise<BCSession>;
 }
 
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
@@ -24,7 +24,7 @@ const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, m
 export class IntegrationSessionPool {
   private readonly users: string[];
   private readonly cooldownMs: number;
-  private readonly buildSession: (user: string) => Promise<BCSession>;
+  private readonly buildSession: (user: string, profile?: string) => Promise<BCSession>;
   private readonly cooldownUntil = new Map<string, number>();
   private readonly inUse = new Set<string>();
   private rrIndex = 0;
@@ -35,11 +35,11 @@ export class IntegrationSessionPool {
     this.buildSession = opts.buildSession;
   }
 
-  async checkOut(): Promise<PooledLease> {
+  async checkOut(opts?: { profile?: string }): Promise<PooledLease> {
     const user = await this.acquireUser();
     this.inUse.add(user);
     try {
-      const session = await this.buildSession(user);
+      const session = await this.buildSession(user, opts?.profile);
       return { session, user };
     } catch (e) {
       // Release the slot so a build failure does not strand the user forever.
@@ -109,7 +109,7 @@ const CRONUS28: BCConfig = {
 const POOL_USERS = (process.env.BC_TEST_USERS ?? 'sshadows,bcmcp_test1,bcmcp_test2')
   .split(',').map(s => s.trim()).filter(Boolean);
 
-async function buildCronus28Session(user: string): Promise<BCSession> {
+async function buildCronus28Session(user: string, profile = ''): Promise<BCSession> {
   const logger = createNullLogger();
   const cfg: BCConfig = { ...CRONUS28, username: user };
   const auth = new NTLMAuthProvider({
@@ -129,7 +129,7 @@ async function buildCronus28Session(user: string): Promise<BCSession> {
     logger,
     cfg.tenantId,
     cfg.invokeTimeoutMs,
-    cfg.profile,
+    profile,
   );
   return unwrap(await sessionFactory.create());
 }

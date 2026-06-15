@@ -50,6 +50,24 @@ describe('IntegrationSessionPool', () => {
     expect(lease3.user).toBe('u2');
   });
 
+  it('passes the requested profile through to buildSession', async () => {
+    const calls: Array<{ user: string; profile?: string }> = [];
+    const pool = new IntegrationSessionPool({
+      users: ['u1', 'u2'],
+      cooldownMs: 15000,
+      buildSession: async (user, profile) => { calls.push({ user, profile }); return fakeSession(); },
+    });
+
+    const lease = await pool.checkOut({ profile: 'BUSINESS MANAGER' });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.profile).toBe('BUSINESS MANAGER');
+    await pool.checkIn(lease, { poisoned: false });
+
+    // No profile -> buildSession receives undefined
+    await pool.checkOut();
+    expect(calls[1]!.profile).toBeUndefined();
+  });
+
   it('awaits the soonest cooldown when all users are cooling', async () => {
     const pool = new IntegrationSessionPool({
       users: ['u1'],

@@ -19,40 +19,15 @@
 // `subpage` and `factbox` sections as candidate Role Center children.
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { config as dotenvConfig } from 'dotenv';
-import { loadConfig } from '../../src/core/config.js';
 import { createNullLogger } from '../../src/core/logger.js';
-import { NTLMAuthProvider } from '../../src/connection/auth/ntlm-provider.js';
-import { ConnectionFactory } from '../../src/connection/connection-factory.js';
-import { EventDecoder } from '../../src/protocol/event-decoder.js';
-import { InteractionEncoder } from '../../src/protocol/interaction-encoder.js';
-import { SessionFactory } from '../../src/session/session-factory.js';
-import { BCSession } from '../../src/session/bc-session.js';
+import type { BCSession } from '../../src/session/bc-session.js';
 import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
 import { PageService } from '../../src/services/page-service.js';
 import { ActionService } from '../../src/services/action-service.js';
 import { OpenPageOperation } from '../../src/operations/open-page.js';
 import { ExecuteActionOperation } from '../../src/operations/execute-action.js';
-import { isOk, unwrap } from '../../src/core/result.js';
 import type { Section } from '../../src/protocol/section-dto.js';
-
-dotenvConfig();
-
-async function buildSession(profile: string): Promise<BCSession> {
-  const logger = createNullLogger();
-  const ac = loadConfig();
-  const auth = new NTLMAuthProvider({
-    baseUrl: ac.bc.baseUrl, username: ac.bc.username,
-    password: ac.bc.password, tenantId: ac.bc.tenantId,
-  }, logger);
-  const cf = new ConnectionFactory(auth, ac.bc, logger);
-  const decoder = new EventDecoder();
-  const encoder = new InteractionEncoder(ac.bc.clientVersionString);
-  const sf = new SessionFactory(cf, decoder, encoder, logger, ac.bc.tenantId, ac.bc.invokeTimeoutMs, profile);
-  const result = await sf.create();
-  expect(isOk(result)).toBe(true);
-  return unwrap(result);
-}
+import { integrationPool, type PooledLease } from './helpers/session-pool.js';
 
 // BUSINESS MANAGER profile's default Role Center on a fresh BC28 install is
 // page 9022 ("Business Manager Role Center" -- DesignName confirmed via the
@@ -68,12 +43,14 @@ function hostedSections(sections: readonly Section[]): Section[] {
 }
 
 describe('Role Center cues live (BC28 BUSINESS MANAGER)', () => {
+  let lease: PooledLease;
   let session: BCSession;
   let openPage: OpenPageOperation;
   let executeAction: ExecuteActionOperation;
 
   beforeAll(async () => {
-    session = await buildSession('BUSINESS MANAGER');
+    lease = await integrationPool.checkOut({ profile: 'BUSINESS MANAGER' });
+    session = lease.session;
     const logger = createNullLogger();
     const repo = new PageContextRepository();
     const pageService = new PageService(session, repo, logger);
@@ -83,7 +60,7 @@ describe('Role Center cues live (BC28 BUSINESS MANAGER)', () => {
   }, 60_000);
 
   afterAll(async () => {
-    await session?.closeGracefully().catch(() => { /* best effort */ });
+    if (lease) await integrationPool.checkIn(lease, { poisoned: !session?.isAlive });
   });
 
   it('Role Center opens with hosted CardParts as sections', async () => {

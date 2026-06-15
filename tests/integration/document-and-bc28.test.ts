@@ -7,16 +7,9 @@
  * Goal: discover protocol gaps, not fix them.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { config as dotenvConfig } from 'dotenv';
-import { loadConfig } from '../../src/core/config.js';
 import { createNullLogger } from '../../src/core/logger.js';
-import { NTLMAuthProvider } from '../../src/connection/auth/ntlm-provider.js';
-import { ConnectionFactory } from '../../src/connection/connection-factory.js';
-import { EventDecoder } from '../../src/protocol/event-decoder.js';
-import { InteractionEncoder } from '../../src/protocol/interaction-encoder.js';
 import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
 import { derivePageState } from '../../src/protocol/types.js';
-import { SessionFactory } from '../../src/session/session-factory.js';
 import type { BCSession } from '../../src/session/bc-session.js';
 import { PageService } from '../../src/services/page-service.js';
 import { DataService } from '../../src/services/data-service.js';
@@ -24,11 +17,8 @@ import { ActionService } from '../../src/services/action-service.js';
 import { FilterService } from '../../src/services/filter-service.js';
 import { NavigationService } from '../../src/services/navigation-service.js';
 import { SearchService } from '../../src/services/search-service.js';
-import type { BCConfig } from '../../src/core/config.js';
 import { isOk, isErr, unwrap } from '../../src/core/result.js';
 import { integrationPool, type PooledLease } from './helpers/session-pool.js';
-
-dotenvConfig();
 
 // =============================================================================
 // Part 1: Document Page Workflows (BC27)
@@ -47,24 +37,9 @@ describe('Document Page Workflows (BC27)', () => {
   const openedPages: string[] = [];
   let sessionDead = false;
   let recreationFailed = false;
-  let sessionFactory: SessionFactory;
   let lease: PooledLease;
 
   beforeAll(async () => {
-    // Build sessionFactory for recreateSession() emergency use
-    const appConfig = loadConfig();
-    const auth = new NTLMAuthProvider({
-      baseUrl: appConfig.bc.baseUrl,
-      username: appConfig.bc.username,
-      password: appConfig.bc.password,
-      tenantId: appConfig.bc.tenantId,
-    }, logger);
-    const connFactory = new ConnectionFactory(auth, appConfig.bc, logger);
-    const decoder = new EventDecoder();
-    const encoder = new InteractionEncoder(appConfig.bc.clientVersionString);
-    sessionFactory = new SessionFactory(connFactory, decoder, encoder, logger, appConfig.bc.tenantId);
-
-    // Get initial session from pool
     lease = await integrationPool.checkOut();
     session = lease.session;
     rebuildServices();
@@ -92,27 +67,22 @@ describe('Document Page Workflows (BC27)', () => {
       console.error('[SESSION] Previous recreation failed, skipping retries');
       return false;
     }
-    console.error('[SESSION] Recreating session...');
-    try { await session?.closeGracefully().catch(() => {}); } catch { /* ignore */ }
-
-    let result = await sessionFactory.create();
-    const delays = [2000, 4000, 8000];
-    for (let i = 0; isErr(result) && i < delays.length; i++) {
-      const delay = delays[i]!;
-      console.error(`[SESSION] Attempt ${i + 1} failed (${result.error.message}), retrying in ${delay / 1000}s...`);
-      await new Promise(resolve => setTimeout(resolve, delay));
-      result = await sessionFactory.create();
-    }
-    if (isErr(result)) {
-      console.error(`[SESSION] Recreation failed: ${result.error.message}`);
+    console.error('[SESSION] Recreating session via pool...');
+    try {
+      // Return the dead lease as poisoned so the pool cools its NTLM slot,
+      // then check out a fresh session on a different (cool) pool user.
+      await integrationPool.checkIn(lease, { poisoned: true });
+      lease = await integrationPool.checkOut();
+      session = lease.session;
+      rebuildServices();
+      sessionDead = false;
+      console.error('[SESSION] Recreated successfully');
+      return true;
+    } catch (e) {
+      console.error(`[SESSION] Recreation failed: ${e instanceof Error ? e.message : String(e)}`);
       recreationFailed = true;
       return false;
     }
-    session = unwrap(result);
-    rebuildServices();
-    sessionDead = false;
-    console.error('[SESSION] Recreated successfully');
-    return true;
   }
 
   function isSessionDeadErr(result: { ok: false; error: { message: string } }): boolean {
@@ -496,16 +466,6 @@ describe('Document Page Workflows (BC27)', () => {
 // =============================================================================
 
 describe('BC28 Cross-Version Tests', () => {
-  const BC28_CONFIG: BCConfig = {
-    baseUrl: 'http://cronus28/BC',
-    username: 'sshadows',
-    password: '1234',
-    tenantId: 'default',
-    clientVersionString: '28.0.0.0',
-    serverMajor: 28,
-    timeoutMs: 120000,
-  };
-
   let session: BCSession;
   let pageService: PageService;
   let dataService: DataService;
@@ -518,23 +478,9 @@ describe('BC28 Cross-Version Tests', () => {
   const openedPages: string[] = [];
   let sessionDead = false;
   let recreationFailed = false;
-  let sessionFactory: SessionFactory;
   let lease2: PooledLease;
 
   beforeAll(async () => {
-    // Build sessionFactory for recreateSession() emergency use
-    const auth = new NTLMAuthProvider({
-      baseUrl: BC28_CONFIG.baseUrl,
-      username: BC28_CONFIG.username,
-      password: BC28_CONFIG.password,
-      tenantId: BC28_CONFIG.tenantId,
-    }, logger);
-    const connFactory = new ConnectionFactory(auth, BC28_CONFIG, logger);
-    const decoder = new EventDecoder();
-    const encoder = new InteractionEncoder(BC28_CONFIG.clientVersionString);
-    sessionFactory = new SessionFactory(connFactory, decoder, encoder, logger, BC28_CONFIG.tenantId);
-
-    // Get initial session from pool
     lease2 = await integrationPool.checkOut();
     session = lease2.session;
     rebuildServices();
@@ -560,27 +506,22 @@ describe('BC28 Cross-Version Tests', () => {
 
   async function recreateSession(): Promise<boolean> {
     if (recreationFailed) return false;
-    console.error('[BC28][SESSION] Recreating session...');
-    try { await session?.closeGracefully().catch(() => {}); } catch { /* ignore */ }
-
-    let result = await sessionFactory.create();
-    const delays = [2000, 4000, 8000];
-    for (let i = 0; isErr(result) && i < delays.length; i++) {
-      const delay = delays[i]!;
-      console.error(`[BC28][SESSION] Attempt ${i + 1} failed, retrying in ${delay / 1000}s...`);
-      await new Promise(resolve => setTimeout(resolve, delay));
-      result = await sessionFactory.create();
-    }
-    if (isErr(result)) {
-      console.error(`[BC28][SESSION] Recreation failed: ${result.error.message}`);
+    console.error('[BC28][SESSION] Recreating session via pool...');
+    try {
+      // Return the dead lease as poisoned so the pool cools its NTLM slot,
+      // then check out a fresh session on a different (cool) pool user.
+      await integrationPool.checkIn(lease2, { poisoned: true });
+      lease2 = await integrationPool.checkOut();
+      session = lease2.session;
+      rebuildServices();
+      sessionDead = false;
+      console.error('[BC28][SESSION] Recreated successfully');
+      return true;
+    } catch (e) {
+      console.error(`[BC28][SESSION] Recreation failed: ${e instanceof Error ? e.message : String(e)}`);
       recreationFailed = true;
       return false;
     }
-    session = unwrap(result);
-    rebuildServices();
-    sessionDead = false;
-    console.error('[BC28][SESSION] Recreated successfully');
-    return true;
   }
 
   function isSessionDeadErr(result: { ok: false; error: { message: string } }): boolean {

@@ -11,16 +11,9 @@
  * so a session-killing failure doesn't block all subsequent tests.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { config as dotenvConfig } from 'dotenv';
-import { loadConfig } from '../../src/core/config.js';
 import { createNullLogger } from '../../src/core/logger.js';
-import { NTLMAuthProvider } from '../../src/connection/auth/ntlm-provider.js';
-import { ConnectionFactory } from '../../src/connection/connection-factory.js';
-import { EventDecoder } from '../../src/protocol/event-decoder.js';
-import { InteractionEncoder } from '../../src/protocol/interaction-encoder.js';
 import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
 import { derivePageState } from '../../src/protocol/types.js';
-import { SessionFactory } from '../../src/session/session-factory.js';
 import type { BCSession } from '../../src/session/bc-session.js';
 import { PageService } from '../../src/services/page-service.js';
 import { DataService } from '../../src/services/data-service.js';
@@ -30,8 +23,6 @@ import { NavigationService } from '../../src/services/navigation-service.js';
 import { SearchService } from '../../src/services/search-service.js';
 import { isOk, isErr, unwrap } from '../../src/core/result.js';
 import { integrationPool, type PooledLease } from './helpers/session-pool.js';
-
-dotenvConfig();
 
 describe('Advanced Workflow Tests (v2)', () => {
   let session: BCSession;
@@ -46,27 +37,11 @@ describe('Advanced Workflow Tests (v2)', () => {
   const openedPages: string[] = [];
   let sessionDead = false;
   let recreationFailed = false;
-  let sessionFactory: SessionFactory;
   let lease: PooledLease;
 
   beforeAll(async () => {
-    // Build sessionFactory for recreateSession() emergency use
-    const appConfig = loadConfig();
-    const auth = new NTLMAuthProvider({
-      baseUrl: appConfig.bc.baseUrl,
-      username: appConfig.bc.username,
-      password: appConfig.bc.password,
-      tenantId: appConfig.bc.tenantId,
-    }, logger);
-    const connFactory = new ConnectionFactory(auth, appConfig.bc, logger);
-    const decoder = new EventDecoder();
-    const encoder = new InteractionEncoder(appConfig.bc.clientVersionString);
-    sessionFactory = new SessionFactory(connFactory, decoder, encoder, logger, appConfig.bc.tenantId);
-
-    // Get initial session from pool
     lease = await integrationPool.checkOut();
     session = lease.session;
-
     rebuildServices();
   }, 30_000);
 
@@ -96,27 +71,22 @@ describe('Advanced Workflow Tests (v2)', () => {
       console.error('[SESSION] Previous recreation failed, skipping retries');
       return false;
     }
-    console.error('[SESSION] Recreating session...');
-    try { await session?.closeGracefully().catch(() => {}); } catch { /* ignore */ }
-
-    let result = await sessionFactory.create();
-    const delays = [2000, 4000, 8000];
-    for (let i = 0; isErr(result) && i < delays.length; i++) {
-      const delay = delays[i]!;
-      console.error(`[SESSION] Attempt ${i + 1} failed (${result.error.message}), retrying in ${delay / 1000}s...`);
-      await new Promise(resolve => setTimeout(resolve, delay));
-      result = await sessionFactory.create();
-    }
-    if (isErr(result)) {
-      console.error(`[SESSION] Recreation failed: ${result.error.message}`);
+    console.error('[SESSION] Recreating session via pool...');
+    try {
+      // Return the dead lease as poisoned so the pool cools its NTLM slot,
+      // then check out a fresh session on a different (cool) pool user.
+      await integrationPool.checkIn(lease, { poisoned: true });
+      lease = await integrationPool.checkOut();
+      session = lease.session;
+      rebuildServices();
+      sessionDead = false;
+      console.error('[SESSION] Recreated successfully');
+      return true;
+    } catch (e) {
+      console.error(`[SESSION] Recreation failed: ${e instanceof Error ? e.message : String(e)}`);
       recreationFailed = true;
       return false;
     }
-    session = unwrap(result);
-    rebuildServices();
-    sessionDead = false;
-    console.error('[SESSION] Recreated successfully');
-    return true;
   }
 
   function isSessionDeadErr(result: { ok: false; error: { message: string } }): boolean {
