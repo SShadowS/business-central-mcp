@@ -11,5 +11,7 @@ export default defineConfig({
     // NOTE: vitest 4 removed poolOptions; fileParallelism:false forces maxWorkers=1.
     fileParallelism: false,
     pool: 'forks',
+    // isolate:false so the IntegrationSessionPool module singleton is shared across files.
+    isolate: false,
   },
 });
