@@ -36,6 +36,9 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
   /** Set to true when the BC session dies (InvalidSessionException). Later tests skip. */
   let sessionDead = false;
 
+  /** Set to true once a pool recovery has failed, so later calls short-circuit. */
+  let recreationFailed = false;
+
   /** Pool lease for the current session. */
   let lease: PooledLease;
 
@@ -108,6 +111,10 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
    * hasn't been fully cleaned up on the server side.
    */
   async function recreateSession(): Promise<boolean> {
+    if (recreationFailed) {
+      console.error('[SESSION] Previous recreation failed, skipping retries');
+      return false;
+    }
     console.error('[SESSION] Recreating session via pool (old one is dead)...');
     try {
       // Return the dead lease as poisoned so the pool cools its NTLM slot,
@@ -121,6 +128,7 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
       return true;
     } catch (e) {
       console.error(`[SESSION] Recreation failed: ${e instanceof Error ? e.message : String(e)}`);
+      recreationFailed = true;
       return false;
     }
   }
