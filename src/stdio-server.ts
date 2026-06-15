@@ -50,7 +50,7 @@ async function main() {
 
   // Protocol
   const decoder = new EventDecoder();
-  const encoder = new InteractionEncoder(config.bc.clientVersionString);
+  const encoder = new InteractionEncoder(config.bc.clientVersionString, config.bc.applicationId);
   const pageContextRepo = new PageContextRepository();
 
   // Session — created lazily on first tools/call, with automatic recovery

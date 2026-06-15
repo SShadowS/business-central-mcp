@@ -35,7 +35,19 @@ const BC_SUPPORTED_EXTENSIONS = JSON.stringify([
 ]);
 
 export class InteractionEncoder {
-  constructor(readonly clientVersion: string) {}
+  /**
+   * @param clientVersion  BC client version string (e.g. "27.0.0.0").
+   * @param applicationId  navigationContext.applicationId sent in OpenSession/Invoke.
+   *   Must match what the NST expects for the target BC build. The web client on
+   *   the SaaS/cronus images sends "FIN" (the default). On some on-prem BC 27
+   *   (ltsc2025) containers the server expects "NAV" and throws
+   *   NavCancelCredentialPromptException on OpenSession with "FIN" even though the
+   *   WS handshake succeeds. Override via BC_APPLICATION_ID for those builds.
+   */
+  constructor(
+    readonly clientVersion: string,
+    private readonly applicationId: string = 'FIN',
+  ) {}
 
   encode(interaction: BCInteraction, context: EncodeContext): EncodedRpcCall {
     const invocation = this.buildInvocation(interaction, context.callbackId);
@@ -51,7 +63,7 @@ export class InteractionEncoder {
         sequenceNo: context.sequenceNo,
         lastClientAckSequenceNumber: context.lastClientAckSequenceNumber,
         navigationContext: {
-          applicationId: 'FIN',
+          applicationId: this.applicationId,
           deviceCategory: 0,
           spaInstanceId: context.session.spaInstanceId,
         },
@@ -86,7 +98,7 @@ export class InteractionEncoder {
         telemetryClientActivityId: null,
         telemetryTraceStartInfo: 'traceStartInfo=%5BWeb%20Client%20-%20Web%20browser%5D%20OpenForm',
         navigationContext: {
-          applicationId: 'FIN',
+          applicationId: this.applicationId,
           deviceCategory: 0,
           spaInstanceId,
         },

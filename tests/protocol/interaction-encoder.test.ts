@@ -199,4 +199,29 @@ describe('InteractionEncoder', () => {
       expect(params.profile).toBe('');
     });
   });
+
+  describe('navigationContext.applicationId', () => {
+    const navCtxOf = (call: { params: unknown[] }) =>
+      ((call.params[0] as Record<string, unknown>).navigationContext as Record<string, unknown>);
+
+    it('defaults to FIN on both OpenSession and Invoke', () => {
+      const enc = new InteractionEncoder('27.0.0.0');
+      expect(navCtxOf(enc.encodeOpenSession('default', 'spa-1')).applicationId).toBe('FIN');
+      const invoke = enc.encode(
+        { type: 'OpenForm', query: 'page=22&tenant=default', controlPath: 'server:c[0]' },
+        { callbackId: 'cb', sequenceNo: 'spa1#1', lastClientAckSequenceNumber: 0, openFormIds: new Set(), session: testSession },
+      );
+      expect(navCtxOf(invoke).applicationId).toBe('FIN');
+    });
+
+    it('honors an override (e.g. NAV for on-prem BC27 ltsc2025)', () => {
+      const enc = new InteractionEncoder('27.0.0.0', 'NAV');
+      expect(navCtxOf(enc.encodeOpenSession('default', 'spa-1')).applicationId).toBe('NAV');
+      const invoke = enc.encode(
+        { type: 'OpenForm', query: 'page=22&tenant=default', controlPath: 'server:c[0]' },
+        { callbackId: 'cb', sequenceNo: 'spa1#1', lastClientAckSequenceNumber: 0, openFormIds: new Set(), session: testSession },
+      );
+      expect(navCtxOf(invoke).applicationId).toBe('NAV');
+    });
+  });
 });
