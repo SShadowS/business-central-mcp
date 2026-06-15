@@ -78,12 +78,27 @@ export interface ValidationResultItem {
   /** Unique result-item identifier used for change tracking across events. */
   readonly Id: number;
   readonly Description: string;
+  /**
+   * Short one-sentence hint for the user (e.g. "Enter a number."). Optional — not
+   * present for all validation types. Confirmed from live BC28 wire captures.
+   */
+  readonly DescriptionShort?: string;
   readonly Severity: 'Error' | 'Warning' | 'Info';
   /** True when the error is local (not from a remote sub-page). */
   readonly IsLocal?: boolean;
-  readonly OriginatingControl?: string;
+  /**
+   * The control that triggered the validation. BC28 wire sends this as an object
+   * `{ controlPath: string; formId: string }`, NOT a bare string.
+   * Reference: live BC28 capture — Credit Limit (LCY) validation, 2026-06-15.
+   */
+  readonly OriginatingControl?: { readonly controlPath: string; readonly formId: string };
   readonly Title?: string | null;
   readonly TroubleshootInfo?: string | null;
+  /**
+   * BC exception type ordinal. 0 = standard field validation error. Not documented
+   * in decompiled source but consistently present in live BC28 captures.
+   */
+  readonly ExceptionType?: number;
 }
 
 export interface DataLoadedEvent {

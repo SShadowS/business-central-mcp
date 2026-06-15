@@ -183,7 +183,9 @@ describe('extractValidationErrors', () => {
               Description: 'The length of the string is 22, but it must be less than or equal to 10 characters.',
               Severity: 'Error',
               IsLocal: true,
-              OriginatingControl: 'server:c[2]/c[0]',
+              // BC28 wire: OriginatingControl is an object { controlPath, formId }, not a string.
+              // Confirmed from live BC28 capture (Credit Limit field, 2026-06-15).
+              OriginatingControl: { controlPath: 'server:c[2]/c[0]', formId: 'f1' },
               Title: null,
               TroubleshootInfo: null,
             },
