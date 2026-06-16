@@ -296,36 +296,42 @@ export class PageService {
     if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
 
     const allEvents: BCEvent[] = [];
-    for (const formId of ctx.ownedFormIds) {
-      const closeInteraction: CloseFormInteraction = { type: 'CloseForm', formId };
-      const result = await this.session.invoke(closeInteraction, (event) => event.type === 'InvokeCompleted');
-      if (isOk(result)) {
-        allEvents.push(...result.value);
+    try {
+      for (const formId of ctx.ownedFormIds) {
+        const closeInteraction: CloseFormInteraction = { type: 'CloseForm', formId };
+        const result = await this.session.invoke(closeInteraction, (event) => event.type === 'InvokeCompleted');
+        if (isOk(result)) {
+          allEvents.push(...result.value);
 
-        // Handle "save changes?" dialogs triggered by CloseForm.
-        // When discardChanges is true, auto-dismiss with "no" to complete the close.
-        // Otherwise, the dialog info is returned in events for the caller to handle.
-        if (options?.discardChanges) {
-          for (const event of result.value) {
-            if (event.type === 'DialogOpened' && event.formId) {
-              this.logger.info(`Close triggered dialog (formId=${event.formId}), dismissing with "no"`);
-              const dismissResult = await this.session.invoke(
-                { type: 'InvokeAction', formId: event.formId, controlPath: 'server:', systemAction: 390 } as InvokeActionInteraction, // No=390
-                (e) => e.type === 'InvokeCompleted',
-              );
-              if (isOk(dismissResult)) {
-                allEvents.push(...dismissResult.value);
+          // Handle "save changes?" dialogs triggered by CloseForm.
+          // When discardChanges is true, auto-dismiss with "no" to complete the close.
+          // Otherwise, the dialog info is returned in events for the caller to handle.
+          if (options?.discardChanges) {
+            for (const event of result.value) {
+              if (event.type === 'DialogOpened' && event.formId) {
+                this.logger.info(`Close triggered dialog (formId=${event.formId}), dismissing with "no"`);
+                const dismissResult = await this.session.invoke(
+                  { type: 'InvokeAction', formId: event.formId, controlPath: 'server:', systemAction: 390 } as InvokeActionInteraction, // No=390
+                  (e) => e.type === 'InvokeCompleted',
+                );
+                if (isOk(dismissResult)) {
+                  allEvents.push(...dismissResult.value);
+                }
+                this.session.removeOpenForm(event.formId);
               }
-              this.session.removeOpenForm(event.formId);
             }
           }
         }
+        this.session.removeOpenForm(formId);
       }
-      this.session.removeOpenForm(formId);
+    } finally {
+      // Always remove the page context from the repo, even if a form-close
+      // invoke throws (e.g. session killed mid-close). A dangling context
+      // referencing a dead form would cause stale-context errors on all
+      // subsequent tool calls.
+      this.repo.remove(pageContextId);
+      this.logger.info(`Page closed: ${pageContextId}`);
     }
-
-    this.repo.remove(pageContextId);
-    this.logger.info(`Page closed: ${pageContextId}`);
     return ok({ events: allEvents });
   }
 

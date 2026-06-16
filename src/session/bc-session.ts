@@ -19,6 +19,7 @@ export class BCSession {
   private readonly _openFormIds = new Set<string>();
   private readonly modalStack = new ModalStack();
   private dead = false;
+  private wsClosed = false;
 
   private sessionId = '';
   private sessionKey = '';
@@ -142,7 +143,7 @@ export class BCSession {
       const timer = setTimeout(() => {
         this.logger.error(`${label} timed out after ${ms}ms, killing session`);
         this.markDead();
-        this.ws.close();
+        this.closeWs();
         reject(new TimeoutError(`BC did not respond within ${ms / 1000}s. Session has been killed and will reconnect on next request.`));
       }, ms);
       promise.then(
@@ -165,12 +166,16 @@ export class BCSession {
     interaction: BCInteraction,
     expect: EventPredicate,
     timeoutMs: number,
+    bypassDeadCheck = false,
   ): Promise<Result<BCEvent[], ProtocolError>> {
     // Drain-on-death: once the session is dead, every queued invoke fast-fails
     // here instead of reaching ws.sendRpc and eating a full timeout. The queue is
     // serial, so the task that detects death (markDead) is immediately followed by
     // the remaining queued tasks, each short-circuiting through this guard.
-    if (this.dead) {
+    // bypassDeadCheck is used by closeGracefully's invokeRaw path, which sets
+    // dead=true before the form-close loop to block concurrent invokes but still
+    // needs to send CloseForm RPCs itself.
+    if (this.dead && !bypassDeadCheck) {
       return err(new ProtocolError('Session is dead'));
     }
     const callbackId = uuid();
@@ -399,47 +404,104 @@ export class BCSession {
   }
 
   /**
+   * Idempotent WebSocket close. Guards against double-close: the underlying
+   * BCWebSocket implementation may throw or behave unexpectedly when close()
+   * is called on an already-closed socket. Safe to call from multiple teardown
+   * paths (timeout handler, closeGracefully, close).
+   *
+   * Decompiled finding (Connection.cs): BC disposes the NavSession in
+   * Connection_Disconnected, which fires for ANY WebSocket close reason
+   * (clean or abrupt). No explicit CloseConnection RPC is required for
+   * server-side session disposal -- WS close is sufficient. We therefore
+   * rely on WS-close as the guaranteed reap trigger and do NOT invent a
+   * CloseConnection RPC call.
+   */
+  private closeWs(): void {
+    if (this.wsClosed) return;
+    this.wsClosed = true;
+    this.ws.close();
+  }
+
+  /**
    * Gracefully close the session by closing all open forms (dialogs first),
    * then closing the WebSocket. Without this, BC keeps modal dialog state
    * alive server-side, blocking new sessions for the same user.
    * Verified from decompiled LogicalModalityVerifier.cs / LogicalDispatcher.cs.
+   *
+   * Idempotent: safe to call more than once. The second call is a no-op.
+   * Guaranteed to terminate: the form-close loop is bounded (20 iterations);
+   * any invoke failure is swallowed so the final dead+WS-close always runs.
    */
   async closeGracefully(): Promise<void> {
-    if (this.dead) { this.ws.close(); return; }
+    // Already torn down -- nothing to do.
+    if (this.dead) return;
 
-    // Close forms iteratively. CloseForm may trigger save-changes dialogs that
-    // become new modal forms in _openFormIds. Dismiss them before continuing.
-    // Safety limit prevents infinite loops.
-    for (let iteration = 0; iteration < 20 && this._openFormIds.size > 0; iteration++) {
-      const formId = Array.from(this._openFormIds).pop()!;
-      try {
-        const result = await this.invoke(
-          { type: 'CloseForm', formId },
-          (event) => event.type === 'InvokeCompleted',
-        );
-        // Check if CloseForm spawned a dialog (save changes?) -- dismiss it
-        if (isOk(result)) {
-          for (const event of result.value) {
-            if (event.type === 'DialogOpened' && event.formId) {
-              // Respond "no" to discard changes and close the dialog
-              try {
-                await this.invoke(
-                  { type: 'InvokeAction', formId: event.formId, controlPath: 'server:', systemAction: 390 }, // No=390
-                  (e) => e.type === 'InvokeCompleted',
-                );
-              } catch { /* best effort */ }
-              this._openFormIds.delete(event.formId);
+    // Mark dead immediately so concurrent invokes fast-fail and a second
+    // concurrent closeGracefully call short-circuits at the guard above.
+    this.dead = true;
+
+    try {
+      // Close forms iteratively. CloseForm may trigger save-changes dialogs that
+      // become new modal forms in _openFormIds. Dismiss them before continuing.
+      // Safety limit prevents infinite loops.
+      for (let iteration = 0; iteration < 20 && this._openFormIds.size > 0; iteration++) {
+        const formId = Array.from(this._openFormIds).pop()!;
+        try {
+          const result = await this.invokeRaw(
+            { type: 'CloseForm', formId },
+            (event) => event.type === 'InvokeCompleted',
+          );
+          // Check if CloseForm spawned a dialog (save changes?) -- dismiss it
+          if (isOk(result)) {
+            for (const event of result.value) {
+              if (event.type === 'DialogOpened' && event.formId) {
+                // Respond "no" to discard changes and close the dialog
+                try {
+                  await this.invokeRaw(
+                    { type: 'InvokeAction', formId: event.formId, controlPath: 'server:', systemAction: 390 }, // No=390
+                    (e) => e.type === 'InvokeCompleted',
+                  );
+                } catch { /* best effort */ }
+                this._openFormIds.delete(event.formId);
+              }
             }
           }
+        } catch {
+          // Best effort -- form may already be closed or session dead
         }
-      } catch {
-        // Best effort -- form may already be closed or session dead
+        this._openFormIds.delete(formId);
       }
-      this._openFormIds.delete(formId);
+    } finally {
+      // Always guaranteed: WS-close is the server-side reap trigger.
+      // Connection_Disconnected on the BC server fires for any close reason
+      // and calls session.DisposeAsync() unconditionally (Connection.cs).
+      this.closeWs();
     }
+  }
 
-    this.dead = true;
-    this.ws.close();
+  /**
+   * Raw invoke that bypasses the `dead` check on `invoke()`. Used by
+   * closeGracefully(), which sets `dead = true` before the form-close loop so
+   * that concurrent callers fast-fail, but still needs to send CloseForm RPCs.
+   */
+  private invokeRaw(
+    interaction: BCInteraction,
+    expect: EventPredicate,
+    timeoutMs?: number,
+  ): Promise<Result<BCEvent[], ProtocolError>> {
+    const effectiveTimeout = timeoutMs ?? this.timeoutMs;
+    try {
+      return this.withTimeout(
+        this.enqueue(() => this.invokeUnqueued(interaction, expect, effectiveTimeout, /* bypassDeadCheck */ true)),
+        effectiveTimeout + 5000,
+        `InvokeRaw(${interaction.type})`,
+      );
+    } catch (e) {
+      if (e instanceof TimeoutError) {
+        return Promise.resolve(err(new ProtocolError(e.message)));
+      }
+      throw e;
+    }
   }
 
   async runReport(reportId: number): Promise<Result<BCEvent[], ProtocolError>> {
@@ -458,9 +520,14 @@ export class BCSession {
     );
   }
 
+  /**
+   * Unconditional teardown. Idempotent: safe to call more than once.
+   * Does not attempt graceful form-close -- use closeGracefully() when
+   * there is time to clean up server-side modal state.
+   */
   close(): void {
     this.dead = true;
-    this.ws.close();
+    this.closeWs();
   }
 
   private enqueue<T>(fn: () => Promise<T>): Promise<T> {
