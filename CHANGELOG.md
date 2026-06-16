@@ -13,6 +13,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [1.2.0] - 2026-06-16
+
+### Added
+
+- **Option/enum values on field output.** `bc_open_page` and `bc_read_data`
+  now expose `options` (the allowed `{text, value}` choices) and
+  `selectedOption` for option/enum and boolean fields, so an agent picks a
+  valid value instead of guessing and tripping a validation error. Covers
+  card fields and list option-columns (where BC includes them in the list
+  payload). These values were already on the wire; they are now surfaced.
+- **`bc_read_data` `sort`.** Sort an open list by a column: `sort: { column,
+  direction: "asc" | "desc" }`. Resolves the repeater column header and issues
+  BC's SortColumn action; errors clearly (with `availableColumns`) when the
+  column is missing or not sortable.
+- **`bc_read_data` `clearFilters`.** `clearFilters: true` clears
+  agent-applied filters and restores the page to its default/native filtered
+  state (page-defined `SourceTableView` filters remain) before any filters in
+  the same call are applied.
+
 ## [1.1.0] - 2026-06-16
 
 ### Added
