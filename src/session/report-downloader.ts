@@ -2,13 +2,30 @@ import type { Logger } from '../core/logger.js';
 
 export class ReportDownloader {
   constructor(
-    private readonly baseUrl: string,
+    readonly baseUrl: string,
     private readonly getAuthHeaders: () => Record<string, string>,
     private readonly logger: Logger,
   ) {}
 
-  async download(): Promise<{ bytes: Buffer; contentType: string }> {
-    const url = `${this.baseUrl}/client/uploadDownload/download`;
+  /**
+   * Download a report file from `relativeUrl` (e.g. the value from a
+   * `FileDownloadReady` event). The URL is joined with `baseUrl` when it does
+   * not start with `http`.
+   *
+   * Authenticated with the same NTLM headers used for the WebSocket connection.
+   * The BC web server issues the file from `DynamicFileHandler.axd` using the
+   * session's HandlerSessionId embedded in the query string — no separate auth
+   * token is needed beyond the NTLM cookie/header already in `getAuthHeaders()`.
+   *
+   * Reference: FileUrlAddressProvider.cs (decompiled
+   *   Microsoft.Dynamics.Framework.UI.Web). Verified from live BC28 wire capture
+   *   (2026-06-15): Trial Balance PDF, DynamicFileHandler.axd.
+   */
+  async downloadFromUrl(relativeUrl: string): Promise<{ bytes: Buffer; contentType: string; fileName?: string }> {
+    const url = relativeUrl.startsWith('http')
+      ? relativeUrl
+      : `${this.baseUrl}/${relativeUrl}`;
+
     this.logger.debug('protocol', `Downloading report from ${url}`);
 
     const response = await fetch(url, {
@@ -26,10 +43,24 @@ export class ReportDownloader {
     }
 
     const contentType = response.headers.get('content-type') ?? 'application/octet-stream';
+    const disposition = response.headers.get('content-disposition') ?? '';
+    const fnMatch = disposition.match(/filename\*?=(?:UTF-8'')?["']?([^"';\r\n]+)/i);
+    const fileName = fnMatch ? decodeURIComponent(fnMatch[1]!.trim()) : extractFileNameFromUrl(relativeUrl);
+
     const arrayBuffer = await response.arrayBuffer();
     const bytes = Buffer.from(arrayBuffer);
 
-    this.logger.debug('protocol', `Report downloaded: ${bytes.length} bytes, content-type: ${contentType}`);
-    return { bytes, contentType };
+    this.logger.debug('protocol', `Report downloaded: ${bytes.length} bytes, content-type: ${contentType}${fileName ? `, fileName: ${fileName}` : ''}`);
+    return { bytes, contentType, fileName };
+  }
+}
+
+function extractFileNameFromUrl(relativeUrl: string): string | undefined {
+  try {
+    const params = new URLSearchParams(relativeUrl.includes('?') ? relativeUrl.split('?')[1] : '');
+    const fname = params.get('fname');
+    return fname ? decodeURIComponent(fname) : undefined;
+  } catch {
+    return undefined;
   }
 }

@@ -15,12 +15,6 @@ import type { ReportDownloader } from './report-downloader.js';
 const DEFAULT_TIMEOUT_MS = 30000;
 const QUIESCENCE_MS = 150; // Trailing window for async Message bursts
 
-interface CapturedFile {
-  bytes: Buffer;
-  contentType: string;
-  fileName?: string;
-}
-
 export class BCSession {
   private queue: Promise<void> = Promise.resolve();
   private readonly _openFormIds = new Set<string>();
@@ -32,7 +26,6 @@ export class BCSession {
   private sessionKey = '';
   private company = '';
   private _initialized = false;
-  private lastCapturedFile: CapturedFile | undefined = undefined;
 
   constructor(
     private readonly ws: BCWebSocket,
@@ -45,24 +38,11 @@ export class BCSession {
     private readonly reportDownloader?: ReportDownloader,
   ) {
     if (typeof this.ws.setRequestHandler === 'function') {
-      this.ws.setRequestHandler(async (method, params) => {
-        if (method === 'FileActionDialog') {
-          const param = (params[0] ?? {}) as Record<string, unknown>;
-          const fileName = typeof param['FileName'] === 'string' ? param['FileName'] : undefined;
-          if (this.reportDownloader) {
-            try {
-              const { bytes, contentType } = await this.reportDownloader.download();
-              this.lastCapturedFile = { bytes, contentType, fileName };
-              this.logger.info(`Report file captured: ${bytes.length} bytes, contentType=${contentType}${fileName ? `, fileName=${fileName}` : ''}`);
-              return { IsFileAccessed: true, FileName: fileName ?? '' };
-            } catch (e) {
-              this.logger.warn(`Report download failed: ${e instanceof Error ? e.message : String(e)}`);
-              return { IsFileAccessed: false };
-            }
-          }
-          return { IsFileAccessed: false };
-        }
-        this.logger.debug('protocol', `Inbound request: method=${method} (no handler)`);
+      this.ws.setRequestHandler(async (method, _params) => {
+        // FileActionDialog is a /ws/connect (StreamJsonRpc) concept — not used on /csh.
+        // Download URLs for /csh sessions arrive inline as FileDownloadReady events
+        // in the invoke callback response, handled by runReportWithDownload().
+        this.logger.debug('protocol', `Inbound request: method=${method} (no handler for /csh)`);
         return {};
       });
     }
@@ -82,17 +62,6 @@ export class BCSession {
 
   get isAlive(): boolean {
     return !this.dead && this.ws.isConnected;
-  }
-
-  /**
-   * Returns the last file captured from a FileActionDialog inbound request and
-   * clears the stored value so subsequent calls return undefined until a new
-   * file is captured. Returns undefined if no file has been captured.
-   */
-  takeLastCapturedFile(): CapturedFile | undefined {
-    const captured = this.lastCapturedFile;
-    this.lastCapturedFile = undefined;
-    return captured;
   }
 
   async initialize(tenantId: string): Promise<Result<BCEvent[], ProtocolError>> {
@@ -561,6 +530,93 @@ export class BCSession {
       },
       (e) => e.type === 'InvokeCompleted' || e.type === 'DialogOpened' || e.type === 'FormCreated',
     );
+  }
+
+  /**
+   * Execute report `reportId` through the "Send to..." flow and capture the
+   * rendered output bytes. The flow mirrors what the BC web browser client does:
+   *
+   *   1. OpenForm(report=<id>) → request page (DialogOpened)
+   *   2. InvokeAction(410=SendTo) on request page → format dialog (DialogOpened)
+   *   3. InvokeAction(300=OK) on format dialog → FileDownloadReady event inline
+   *   4. Fetch `DynamicFileHandler.axd?...` with NTLM headers → bytes
+   *
+   * Steps 1–4 are driven internally. The caller may have already opened the
+   * request page (via `runReport`) and optionally filled parameters; in that
+   * case pass the already-opened `requestPageFormId` to skip step 1.
+   *
+   * SystemAction 410 is the "Send to..." action that opens the format selection
+   * dialog. The default format (PDF) is pre-selected; no SaveValue is needed.
+   *
+   * Reference: decompiled `NavRunReportPropertyBagInvokedAction.cs`,
+   * `ReportResultSetDownloadDecorator.cs`, `FileUrlAddressProvider.cs`, and
+   * `ResponseManager.RegisterUriToShowEvents` (BC28). Verified from live BC28
+   * wire capture (2026-06-15).
+   */
+  async runReportWithDownload(
+    reportId: number,
+    requestPageFormId?: string,
+    downloadTimeoutMs?: number,
+  ): Promise<Result<{ events: BCEvent[]; bytes: Buffer; contentType: string; fileName?: string }, ProtocolError>> {
+    if (this.dead) return err(new ProtocolError('Session is dead'));
+    if (!this.reportDownloader) return err(new ProtocolError('No report downloader configured'));
+
+    const effectiveDownloadTimeout = downloadTimeoutMs ?? Math.max(this.timeoutMs, 120000);
+
+    // Step 1: Open request page (skip if already open)
+    let reqFormId = requestPageFormId;
+    const openEvents: BCEvent[] = [];
+
+    if (!reqFormId) {
+      const openResult = await this.runReport(reportId);
+      if (isErr(openResult)) return openResult;
+      openEvents.push(...openResult.value);
+      const dlg = openResult.value.find(e => e.type === 'DialogOpened' || e.type === 'FormCreated');
+      if (!dlg?.formId) {
+        return err(new ProtocolError(`Report ${reportId}: no request page dialog returned`));
+      }
+      reqFormId = dlg.formId;
+    }
+
+    // Step 2: Invoke SendTo (410) to open the format selection dialog
+    const sendToResult = await this.invoke(
+      { type: 'InvokeAction', formId: reqFormId, controlPath: 'server:', systemAction: 410 },
+      (e) => e.type === 'InvokeCompleted' || e.type === 'DialogOpened',
+      effectiveDownloadTimeout,
+    );
+    if (isErr(sendToResult)) return err(new ProtocolError(`SendTo (410) failed: ${sendToResult.error.message}`));
+
+    const fmtDlg = sendToResult.value.find(e => e.type === 'DialogOpened' || e.type === 'FormCreated');
+    if (!fmtDlg?.formId) {
+      return err(new ProtocolError('SendTo (410): no format dialog opened'));
+    }
+    const fmtFormId = fmtDlg.formId;
+
+    // Step 3: Confirm format dialog (OK=300). The FileDownloadReady event
+    // arrives INLINE in this response — not as a separate async message.
+    const okResult = await this.invoke(
+      { type: 'InvokeAction', formId: fmtFormId, controlPath: 'server:', systemAction: 300 },
+      (e) => e.type === 'InvokeCompleted' || e.type === 'FileDownloadReady',
+      effectiveDownloadTimeout,
+    );
+    if (isErr(okResult)) return err(new ProtocolError(`Format OK (300) failed: ${okResult.error.message}`));
+
+    const allEvents = [...openEvents, ...sendToResult.value, ...okResult.value];
+
+    const dlReady = okResult.value.find(e => e.type === 'FileDownloadReady');
+    if (!dlReady || dlReady.type !== 'FileDownloadReady') {
+      return err(new ProtocolError('Report rendered but no download URL received (FileDownloadReady event missing)'));
+    }
+
+    // Step 4: Fetch the file
+    this.logger.info(`Report download URL: ${dlReady.relativeUrl}`);
+    try {
+      const { bytes, contentType, fileName } = await this.reportDownloader.downloadFromUrl(dlReady.relativeUrl);
+      this.logger.info(`Report captured: ${bytes.length} bytes, contentType=${contentType}${fileName ? `, fileName=${fileName}` : ''}`);
+      return ok({ events: allEvents, bytes, contentType, fileName });
+    } catch (e) {
+      return err(new ProtocolError(`Download from DynamicFileHandler failed: ${e instanceof Error ? e.message : String(e)}`));
+    }
   }
 
   /**

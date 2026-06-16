@@ -289,23 +289,25 @@ Document pages (Sales Order=42/43, Purchase Order=50/51) have both a header repe
 ### Session Recovery
 After a session-killing error, BC holds the NTLM slot for ~15 seconds. The SessionManager handles this with exponential backoff (up to 4 retries). If an invoke hangs indefinitely (confirmed BC bug), the session-level timeout (default 30s) kills the connection and triggers auto-recovery on the next request.
 
-### Report Output Capture (deferred — inbound JSON-RPC callback required)
-`bc_run_report` can execute reports and fill request pages, but cannot capture the rendered output (PDF/Excel/Word).
+### Report Output Capture — IMPLEMENTED (PDF via Send-To flow)
 
-**Exact mechanism (confirmed from decompiled source + live probe):**
-1. `ReportResultSetDownloadDecorator.SendReportStreamToClient` calls `session.ClientCallback.DownloadFileAction(stream, ...)` (`NSClientCallback.cs`)
-2. `NSClientCallback.DownloadFileAction` stores the stream in `Connection.DownloadStream = new StreamTransfer(stream)` (`Connection.cs`) and calls `ClientContract.FileActionDialog(fileActionRequest)` — where `ClientContract` is `jsonRpc.Attach<IClientCallbackApi>()` (`NsServiceJsonRpcHostFactory.cs`)
-3. This fires a **synchronous inbound JSON-RPC call** (`method: "FileActionDialog"`) FROM BC TO OUR CLIENT over the **same WebSocket connection**, blocking BC's report execution until we respond
-4. The correct response is `FileActionResponse{IsFileAccessed: true, FileName: "..."}` — upon which BC considers the download acknowledged
-5. The actual bytes are available at `GET /BC/client/uploadDownload/download` (same auth session) while BC is blocked waiting — `UploadDownloadController.Download()` reads `Connection.DownloadStream` and serves `application/octet-stream`
+`bc_run_report` with `format: "pdf"` captures the rendered PDF bytes and returns them as base64 in `download.bytes`.
 
-**Why deferred:** Implementing this requires adding inbound JSON-RPC request handling to `BCWebSocket`/`BCSession` — currently only outbound request/response pairs are supported. The `FileActionDialog` arrives as a JSON-RPC method call (with `id` and `method` fields) that our client must respond to. This is a non-trivial addition to the protocol layer.
+**Protocol mechanism (verified from decompiled source + live BC28 wire capture 2026-06-15):**
 
-**What IS feasible:** The bytes ARE reachable over plain HTTP with the same NTLM/cookie auth that `NTLMAuthProvider` already manages. Once the `FileActionDialog` handler is implemented (intercept inbound call, respond `{IsFileAccessed:true}`, GET the download URL, return base64 bytes), the full feature can be built.
+For `/csh` (web client WebSocket) sessions, BC delivers the download URL INLINE in the format-dialog OK invoke callback response — NOT via a `FileActionDialog` inbound JSON-RPC call (that path is `/ws/connect` / StreamJsonRpc only). The inline event is a `DN.LogicalClientEventRaisingHandler` with event name `"UriToShow"` and parameters `[relativeUrl, style]` where style `"1"` = Download.
 
-**Live probe finding:** Report 6 (Trial Balance) request page uses `SystemAction: 410` ("Send to...") — not `SystemAction: 300` (OK) — to trigger download. `SystemAction: 410` opens a format-choice dialog. `SystemAction: 400` = Preview (PDF in browser). Neither triggered `FileActionDialog` without fully navigating those sub-dialogs.
+The full flow driven by `BCSession.runReportWithDownload()`:
+1. `OpenForm(report=<id>)` → request page as `DialogOpened`
+2. `InvokeAction(410=SendTo)` on request page → format dialog as `DialogOpened`
+3. `InvokeAction(300=OK)` on format dialog → inline `UriToShow` event with `DynamicFileHandler.axd?form=<id>&sessionid=<handlerSessionId>&type=File&fid=<random>&fname=<filename.pdf>`
+4. `GET ${baseUrl}/${relativeUrl}` with NTLM auth headers → PDF bytes
 
-Reference: `ReportResultSetDownloadDecorator.SendReportStreamToClient()` (`Microsoft.Dynamics.Nav.Ncl/Microsoft.Dynamics.Nav.Runtime.Report/`), `NSClientCallback.DownloadFileAction()` (`Microsoft.Dynamics.Nav.Service/`), `Connection.DownloadStream` (`Microsoft.Dynamics.Nav.Service/`), `NsServiceJsonRpcHostFactory.CreateAndRunNsServiceJsonRpcService` — `jsonRpc.Attach<IClientCallbackApi>()` — `IClientCallbackApi.FileActionDialog` (`Microsoft.Dynamics.Nav.Types/`), `UploadDownloadController.Download()` (`Microsoft.Dynamics.Nav.Service.ClientService/`)
+The `sessionid` in the URL is the BC web client's `HandlerSessionId` — embedded by `FileUrlAddressProvider.cs`. No separate session construction needed.
+
+**Known limitation:** Only PDF is currently captured. The format selector dialog defaults to PDF with no SaveValue needed. Excel/Word capture would require a SaveValue to change the format selector before confirming — not yet implemented.
+
+Reference: `ResponseManager.RegisterUriToShowEvents` (`Microsoft.Dynamics.Framework.UI.Web/`), `FileUrlAddressProvider.cs` (`Microsoft.Dynamics.Framework.UI.Web/`), `ReportResultSetDownloadDecorator.ShouldDownloadToClient` — `WebClient=116` passes the check (`Microsoft.Dynamics.Nav.Ncl/`).
 
 ### Async Message Timing
 The invoke quiescence window (150ms) is a best-effort wait for trailing async `Message` notifications. In rare cases, late-arriving messages may be missed.

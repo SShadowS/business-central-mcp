@@ -11,7 +11,8 @@ function createMockLogger() {
 }
 
 const BASE_URL = 'http://cronus28/BC';
-const EXPECTED_URL = `${BASE_URL}/client/uploadDownload/download`;
+const RELATIVE_URL = 'DynamicFileHandler.axd?form=41D&sessionid=DEFAULT&type=File&fid=abc&fname=Trial%20Balance.pdf';
+const FULL_URL = `${BASE_URL}/${RELATIVE_URL}`;
 const AUTH_HEADERS = { Cookie: 'session=abc123' };
 
 describe('ReportDownloader', () => {
@@ -25,7 +26,7 @@ describe('ReportDownloader', () => {
     vi.restoreAllMocks();
   });
 
-  it('GETs the correct download URL with Cookie header', async () => {
+  it('GETs the constructed full URL with Cookie header', async () => {
     const fakeBytes = Buffer.from('PDF content here');
     fetchSpy.mockResolvedValueOnce(
       new Response(fakeBytes, {
@@ -35,15 +36,37 @@ describe('ReportDownloader', () => {
     );
 
     const downloader = new ReportDownloader(BASE_URL, () => AUTH_HEADERS, createMockLogger() as any);
-    const result = await downloader.download();
+    const result = await downloader.downloadFromUrl(RELATIVE_URL);
 
     expect(fetchSpy).toHaveBeenCalledOnce();
     const [calledUrl, calledInit] = fetchSpy.mock.calls[0] as [string, RequestInit];
-    expect(calledUrl).toBe(EXPECTED_URL);
+    expect(calledUrl).toBe(FULL_URL);
     expect((calledInit.headers as Record<string, string>)['Cookie']).toBe(AUTH_HEADERS.Cookie);
 
     expect(result.contentType).toBe('application/pdf');
     expect(result.bytes.equals(fakeBytes)).toBe(true);
+  });
+
+  it('does not double-prefix when an absolute URL is passed', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(Buffer.from('x'), { status: 200, headers: { 'content-type': 'application/pdf' } }),
+    );
+
+    const downloader = new ReportDownloader(BASE_URL, () => AUTH_HEADERS, createMockLogger() as any);
+    await downloader.downloadFromUrl(FULL_URL);
+
+    const [calledUrl] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(calledUrl).toBe(FULL_URL);
+  });
+
+  it('extracts fileName from fname query param when Content-Disposition is absent', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(Buffer.from('bytes'), { status: 200, headers: { 'content-type': 'application/pdf' } }),
+    );
+
+    const downloader = new ReportDownloader(BASE_URL, () => AUTH_HEADERS, createMockLogger() as any);
+    const result = await downloader.downloadFromUrl(RELATIVE_URL);
+    expect(result.fileName).toBe('Trial Balance.pdf');
   });
 
   it('includes User-Agent header in the request', async () => {
@@ -55,7 +78,7 @@ describe('ReportDownloader', () => {
     );
 
     const downloader = new ReportDownloader(BASE_URL, () => AUTH_HEADERS, createMockLogger() as any);
-    await downloader.download();
+    await downloader.downloadFromUrl(RELATIVE_URL);
 
     const [, calledInit] = fetchSpy.mock.calls[0] as [string, RequestInit];
     expect((calledInit.headers as Record<string, string>)['User-Agent']).toBe('BCMCPServer/2.0');
@@ -67,7 +90,7 @@ describe('ReportDownloader', () => {
     );
 
     const downloader = new ReportDownloader(BASE_URL, () => AUTH_HEADERS, createMockLogger() as any);
-    await expect(downloader.download()).rejects.toThrow('Report download failed: HTTP 404 Not Found');
+    await expect(downloader.downloadFromUrl(RELATIVE_URL)).rejects.toThrow('Report download failed: HTTP 404 Not Found');
   });
 
   it('throws on 500 internal server error', async () => {
@@ -76,7 +99,7 @@ describe('ReportDownloader', () => {
     );
 
     const downloader = new ReportDownloader(BASE_URL, () => AUTH_HEADERS, createMockLogger() as any);
-    await expect(downloader.download()).rejects.toThrow('Report download failed: HTTP 500');
+    await expect(downloader.downloadFromUrl(RELATIVE_URL)).rejects.toThrow('Report download failed: HTTP 500');
   });
 
   it('uses application/octet-stream when content-type header is absent', async () => {
@@ -85,7 +108,7 @@ describe('ReportDownloader', () => {
     );
 
     const downloader = new ReportDownloader(BASE_URL, () => AUTH_HEADERS, createMockLogger() as any);
-    const result = await downloader.download();
+    const result = await downloader.downloadFromUrl(RELATIVE_URL);
     expect(result.contentType).toBe('application/octet-stream');
   });
 
@@ -106,8 +129,8 @@ describe('ReportDownloader', () => {
     });
 
     const downloader = new ReportDownloader(BASE_URL, getHeaders, createMockLogger() as any);
-    await downloader.download();
-    await downloader.download();
+    await downloader.downloadFromUrl(RELATIVE_URL);
+    await downloader.downloadFromUrl(RELATIVE_URL);
 
     expect(getHeaders).toHaveBeenCalledTimes(2);
     const [, init1] = fetchSpy.mock.calls[0] as [string, RequestInit];

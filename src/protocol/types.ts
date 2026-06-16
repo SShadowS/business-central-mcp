@@ -9,7 +9,8 @@ export type BCEvent =
   | PropertyChangedEvent
   | BookmarkChangedEvent
   | InvokeCompletedEvent
-  | SessionInfoEvent;
+  | SessionInfoEvent
+  | FileDownloadReadyEvent;
 
 export interface FormCreatedEvent {
   readonly type: 'FormCreated';
@@ -137,6 +138,31 @@ export interface SessionInfoEvent {
   readonly type: 'SessionInfo';
   readonly formId: string;
   readonly sessionData: unknown;
+}
+
+/**
+ * BC is ready to serve a file download. Emitted inline in the invoke callback
+ * response as `DN.LogicalClientEventRaisingHandler` with event name `"UriToShow"`.
+ *
+ * Wire: params[0]="UriToShow", params[1]=relative URL, params[2]=style numeric string.
+ * Style values: "0"=View, "1"=Download, "2"=Print.
+ *
+ * For reports, this arrives embedded in the format-dialog OK (`InvokeAction 300`)
+ * response — NOT as a separate async Message notification. The URL is a
+ * `DynamicFileHandler.axd?...` path relative to the BC base URL.
+ *
+ * Reference: `ResponseManager.RegisterUriToShowEvents` and
+ * `FileUrlAddressProvider.cs` in decompiled
+ * Microsoft.Dynamics.Framework.UI.Web. Verified from live BC28 wire capture
+ * (2026-06-15): Trial Balance PDF download, form=41D.
+ */
+export interface FileDownloadReadyEvent {
+  readonly type: 'FileDownloadReady';
+  readonly formId: '';
+  /** Relative URL path (e.g. "DynamicFileHandler.axd?form=41D&..."). Prepend BC base URL to fetch. */
+  readonly relativeUrl: string;
+  /** "0"=View, "1"=Download, "2"=Print */
+  readonly style: string;
 }
 
 // -- BCInteraction types --

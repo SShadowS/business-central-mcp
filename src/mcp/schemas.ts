@@ -74,6 +74,7 @@ export const SwitchCompanySchema = z.object({
 
 export const RunReportSchema = z.object({
   reportId: StringOrNumber.describe('Numeric BC report ID to execute (e.g., 1306 for Customer Statement, 6 for Trial Balance).'),
+  format: z.enum(['pdf', 'excel', 'word']).optional().describe('Rendered output format to capture. "pdf" captures a PDF via the BC "Send to..." flow. Omit to open the request page only without executing.'),
 });
 
 export const ListCompaniesSchema = z.object({});
@@ -102,6 +103,7 @@ export function toMcpJsonSchema(schema: z.ZodType): Record<string, unknown> {
   if (schema === RunReportSchema) {
     const safe = z.object({
       reportId: StringOrNumberInput.describe('Numeric BC report ID to execute (e.g., 1306 for Customer Statement, 6 for Trial Balance).'),
+      format: z.enum(['pdf', 'excel', 'word']).optional().describe('Rendered output format to capture. "pdf" captures a PDF via the BC "Send to..." flow. Omit to open the request page only without executing.'),
     });
     return z.toJSONSchema(safe) as Record<string, unknown>;
   }

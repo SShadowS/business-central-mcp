@@ -207,4 +207,45 @@ describe('EventDecoder', () => {
       expect(msg.automationId).toBeUndefined();
     }
   });
+
+  it('decodes UriToShow (style=1/Download) as FileDownloadReady event', () => {
+    // Wire shape verified from live BC28 capture (2026-06-15): Trial Balance PDF.
+    // ResponseManager.RegisterUriToShowEvents emits:
+    //   params[0]="UriToShow", params[1]=relativeUrl, params[2]=style.ToString("D")
+    const relativeUrl = 'DynamicFileHandler.axd?form=41D&sessionid=DEFAULT&type=File&fid=abc123&fname=Trial%20Balance.pdf';
+    const handlers = [{
+      handlerType: HANDLER_TYPES.LogicalClientEventRaising,
+      parameters: ['UriToShow', relativeUrl, '1'],
+    }];
+    const events = decoder.decode(handlers);
+    const ev = events.find(e => e.type === 'FileDownloadReady');
+    expect(ev).toBeDefined();
+    if (ev?.type === 'FileDownloadReady') {
+      expect(ev.relativeUrl).toBe(relativeUrl);
+      expect(ev.style).toBe('1');
+      expect(ev.formId).toBe('');
+    }
+  });
+
+  it('defaults UriToShow style to "1" when style param is absent', () => {
+    const handlers = [{
+      handlerType: HANDLER_TYPES.LogicalClientEventRaising,
+      parameters: ['UriToShow', 'DynamicFileHandler.axd?fname=x.pdf'],
+    }];
+    const events = decoder.decode(handlers);
+    const ev = events.find(e => e.type === 'FileDownloadReady');
+    expect(ev).toBeDefined();
+    if (ev?.type === 'FileDownloadReady') {
+      expect(ev.style).toBe('1');
+    }
+  });
+
+  it('does not emit FileDownloadReady when UriToShow has no URL', () => {
+    const handlers = [{
+      handlerType: HANDLER_TYPES.LogicalClientEventRaising,
+      parameters: ['UriToShow'],
+    }];
+    const events = decoder.decode(handlers);
+    expect(events.find(e => e.type === 'FileDownloadReady')).toBeUndefined();
+  });
 });

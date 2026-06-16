@@ -3,7 +3,7 @@ import { resolveChangeType, SESSION_EVENTS } from './wire-types.js';
 import type {
   BCEvent, FormCreatedEvent, FormClosedEvent, DialogOpenedEvent, MessageToShowEvent,
   DataLoadedEvent, PropertyChangedEvent, BookmarkChangedEvent, InvokeCompletedEvent,
-  SessionInfoEvent,
+  SessionInfoEvent, FileDownloadReadyEvent,
 } from './types.js';
 
 export class EventDecoder {
@@ -101,6 +101,25 @@ export class EventDecoder {
           defaultAction: rawDefault ?? 'Ok',
           automationId: eventData.AutomationId as string | undefined,
         } satisfies MessageToShowEvent);
+        break;
+      }
+      case SESSION_EVENTS.UriToShow: {
+        // Download/view URI delivered inline in the invoke callback response.
+        // params[0]="UriToShow", params[1]=relativeUrl, params[2]=style.
+        // Style: "0"=View, "1"=Download, "2"=Print.
+        // Reference: ResponseManager.RegisterUriToShowEvents (decompiled
+        //   Microsoft.Dynamics.Framework.UI.Web). Verified from live BC28 wire
+        //   capture (2026-06-15): Trial Balance PDF, DynamicFileHandler.axd.
+        const relativeUrl = params[1] as string | undefined;
+        const style = params[2] as string | undefined;
+        if (relativeUrl) {
+          events.push({
+            type: 'FileDownloadReady',
+            formId: '',
+            relativeUrl,
+            style: style ?? '1',
+          } satisfies FileDownloadReadyEvent);
+        }
         break;
       }
     }
