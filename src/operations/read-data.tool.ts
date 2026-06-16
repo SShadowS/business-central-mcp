@@ -12,6 +12,8 @@ Option/enum and boolean fields in card-shape sections carry "options" (allowed c
 
 Filtering applies to list-shape sections only. Pass an array of { column, value }; values use BC filter syntax (exact "10000", ranges "10000..20000", wildcards "*consulting*", expressions ">1000"). Multiple filters combine with AND.
 
+clearFilters: true resets agent-applied filters and restores the page to its default/native filtered state before reading. Note: page-defined SourceTableView filters (set in AL code) remain active -- this does NOT guarantee a completely empty filter set. Use before applying new filters to avoid stacking. Applies to list-shape sections only. Runs before any filters[] in the same call.
+
 Column selection: pass columns: ["No.", "Name"] to limit the cells in each row, or the fields[] entries on a card section.
 
 Range slicing: { offset, limit } returns rows[offset..offset+limit] for list sections. Use with totalRowCount for pagination.
@@ -19,6 +21,8 @@ Range slicing: { offset, limit } returns rows[offset..offset+limit] for list sec
 Examples:
 - Refresh header: { "pageContextId": "abc" }
 - Filter customer list: { "pageContextId": "abc", "filters": [{ "column": "City", "value": "London" }] }
+- Clear filters and re-read: { "pageContextId": "abc", "clearFilters": true }
+- Clear and re-filter: { "pageContextId": "abc", "clearFilters": true, "filters": [{ "column": "City", "value": "London" }] }
 - Read sales order lines: { "pageContextId": "abc", "section": "lines" }
 - Refresh a FactBox: { "pageContextId": "abc", "section": "factbox:Customer Statistics" }`,
     inputSchema: toMcpJsonSchema(ReadDataSchema),

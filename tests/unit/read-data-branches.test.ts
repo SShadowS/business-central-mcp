@@ -16,6 +16,9 @@
 //   7. scrollRepeater: loop breaks if rowsLen does not increase (BC end-of-list)
 //   8. readRows err during range: continues to buildSection (benign)
 //   9. stateVersion in output matches ctx.generation
+//  10. clearFilters=true -> filterService.clearFilters called BEFORE applyFilters
+//  11. clearFilters=false / omitted -> filterService.clearFilters NOT called
+//  12. clearFilters error is propagated before applyFilters / buildSection
 
 import { describe, it, expect, vi } from 'vitest';
 import { ReadDataOperation } from '../../src/operations/read-data.js';
@@ -64,6 +67,7 @@ function makeCardPageContext(repo: PageContextRepository, pcId: string, formId: 
 function makeFilterService(overrides?: Record<string, unknown>) {
   return {
     applyFilters: vi.fn(async () => ok(undefined as any)),
+    clearFilters: vi.fn(async () => ok(undefined as any)),
     ...overrides,
   } as any;
 }
@@ -383,5 +387,110 @@ describe('ReadDataOperation — range with scroll boundary (uncovered)', () => {
 
     // scrollRepeater should have been called exactly once (loop breaks when count doesn't increase)
     expect(scrollCalls).toBe(1);
+  });
+});
+
+describe('ReadDataOperation — clearFilters wiring', () => {
+  it('calls filterService.clearFilters when clearFilters=true', async () => {
+    const repo = new PageContextRepository();
+    makeListPageContext(repo, 'pc:1', 'F1');
+    const filterService = makeFilterService();
+    const dataService = makeDataService();
+    const op = new ReadDataOperation(dataService, filterService, repo);
+
+    const result = await op.execute({
+      pageContextId: 'pc:1',
+      clearFilters: true,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(filterService.clearFilters).toHaveBeenCalledOnce();
+    expect(filterService.clearFilters).toHaveBeenCalledWith('pc:1', undefined);
+  });
+
+  it('passes the section to filterService.clearFilters', async () => {
+    const repo = new PageContextRepository();
+    makeListPageContext(repo, 'pc:1', 'F1');
+    const filterService = makeFilterService();
+    const dataService = makeDataService();
+    const op = new ReadDataOperation(dataService, filterService, repo);
+
+    await op.execute({
+      pageContextId: 'pc:1',
+      clearFilters: true,
+      section: 'lines',
+    });
+
+    expect(filterService.clearFilters).toHaveBeenCalledWith('pc:1', 'lines');
+  });
+
+  it('calls clearFilters BEFORE applyFilters when both are present', async () => {
+    const repo = new PageContextRepository();
+    makeListPageContext(repo, 'pc:1', 'F1');
+    const callOrder: string[] = [];
+    const filterService = makeFilterService({
+      clearFilters: vi.fn(async () => { callOrder.push('clear'); return ok(undefined as any); }),
+      applyFilters: vi.fn(async () => { callOrder.push('apply'); return ok(undefined as any); }),
+    });
+    const dataService = makeDataService();
+    const op = new ReadDataOperation(dataService, filterService, repo);
+
+    await op.execute({
+      pageContextId: 'pc:1',
+      clearFilters: true,
+      filters: [{ column: 'Name', value: 'Contoso' }],
+    });
+
+    expect(callOrder).toEqual(['clear', 'apply']);
+  });
+
+  it('does NOT call clearFilters when clearFilters is false', async () => {
+    const repo = new PageContextRepository();
+    makeListPageContext(repo, 'pc:1', 'F1');
+    const filterService = makeFilterService();
+    const dataService = makeDataService();
+    const op = new ReadDataOperation(dataService, filterService, repo);
+
+    await op.execute({
+      pageContextId: 'pc:1',
+      clearFilters: false,
+    });
+
+    expect(filterService.clearFilters).not.toHaveBeenCalled();
+  });
+
+  it('does NOT call clearFilters when clearFilters is omitted', async () => {
+    const repo = new PageContextRepository();
+    makeListPageContext(repo, 'pc:1', 'F1');
+    const filterService = makeFilterService();
+    const dataService = makeDataService();
+    const op = new ReadDataOperation(dataService, filterService, repo);
+
+    await op.execute({ pageContextId: 'pc:1' });
+
+    expect(filterService.clearFilters).not.toHaveBeenCalled();
+  });
+
+  it('propagates clearFilters error before reaching applyFilters and buildSection', async () => {
+    const repo = new PageContextRepository();
+    makeListPageContext(repo, 'pc:1', 'F1');
+    const filterService = makeFilterService({
+      clearFilters: vi.fn(async () => err(new ProtocolError('cannot clear filters: no repeater'))),
+    });
+    const dataService = makeDataService();
+    const op = new ReadDataOperation(dataService, filterService, repo);
+
+    const result = await op.execute({
+      pageContextId: 'pc:1',
+      clearFilters: true,
+      filters: [{ column: 'Name', value: 'X' }],
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.message).toContain('cannot clear filters');
+    }
+    // applyFilters must NOT be called after a clearFilters error
+    expect(filterService.applyFilters).not.toHaveBeenCalled();
   });
 });

@@ -9,6 +9,7 @@ export interface ReadDataInput {
   pageContextId: string;
   section?: string;
   tab?: string;
+  clearFilters?: boolean;
   filters?: Array<{ column: string; value: string }>;
   columns?: string[];
   range?: { offset: number; limit: number };
@@ -38,6 +39,11 @@ export class ReadDataOperation {
     // Fast-fail for unknown pageContextId before any service calls.
     if (!this.repo.get(input.pageContextId)) {
       return err(new ProtocolError(`Page context not found: ${input.pageContextId}`));
+    }
+
+    if (input.clearFilters) {
+      const clearResult = await this.filterService.clearFilters(input.pageContextId, input.section);
+      if (isErr(clearResult)) return clearResult;
     }
 
     if (input.filters && input.filters.length > 0) {
