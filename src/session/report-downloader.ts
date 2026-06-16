@@ -57,9 +57,13 @@ export class ReportDownloader {
 
 function extractFileNameFromUrl(relativeUrl: string): string | undefined {
   try {
+    // URLSearchParams.get() already percent-decodes the value, so do NOT
+    // decodeURIComponent again — a second decode mangles names containing a
+    // literal `%` (e.g. an fname `100%25 Done.pdf` would wrongly become
+    // `100% Done.pdf` -> `100`-truncation on malformed sequences).
     const params = new URLSearchParams(relativeUrl.includes('?') ? relativeUrl.split('?')[1] : '');
     const fname = params.get('fname');
-    return fname ? decodeURIComponent(fname) : undefined;
+    return fname ?? undefined;
   } catch {
     return undefined;
   }

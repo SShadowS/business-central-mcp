@@ -69,6 +69,20 @@ describe('ReportDownloader', () => {
     expect(result.fileName).toBe('Trial Balance.pdf');
   });
 
+  it('decodes fname exactly once (no double-decode for names with a literal %)', async () => {
+    // URLSearchParams.get already percent-decodes. A literal % in the filename is
+    // encoded on the wire as %25; a single decode yields "100% Done.pdf". A buggy
+    // second decodeURIComponent would mangle the surviving "% D" sequence.
+    fetchSpy.mockResolvedValueOnce(
+      new Response(Buffer.from('bytes'), { status: 200, headers: { 'content-type': 'application/pdf' } }),
+    );
+
+    const url = 'DynamicFileHandler.axd?form=41D&type=File&fname=100%25%20Done.pdf';
+    const downloader = new ReportDownloader(BASE_URL, () => AUTH_HEADERS, createMockLogger() as any);
+    const result = await downloader.downloadFromUrl(url);
+    expect(result.fileName).toBe('100% Done.pdf');
+  });
+
   it('includes User-Agent header in the request', async () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(Buffer.from('data'), {
