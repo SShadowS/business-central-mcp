@@ -13,6 +13,7 @@ export interface BCWebSocketConfig {
 }
 
 type MessageHandler = (data: unknown) => void;
+type InboundRequestHandler = (method: string, params: unknown[], id: string) => Promise<unknown>;
 
 export class BCWebSocket {
   private ws: WebSocket | null = null;
@@ -24,10 +25,27 @@ export class BCWebSocket {
   private sendQueue: Promise<void> = Promise.resolve();
   private sequenceCounter = 0;
   private lastServerSequence = 0;
+  private requestHandler: InboundRequestHandler | null = null;
   readonly spaInstanceId: string;
 
   constructor(private readonly logger: Logger) {
     this.spaInstanceId = uuid().replace(/-/g, '').substring(0, 10);
+  }
+
+  /**
+   * Register a handler for inbound JSON-RPC requests sent by BC to the client
+   * (e.g. FileActionDialog). The handler receives (method, params, id) and must
+   * return a Promise that resolves with the result to echo back, or rejects with
+   * an Error whose message is forwarded as a JSON-RPC error response.
+   * Only one handler may be registered at a time; calling again replaces it.
+   */
+  setRequestHandler(handler: InboundRequestHandler): void {
+    this.requestHandler = handler;
+  }
+
+  /** Test seam: inject a pre-built WebSocket (e.g. a spy object). */
+  _setWsForTesting(ws: WebSocket): void {
+    this.ws = ws;
   }
 
   get nextSequenceNo(): string {
@@ -121,7 +139,51 @@ export class BCWebSocket {
       }
     }
 
-    // JSON-RPC response (has id field)
+    // Inbound JSON-RPC request from BC (has method + id, is NOT a response).
+    // A response has id + result/error but NO method. A request has both.
+    if (
+      typeof msg['method'] === 'string' &&
+      msg['method'] !== 'Message' &&
+      'id' in msg &&
+      msg['id'] !== null &&
+      msg['id'] !== undefined
+    ) {
+      const id = String(msg['id']);
+      const params = Array.isArray(msg['params']) ? (msg['params'] as unknown[]) : [];
+      if (this.requestHandler) {
+        const handler = this.requestHandler;
+        // Dispatch asynchronously so routeMessage stays synchronous.
+        void (async () => {
+          let responsePayload: string;
+          try {
+            const result = await handler(msg['method'] as string, params, id);
+            responsePayload = JSON.stringify({ jsonrpc: '2.0', id, result });
+          } catch (e) {
+            const message = e instanceof Error ? e.message : String(e);
+            responsePayload = JSON.stringify({
+              jsonrpc: '2.0',
+              id,
+              error: { code: -32000, message },
+            });
+          }
+          try {
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+              this.ws.send(responsePayload);
+            }
+          } catch (sendErr) {
+            this.logger.debug(
+              'protocol',
+              `Failed to send inbound-request response: ${sendErr instanceof Error ? sendErr.message : String(sendErr)}`,
+            );
+          }
+        })();
+      } else {
+        this.logger.debug('protocol', `No requestHandler registered; dropping inbound request: ${msg['method'] as string} id=${id}`);
+      }
+      return;
+    }
+
+    // JSON-RPC response (has id field, no method)
     if ('id' in msg && msg['id'] !== null && msg['id'] !== undefined) {
       const id = String(msg['id']);
       const pending = this.pendingRequests.get(id);
