@@ -10,9 +10,16 @@ import type { Logger } from '../core/logger.js';
 import { ModalStack } from './modal-stack.js';
 import { isFatalRpcError } from './rpc-error-classifier.js';
 import { findLicenseDialog } from './license-dialog.js';
+import type { ReportDownloader } from './report-downloader.js';
 
 const DEFAULT_TIMEOUT_MS = 30000;
 const QUIESCENCE_MS = 150; // Trailing window for async Message bursts
+
+interface CapturedFile {
+  bytes: Buffer;
+  contentType: string;
+  fileName?: string;
+}
 
 export class BCSession {
   private queue: Promise<void> = Promise.resolve();
@@ -25,6 +32,7 @@ export class BCSession {
   private sessionKey = '';
   private company = '';
   private _initialized = false;
+  private lastCapturedFile: CapturedFile | undefined = undefined;
 
   constructor(
     private readonly ws: BCWebSocket,
@@ -34,7 +42,31 @@ export class BCSession {
     private readonly tenantId: string,
     private readonly timeoutMs: number = DEFAULT_TIMEOUT_MS,
     private readonly profile: string = '',
-  ) {}
+    private readonly reportDownloader?: ReportDownloader,
+  ) {
+    if (typeof this.ws.setRequestHandler === 'function') {
+      this.ws.setRequestHandler(async (method, params) => {
+        if (method === 'FileActionDialog') {
+          const param = (params[0] ?? {}) as Record<string, unknown>;
+          const fileName = typeof param['FileName'] === 'string' ? param['FileName'] : undefined;
+          if (this.reportDownloader) {
+            try {
+              const { bytes, contentType } = await this.reportDownloader.download();
+              this.lastCapturedFile = { bytes, contentType, fileName };
+              this.logger.info(`Report file captured: ${bytes.length} bytes, contentType=${contentType}${fileName ? `, fileName=${fileName}` : ''}`);
+              return { IsFileAccessed: true, FileName: fileName ?? '' };
+            } catch (e) {
+              this.logger.warn(`Report download failed: ${e instanceof Error ? e.message : String(e)}`);
+              return { IsFileAccessed: false };
+            }
+          }
+          return { IsFileAccessed: false };
+        }
+        this.logger.debug('protocol', `Inbound request: method=${method} (no handler)`);
+        return {};
+      });
+    }
+  }
 
   get openFormIds(): ReadonlySet<string> {
     return this._openFormIds;
@@ -50,6 +82,17 @@ export class BCSession {
 
   get isAlive(): boolean {
     return !this.dead && this.ws.isConnected;
+  }
+
+  /**
+   * Returns the last file captured from a FileActionDialog inbound request and
+   * clears the stored value so subsequent calls return undefined until a new
+   * file is captured. Returns undefined if no file has been captured.
+   */
+  takeLastCapturedFile(): CapturedFile | undefined {
+    const captured = this.lastCapturedFile;
+    this.lastCapturedFile = undefined;
+    return captured;
   }
 
   async initialize(tenantId: string): Promise<Result<BCEvent[], ProtocolError>> {

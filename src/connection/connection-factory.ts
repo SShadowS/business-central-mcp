@@ -1,6 +1,7 @@
 import { ok, err, isErr, type Result } from '../core/result.js';
 import { ConnectionError } from '../core/errors.js';
 import { BCWebSocket } from './bc-websocket.js';
+import { ReportDownloader } from '../session/report-downloader.js';
 import type { IBCAuthProvider } from './auth/auth-provider.js';
 import type { BCConfig } from '../core/config.js';
 import type { Logger } from '../core/logger.js';
@@ -32,6 +33,14 @@ export class ConnectionFactory {
 
     if (isErr(connectResult)) return connectResult;
     return ok(ws);
+  }
+
+  createReportDownloader(): ReportDownloader {
+    return new ReportDownloader(
+      this.bcConfig.baseUrl,
+      () => this.authProvider.getWebSocketHeaders(),
+      this.logger,
+    );
   }
 
   private buildWebSocketUrl(): string {
