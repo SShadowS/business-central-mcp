@@ -169,7 +169,14 @@ export class InteractionEncoder {
       case 'SessionAction':
         return { interactionName: interaction.actionName, namedParameters: JSON.stringify(interaction.namedParameters ?? {}), controlPath: interaction.controlPath ?? 'server:c[0]', callbackId };
       case 'SortColumn':
-        return { interactionName: 'InvokeAction', formId: interaction.formId, controlPath: interaction.controlPath, namedParameters: JSON.stringify({ systemAction: 470, key: null, repeaterControlTarget: null, SortOrder: interaction.sortOrder }), callbackId };
+        // BC's InvokeActionExecutionStrategy reads SortOrder from a nested "Data"
+        // sub-dictionary (GetOptionalNamedParameter<Dictionary>(namedParameters,
+        // "Data") -> SortColumnAction.GetStateValue(state, "SortOrder", Ascending)).
+        // A flat SortOrder is ignored and BC defaults to Ascending, so DESC must
+        // nest the value under Data or it silently no-ops.
+        // Reference: decompiled InvokeActionExecutionStrategy.cs (line 22),
+        // SortColumnAction.cs. Verified live: nested Data reverses, flat does not.
+        return { interactionName: 'InvokeAction', formId: interaction.formId, controlPath: interaction.controlPath, namedParameters: JSON.stringify({ systemAction: 470, key: null, repeaterControlTarget: null, Data: { SortOrder: interaction.sortOrder } }), callbackId };
     }
   }
 }

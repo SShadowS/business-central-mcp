@@ -255,9 +255,14 @@ export interface SessionActionInteraction extends BaseInteraction {
  * SortOrder values (from decompiled Microsoft.Dynamics.Framework.UI.SortOrder):
  *   None=0, Ascending=1, Descending=2
  *
- * Reference: SortColumnAction.cs, ClientSortOrder.cs (decompiled BC28).
- * Wire probe: Customer List page 22, Name column rcc server:c[3]/co[2],
- * namedParameters: { SortOrder: 1 } — confirmed reorders rows alphabetically.
+ * The encoder nests SortOrder under a "Data" sub-dictionary in namedParameters
+ * ({ Data: { SortOrder } }). BC's InvokeActionExecutionStrategy reads the value
+ * from that "Data" dict; a flat SortOrder is silently ignored and BC defaults to
+ * Ascending, so DESC would no-op without the nesting.
+ *
+ * Reference: SortColumnAction.cs, InvokeActionExecutionStrategy.cs (decompiled
+ * BC28). Wire probe (Item List page 31, Description column): nested
+ * { Data: { SortOrder: 2 } } reverses rows; flat { SortOrder: 2 } does not.
  */
 export interface SortColumnInteraction extends BaseInteraction {
   readonly type: 'SortColumn';

@@ -225,7 +225,9 @@ describe('InteractionEncoder', () => {
     });
   });
 
-  it('encodes SortColumn as InvokeAction with systemAction=470 and SortOrder', () => {
+  it('encodes SortColumn as InvokeAction with systemAction=470 and nested Data.SortOrder', () => {
+    // BC reads SortOrder from a nested "Data" sub-dictionary; a flat SortOrder
+    // is ignored (BC defaults to Ascending). See InvokeActionExecutionStrategy.cs.
     const interaction = {
       type: 'SortColumn' as const,
       formId: 'form1',
@@ -246,10 +248,12 @@ describe('InteractionEncoder', () => {
     expect(inv.controlPath).toBe('server:c[3]/co[2]');
     const namedParams = JSON.parse(inv.namedParameters as string);
     expect(namedParams.systemAction).toBe(470);
-    expect(namedParams.SortOrder).toBe(1);
+    // Flat SortOrder must NOT be present — it is silently ignored by BC.
+    expect(namedParams.SortOrder).toBeUndefined();
+    expect(namedParams.Data.SortOrder).toBe(1);
   });
 
-  it('encodes SortColumn descending with SortOrder=2', () => {
+  it('encodes SortColumn descending with nested Data.SortOrder=2', () => {
     const interaction = {
       type: 'SortColumn' as const,
       formId: 'form1',
@@ -267,6 +271,7 @@ describe('InteractionEncoder', () => {
     const inv = (params.interactionsToInvoke as Record<string, unknown>[])[0]!;
     const namedParams = JSON.parse(inv.namedParameters as string);
     expect(namedParams.systemAction).toBe(470);
-    expect(namedParams.SortOrder).toBe(2);
+    expect(namedParams.SortOrder).toBeUndefined();
+    expect(namedParams.Data.SortOrder).toBe(2);
   });
 });

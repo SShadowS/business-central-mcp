@@ -4,16 +4,19 @@
 //
 // Verified live wire behavior (Cronus28, 2026-06-16):
 //   - SortColumn interaction: InvokeAction systemAction=470, controlPath=rcc node
-//     (e.g. server:c[3]/co[2] for the Name column of Customer List page 22),
-//     namedParameters: { SortOrder: 1 } (asc) / { SortOrder: 2 } (desc).
-//   - Probe confirmed: ASC sort reorders rows alphabetically by Name
-//     (baseline C,R,L,D,G -> ASC C,D,G,L,R by No. order change).
-//   - SortOrder values from decompiled Microsoft.Dynamics.Framework.UI.SortOrder:
+//     (e.g. server:c[3]/co[2] for the Description column of Item List page 31).
+//   - SortOrder MUST be nested under a "Data" sub-dictionary in namedParameters:
+//     { Data: { SortOrder: 1 } } (asc) / { Data: { SortOrder: 2 } } (desc).
+//     A FLAT SortOrder is silently ignored by BC (defaults to Ascending), so the
+//     nesting is what makes DESC actually descend.
+//     Reference: decompiled InvokeActionExecutionStrategy.cs (reads "Data" dict),
+//     SortColumnAction.cs (reads "SortOrder" from that dict).
+//   - SortOrder enum (Microsoft.Dynamics.Framework.UI.SortOrder):
 //     None=0, Ascending=1, Descending=2.
-//   - BC accepts both directions without error; rows are reordered on BC side.
 //
-// Test assertion: sorting by No. ASC then DESC should show different first-row No.
-// on a dataset with >1 customer, assuming No. values are not all identical.
+// This test uses Item List (page 31, 49 items in Cronus28) so DESC reversal is
+// genuinely observable: asc-first != desc-first, and desc-first sorts AFTER
+// asc-first. With the old flat encoding asc-first == desc-first and the test FAILS.
 //
 // Rules: uses integrationPool; no 2>/dev/null; no emojis.
 
@@ -28,6 +31,8 @@ import { SortService } from '../../src/services/sort-service.js';
 import { ReadDataOperation } from '../../src/operations/read-data.js';
 import { isOk, unwrap } from '../../src/core/result.js';
 import { integrationPool, type PooledLease } from './helpers/session-pool.js';
+
+const SORT_COLUMN = 'Description';
 
 describe.sequential('bc_read_data sort — integration (Cronus28)', () => {
   let lease: PooledLease;
@@ -51,8 +56,8 @@ describe.sequential('bc_read_data sort — integration (Cronus28)', () => {
     const sortService = new SortService(session, repo, logger);
     readData = new ReadDataOperation(dataService, filterService, sortService, repo);
 
-    // Open Customer List (page 22) — a list page with a Name column
-    const ctx = unwrap(await pageService.openPage('22', { tenantId: 'default' }));
+    // Open Item List (page 31) — a list page with ~49 rows and a Description column
+    const ctx = unwrap(await pageService.openPage('31', { tenantId: 'default' }));
     pageContextId = ctx.pageContextId;
   }, 60000);
 
@@ -63,78 +68,71 @@ describe.sequential('bc_read_data sort — integration (Cronus28)', () => {
     if (lease) await integrationPool.checkIn(lease, { poisoned: !session?.isAlive });
   });
 
-  it('sort asc by Name returns rows in ascending Name order', async () => {
+  it(`sort asc by ${SORT_COLUMN} returns rows in ascending order`, async () => {
     const result = await readData.execute({
       pageContextId,
-      sort: { column: 'Name', direction: 'asc' },
+      sort: { column: SORT_COLUMN, direction: 'asc' },
     });
 
     expect(isOk(result)).toBe(true);
     if (!isOk(result)) return;
 
     const rows = result.value.section.rows ?? [];
-    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.length).toBeGreaterThan(1);
 
-    // Extract Name values; they should be in non-decreasing order
-    const names = rows.map(r => String(r.cells['Name'] ?? ''));
-    for (let i = 1; i < names.length; i++) {
-      // Allow equal names; strictly non-decreasing
-      expect(names[i]!.localeCompare(names[i - 1]!)).toBeGreaterThanOrEqual(0);
+    const values = rows.map(r => String(r.cells[SORT_COLUMN] ?? ''));
+    for (let i = 1; i < values.length; i++) {
+      expect(values[i]!.localeCompare(values[i - 1]!)).toBeGreaterThanOrEqual(0);
     }
   }, 30000);
 
-  it('sort desc by Name is accepted by BC and returns rows', async () => {
-    // Note on Cronus28 test data (2026-06-16): only 5 customers exist in this
-    // database. BC's viewport anchors to the currently-selected row, so the DESC
-    // sort reorders rows on BC's side but all 5 fit in one viewport page and the
-    // selected row ("Customer Card", alphabetically first) stays visible first.
-    // We therefore only assert that DESC is accepted without error and returns rows,
-    // not that the viewport order is strictly Z-A (that would require a larger
-    // dataset or a way to de-select the anchor row).
+  it(`sort desc by ${SORT_COLUMN} returns rows in descending order`, async () => {
     const result = await readData.execute({
       pageContextId,
-      sort: { column: 'Name', direction: 'desc' },
+      sort: { column: SORT_COLUMN, direction: 'desc' },
     });
 
     expect(isOk(result)).toBe(true);
     if (!isOk(result)) return;
 
     const rows = result.value.section.rows ?? [];
-    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.length).toBeGreaterThan(1);
+
+    const values = rows.map(r => String(r.cells[SORT_COLUMN] ?? ''));
+    for (let i = 1; i < values.length; i++) {
+      expect(values[i]!.localeCompare(values[i - 1]!)).toBeLessThanOrEqual(0);
+    }
   }, 30000);
 
-  it('asc row order differs from baseline (sort demonstrably reorders)', async () => {
-    // Baseline: open page gives default sort (by No., ascending number order).
-    // After ASC sort by Name, the No. order should differ because the customer
-    // names are not in the same order as their No. values.
-    //
-    // Baseline Cronus28 order by No.: 10000=Customer Card, 20000=Ravel Møbler,
-    // 30000=Lauritzen, 40000=Deerfield, 50000=Guildford.
-    // After ASC sort by Name (alphabetical): Customer Card(10000), Deerfield(40000),
-    // Guildford(50000), Lauritzen(30000), Ravel(20000).
-    // => No. order changes from [10,20,30,40,50] to [10,40,50,30,20].
+  it('asc-first and desc-first DIFFER and desc-first sorts last (DESC genuinely reverses)', async () => {
+    // This is the regression guard for the flat-vs-nested SortOrder bug. With the
+    // old flat encoding, DESC silently no-ops (defaults to Ascending) so asc-first
+    // == desc-first and this assertion FAILS. With Data-nesting, DESC reverses.
     const ascResult = await readData.execute({
       pageContextId,
-      sort: { column: 'Name', direction: 'asc' },
+      sort: { column: SORT_COLUMN, direction: 'asc' },
+    });
+    const descResult = await readData.execute({
+      pageContextId,
+      sort: { column: SORT_COLUMN, direction: 'desc' },
     });
 
     expect(isOk(ascResult)).toBe(true);
-    if (!isOk(ascResult)) return;
+    expect(isOk(descResult)).toBe(true);
+    if (!isOk(ascResult) || !isOk(descResult)) return;
 
     const ascRows = ascResult.value.section.rows ?? [];
+    const descRows = descResult.value.section.rows ?? [];
     expect(ascRows.length).toBeGreaterThan(1);
+    expect(descRows.length).toBeGreaterThan(1);
 
-    // In ASC by Name, "No." values should NOT all be in ascending numeric order
-    // (because Name-alphabetical order != No. numeric order for this dataset).
-    // Specifically: second row should be No.=40000 (Deerfield), not 20000 (Ravel).
-    const secondRowNo = ascRows[1]?.cells['No.'];
-    // This assertion is dataset-specific for Cronus28, but robust enough:
-    // if sort works, Deerfield (No.=40000) comes before Ravel (No.=20000) in Name ASC.
-    // No.=40000 > No.=20000, so numerically the sort DID change the row order.
-    expect(secondRowNo).toBeDefined();
-    // The key assertion: second No. in Name-ASC order should not be 20000 (which
-    // would mean no sort happened, since 20000=Ravel comes second in default order).
-    expect(String(secondRowNo)).not.toBe('20000');
+    const ascFirst = String(ascRows[0]!.cells[SORT_COLUMN] ?? '');
+    const descFirst = String(descRows[0]!.cells[SORT_COLUMN] ?? '');
+
+    // The two top rows must differ — proof DESC is not a silent no-op.
+    expect(ascFirst).not.toBe(descFirst);
+    // And the descending top value must sort AFTER the ascending top value.
+    expect(descFirst.localeCompare(ascFirst)).toBeGreaterThan(0);
   }, 60000);
 
   it('sort with non-existent column returns ProtocolError with availableColumns', async () => {
@@ -146,7 +144,6 @@ describe.sequential('bc_read_data sort — integration (Cronus28)', () => {
     expect(isOk(result)).toBe(false);
     if (isOk(result)) return;
     expect(result.error.message).toContain('NoSuchColumnXYZ');
-    // availableColumns should be populated
     expect(result.error.context).toBeDefined();
     const ctx = result.error.context as Record<string, unknown>;
     expect(Array.isArray(ctx.availableColumns)).toBe(true);
