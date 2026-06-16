@@ -23,13 +23,33 @@ Three features, executed in order of certainty. The reliable suite + typed error
 - `ClosePageOperation`: on a close that errors, still invalidate the local page context and return a clear result (not a hang). Ensure no path leaves a page context referencing a dead form.
 **Tests:** unit — double-close is safe; close after death is a no-op that still resolves; close-with-error still tears down. Integration — close a page then confirm a fresh open on the same user succeeds promptly (no NTLM-slot block).
 
-## Feature 3 — Report output capture (SPIKE — uncertain feasibility)
-**Problem:** `bc_run_report` executes reports + fills request pages but cannot capture the rendered PDF/Excel/Word. BC delivers the binary over a separate channel (WCF `StreamTransfer`), not inline in the WebSocket.
-**Spike approach (timeboxed, may conclude NOT FEASIBLE):**
-1. Investigate decompiled: `ReportResultSetDownloadDecorator.SendReportStreamToClient`, `NSClientCallback.DownloadFileAction`, `Connection.DownloadStream`, `BrowserDownloadFileRequest`, `FileActionDialog`. Determine HOW the client obtains the stream: is there a URL/token delivered in a `MessageToShow`/event/handler that the client then GETs over HTTP? Or is it pushed over the WCF callback channel we don't currently consume?
-2. If a fetchable URL/token IS delivered through the WebSocket/HTTP session: implement capture — after report OK, detect the download event, fetch the binary via the authenticated HTTP session (reuse the NTLM/cookie auth), return it (base64 or save-to-disk path) from `bc_run_report`.
-3. If the binary ONLY comes over a WCF StreamTransfer callback channel bc-mcp doesn't implement: document the exact mechanism + what it would take, conclude the spike as "not feasible without implementing the WCF callback channel," and STOP (do not build a half-thing). Record findings in this spec / a DISCOVERIES note.
-**Deliverable either way:** a definitive feasibility finding backed by decompiled evidence and (if possible) a live probe, plus implementation only if a clean path exists.
+## Feature 3 — Report output capture (SPIKE COMPLETE — deferred, mechanism documented)
+
+**Spike result:** NOT IMPLEMENTED. The mechanism is feasible in principle but requires a non-trivial protocol layer addition. Deferred.
+
+**Exact download mechanism (confirmed from decompiled source + live probe 2026-06-16):**
+
+BC delivers the report binary via an **inbound JSON-RPC call over the same WebSocket**, NOT via WCF StreamTransfer callback. The chain:
+
+1. `ReportResultSetDownloadDecorator.SendReportStreamToClient` (`Microsoft.Dynamics.Nav.Ncl/Microsoft.Dynamics.Nav.Runtime.Report/`) calls `session.ClientCallback.DownloadFileAction(stream, displayDialog:false, caption, ...)`.
+2. `NSClientCallback.DownloadFileAction` (`Microsoft.Dynamics.Nav.Service/`) stores the stream: `Connection.DownloadStream = new StreamTransfer(stream)` and calls `ClientContract.FileActionDialog(fileActionRequest)` — where `ClientContract` is the JSON-RPC proxy created by `jsonRpc.Attach<IClientCallbackApi>()` in `NsServiceJsonRpcHostFactory.CreateAndRunNsServiceJsonRpcService` (`Microsoft.Dynamics.Nav.Service.ClientService/`).
+3. This fires a **synchronous inbound JSON-RPC request** `{ "jsonrpc": "2.0", "method": "FileActionDialog", "id": "<guid>", "params": [<FileActionRequest>] }` FROM BC TO OUR CLIENT over the same WebSocket. BC's report execution is BLOCKED until we respond.
+4. The correct response is `{ "jsonrpc": "2.0", "id": "<guid>", "result": <FileActionResponse> }` with `IsFileAccessed: true` and the chosen filename.
+5. While BC is blocked waiting, the bytes are available at `GET /BC/client/uploadDownload/download` (same domain, same NTLM/cookie session) — `UploadDownloadController.Download()` (`Microsoft.Dynamics.Nav.Service.ClientService/`) reads `Connection.DownloadStream` and serves `application/octet-stream`.
+
+**Live probe findings:**
+- Report 6 (Trial Balance) request page uses `SystemAction: 410` ("Send to...") to initiate download — NOT `SystemAction: 300` (OK). `SystemAction: 410` opens a format-choice sub-dialog (`MappingHint: "PrintDialog"`); `SystemAction: 400` = Preview (PDF in browser).
+- Neither `SystemAction: 410` nor `SystemAction: 300` triggered a `FileActionDialog` inbound call in the probe — full sub-dialog navigation (choosing a format inside the "Send to..." dialog) is required before BC sends `FileActionDialog`.
+- No `FileActionDialog` calls arrived as inbound JSON-RPC requests during any of the tested interactions, confirming our client currently ignores them (they have `id` and `method` but no matching `pendingRequests` entry so they are silently dropped in `BCWebSocket.routeMessage`).
+
+**Why deferred (not "not feasible"):**
+The bytes ARE reachable over plain HTTP with the existing NTLM/cookie auth. Implementation requires:
+1. `BCWebSocket.routeMessage`: detect messages with `method` + `id` (inbound JSON-RPC requests, not responses) and dispatch them to a registered handler rather than dropping them.
+2. A `FileActionDialog` handler in `BCSession` that: (a) sends back `{IsFileAccessed:true, FileName: "<suggested>"}` immediately, (b) concurrently GETs `/BC/client/uploadDownload/download` with the session cookies to pull the stream bytes.
+3. Report request-page navigation needs to handle the `SystemAction: 410` -> format-choice sub-dialog before download is triggered.
+4. `bc_run_report` output gains a `downloadBytes` (base64) or `downloadPath` field.
+
+This is ~2-3 days of protocol work. The CLAUDE.md Known Limitations section has been updated with the full mechanism.
 
 ## Execution
 Feature 1, then 2, then the 3 spike. Each: implement (subagent) -> spec+quality review -> verify (unit + targeted integration). Merge the branch at phase end after a full integration gate. Update CLAUDE.md (remove the resolved "Report Output Capture (Phase 6)" limitation only if Feature 3 lands; otherwise update its status with the spike findings).

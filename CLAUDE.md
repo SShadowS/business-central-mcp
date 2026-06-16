@@ -289,10 +289,23 @@ Document pages (Sales Order=42/43, Purchase Order=50/51) have both a header repe
 ### Session Recovery
 After a session-killing error, BC holds the NTLM slot for ~15 seconds. The SessionManager handles this with exponential backoff (up to 4 retries). If an invoke hangs indefinitely (confirmed BC bug), the session-level timeout (default 30s) kills the connection and triggers auto-recovery on the next request.
 
-### Report Output Capture (Phase 6)
-`bc_run_report` can execute reports and fill request pages, but cannot capture the rendered output (PDF/Excel/Word). After execution, BC delivers the report binary via `FileActionDialog` / `BrowserDownloadFileRequest` over a separate streaming channel (WCF `StreamTransfer`), not inline in the WebSocket response. Phase 6 will investigate intercepting this stream.
+### Report Output Capture (deferred — inbound JSON-RPC callback required)
+`bc_run_report` can execute reports and fill request pages, but cannot capture the rendered output (PDF/Excel/Word).
 
-Reference: `ReportResultSetDownloadDecorator.SendReportStreamToClient()`, `NSClientCallback.DownloadFileAction()`, `Connection.DownloadStream` (decompiled)
+**Exact mechanism (confirmed from decompiled source + live probe):**
+1. `ReportResultSetDownloadDecorator.SendReportStreamToClient` calls `session.ClientCallback.DownloadFileAction(stream, ...)` (`NSClientCallback.cs`)
+2. `NSClientCallback.DownloadFileAction` stores the stream in `Connection.DownloadStream = new StreamTransfer(stream)` (`Connection.cs`) and calls `ClientContract.FileActionDialog(fileActionRequest)` — where `ClientContract` is `jsonRpc.Attach<IClientCallbackApi>()` (`NsServiceJsonRpcHostFactory.cs`)
+3. This fires a **synchronous inbound JSON-RPC call** (`method: "FileActionDialog"`) FROM BC TO OUR CLIENT over the **same WebSocket connection**, blocking BC's report execution until we respond
+4. The correct response is `FileActionResponse{IsFileAccessed: true, FileName: "..."}` — upon which BC considers the download acknowledged
+5. The actual bytes are available at `GET /BC/client/uploadDownload/download` (same auth session) while BC is blocked waiting — `UploadDownloadController.Download()` reads `Connection.DownloadStream` and serves `application/octet-stream`
+
+**Why deferred:** Implementing this requires adding inbound JSON-RPC request handling to `BCWebSocket`/`BCSession` — currently only outbound request/response pairs are supported. The `FileActionDialog` arrives as a JSON-RPC method call (with `id` and `method` fields) that our client must respond to. This is a non-trivial addition to the protocol layer.
+
+**What IS feasible:** The bytes ARE reachable over plain HTTP with the same NTLM/cookie auth that `NTLMAuthProvider` already manages. Once the `FileActionDialog` handler is implemented (intercept inbound call, respond `{IsFileAccessed:true}`, GET the download URL, return base64 bytes), the full feature can be built.
+
+**Live probe finding:** Report 6 (Trial Balance) request page uses `SystemAction: 410` ("Send to...") — not `SystemAction: 300` (OK) — to trigger download. `SystemAction: 410` opens a format-choice dialog. `SystemAction: 400` = Preview (PDF in browser). Neither triggered `FileActionDialog` without fully navigating those sub-dialogs.
+
+Reference: `ReportResultSetDownloadDecorator.SendReportStreamToClient()` (`Microsoft.Dynamics.Nav.Ncl/Microsoft.Dynamics.Nav.Runtime.Report/`), `NSClientCallback.DownloadFileAction()` (`Microsoft.Dynamics.Nav.Service/`), `Connection.DownloadStream` (`Microsoft.Dynamics.Nav.Service/`), `NsServiceJsonRpcHostFactory.CreateAndRunNsServiceJsonRpcService` — `jsonRpc.Attach<IClientCallbackApi>()` — `IClientCallbackApi.FileActionDialog` (`Microsoft.Dynamics.Nav.Types/`), `UploadDownloadController.Download()` (`Microsoft.Dynamics.Nav.Service.ClientService/`)
 
 ### Async Message Timing
 The invoke quiescence window (150ms) is a best-effort wait for trailing async `Message` notifications. In rare cases, late-arriving messages may be missed.
