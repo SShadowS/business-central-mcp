@@ -34,6 +34,22 @@ export interface SectionField {
   readonly showMandatory?: boolean;
   /** True if the field has an AssistEdit/Lookup action attached. */
   readonly isLookup?: boolean;
+  /**
+   * For option/enum fields (`sec`) and boolean fields (`bc`): the allowed
+   * choices. Use the `value` string as the SaveValue payload when writing
+   * this field. Absent on plain text/numeric fields.
+   *
+   * Reference: live BC28 wire — Item Card page 30 "Type" field;
+   * decompiled `LogicalControlSerializer.WriteItems`.
+   */
+  readonly options?: ReadonlyArray<{ readonly text: string; readonly value: string }>;
+  /**
+   * The currently selected option, resolved from `optionIndex` (preferred) or
+   * by matching `value` against option texts (fallback for PropertyChanged
+   * echoes that omit CurrentIndex). Absent when no option is selected (`optionIndex === -1`
+   * and `value` does not match any option text).
+   */
+  readonly selectedOption?: { readonly text?: string; readonly value?: string };
 }
 
 export interface SectionAction {
@@ -138,14 +154,31 @@ export function buildSection(ctx: PageContext, sectionId: string): Section | nul
   } else {
     out.fields = treeFields(root)
       .filter(f => f.properties.caption && isEffectivelyVisible(root, f.controlPath, groupVis, ws))
-      .map(f => ({
-        name: f.properties.caption!,
-        value: f.properties.stringValue,
-        editable: f.properties.editable ?? false,
-        type: f.type,
-        ...(f.properties.showMandatory ? { showMandatory: true as const } : {}),
-        ...(f.hasLookup ? { isLookup: true as const } : {}),
-      }));
+      .map(f => {
+        const opts = f.properties.options;
+        let selectedOption: { text?: string; value?: string } | undefined;
+        if (opts && opts.length > 0) {
+          const idx = f.properties.optionIndex;
+          if (typeof idx === 'number' && idx >= 0 && idx < opts.length) {
+            selectedOption = opts[idx];
+          } else if (f.properties.stringValue) {
+            // Fallback: match stringValue against option text (PropertyChanged
+            // echoes may omit CurrentIndex).
+            const match = opts.find(o => o.text === f.properties.stringValue);
+            if (match) selectedOption = match;
+          }
+        }
+        return {
+          name: f.properties.caption!,
+          value: f.properties.stringValue,
+          editable: f.properties.editable ?? false,
+          type: f.type,
+          ...(f.properties.showMandatory ? { showMandatory: true as const } : {}),
+          ...(f.hasLookup ? { isLookup: true as const } : {}),
+          ...(opts && opts.length > 0 ? { options: opts } : {}),
+          ...(selectedOption ? { selectedOption } : {}),
+        };
+      });
   }
 
   if (isHeader) {

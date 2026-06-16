@@ -8,6 +8,8 @@ export function createToolDefinition(ops: Operations): ToolDefinition {
 
 Card pages (single-record views like Customer Card=21) return one header (card-shape) plus any FactBox sections attached to the page. List pages (Customer List=22) return a header (list-shape, rows[] populated). Document pages (Sales Order=42) return a header (card-shape), a "lines" list-shape section with the document lines, and any FactBoxes.
 
+Option/enum fields and boolean fields in card-shape sections carry two extra properties: "options" (the allowed choices as [{text, value}]) and "selectedOption" (the currently chosen entry). Always use the "value" string from "options" as the SaveValue payload when writing an enum field -- do NOT guess or invent values. Example: Item Card "Type" field returns options=[{text:"Inventory",value:"0"},{text:"Service",value:"1"},{text:"Non-Inventory",value:"2"}] and selectedOption={text:"Inventory",value:"0"}.
+
 Typical workflow: bc_open_page -> bc_read_data (refresh / filter / paginate a section) -> bc_write_data (edit fields in any section) -> bc_execute_action (post / release / delete) -> bc_close_page. Always call bc_close_page when done. Do NOT call this if the page is already open -- reuse the existing pageContextId.
 
 Optional bookmark parameter opens a Card page to a specific record. Bookmarks come from list rows in any prior section.

@@ -178,6 +178,113 @@ describe('buildFormTree — repeaters', () => {
   });
 });
 
+describe('buildFormTree — option/enum fields (sec + bc)', () => {
+  it('extracts options from Items array on a sec field', () => {
+    const raw = {
+      t: 'lf', ServerId: 'F1', PageType: 0, Children: [
+        {
+          t: 'sec', Caption: 'Type',
+          Items: [
+            { Text: 'Inventory', Value: '0' },
+            { Text: 'Service', Value: '1' },
+            { Text: 'Non-Inventory', Value: '2' },
+          ],
+          CurrentIndex: 1,
+          ColumnBinder: { Name: 'type_binder' },
+        },
+      ],
+    };
+    const root = buildFormTree(raw);
+    if (!('children' in root)) throw new Error('expected children');
+    const field = root.children.find(isFieldNode);
+    expect(field).toBeDefined();
+    expect(field!.type).toBe('sec');
+    expect(field!.properties.options).toEqual([
+      { text: 'Inventory', value: '0' },
+      { text: 'Service', value: '1' },
+      { text: 'Non-Inventory', value: '2' },
+    ]);
+    expect(field!.properties.optionIndex).toBe(1);
+  });
+
+  it('extracts options from Items array on a bc field', () => {
+    const raw = {
+      t: 'lf', ServerId: 'F1', PageType: 0, Children: [
+        {
+          t: 'bc', Caption: 'Blocked',
+          Items: [
+            { Text: 'No', Value: 'False' },
+            { Text: 'Yes', Value: 'True' },
+          ],
+          CurrentIndex: -1,
+        },
+      ],
+    };
+    const root = buildFormTree(raw);
+    if (!('children' in root)) throw new Error('expected children');
+    const field = root.children.find(isFieldNode);
+    expect(field!.properties.options).toEqual([
+      { text: 'No', value: 'False' },
+      { text: 'Yes', value: 'True' },
+    ]);
+    expect(field!.properties.optionIndex).toBe(-1);
+  });
+
+  it('does not set options on plain text fields (sc)', () => {
+    const raw = {
+      t: 'lf', ServerId: 'F1', PageType: 0, Children: [
+        { t: 'sc', Caption: 'Name', StringValue: 'ACME' },
+      ],
+    };
+    const root = buildFormTree(raw);
+    if (!('children' in root)) throw new Error('expected children');
+    const field = root.children.find(isFieldNode);
+    expect(field!.properties.options).toBeUndefined();
+    expect(field!.properties.optionIndex).toBeUndefined();
+  });
+
+  it('propagates options from rc.Children template sec to the matching rcc column', () => {
+    const raw = {
+      t: 'lf', ServerId: 'F1', PageType: 1, Children: [
+        {
+          t: 'rc', Columns: [
+            { t: 'rcc', Caption: 'Type', ColumnBinder: { Name: 'type_col' } },
+            { t: 'rcc', Caption: 'No.', ColumnBinder: { Name: 'no_col' } },
+          ],
+          Children: [
+            {
+              t: 'sec', Caption: 'Type',
+              ColumnBinder: { Name: 'type_col' },
+              Items: [
+                { Text: 'Resource', Value: '0' },
+                { Text: 'Item', Value: '1' },
+                { Text: 'G/L Account', Value: '2' },
+              ],
+              CurrentIndex: -1,
+            },
+            {
+              t: 'sc', Caption: 'No.', ColumnBinder: { Name: 'no_col' },
+            },
+          ],
+        },
+      ],
+    };
+    const root = buildFormTree(raw);
+    if (!('children' in root)) throw new Error('expected children');
+    const rep = root.children.find(isRepeaterNode);
+    expect(rep).toBeDefined();
+    const typeCol = rep!.columns.find(c => c.columnBinder?.name === 'type_col');
+    expect(typeCol).toBeDefined();
+    expect(typeCol!.properties.options).toEqual([
+      { text: 'Resource', value: '0' },
+      { text: 'Item', value: '1' },
+      { text: 'G/L Account', value: '2' },
+    ]);
+    const noCol = rep!.columns.find(c => c.columnBinder?.name === 'no_col');
+    expect(noCol!.properties.options).toBeUndefined();
+  });
+});
+
 import { isFormHostNode } from '../../src/protocol/form-node.js';
 
 describe('buildFormTree — fhc + filc', () => {

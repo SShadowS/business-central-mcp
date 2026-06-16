@@ -249,6 +249,98 @@ describe('buildSection cues projection', () => {
   });
 });
 
+describe('buildSection — option/enum field surfacing', () => {
+  it('exposes options and selectedOption on a sec field in a card section', () => {
+    const root = {
+      t: 'lf', ServerId: 'root', PageType: 0, Caption: 'Item Card',
+      Children: [
+        {
+          t: 'sec', Caption: 'Type', Visible: true, Editable: true,
+          StringValue: 'Service',
+          Items: [
+            { Text: 'Inventory', Value: '0' },
+            { Text: 'Service', Value: '1' },
+            { Text: 'Non-Inventory', Value: '2' },
+          ],
+          CurrentIndex: 1,
+          ColumnBinder: { Name: 'type_binder' },
+        },
+        { t: 'sc', Caption: 'No.', StringValue: '1000', Visible: true, Editable: false },
+      ],
+    };
+    const ctx = makeCtx({
+      rootFormId: 'root',
+      forms: new Map([['root', makeFormState('root', root)]]),
+      sections: new Map([['header', { sectionId: 'header', kind: 'header' as const, caption: 'Item Card', formId: 'root', valid: true }]]),
+    });
+    const section = buildSection(ctx, 'header');
+    expect(section).not.toBeNull();
+    const typeField = section!.fields?.find(f => f.name === 'Type');
+    expect(typeField).toBeDefined();
+    expect(typeField!.options).toEqual([
+      { text: 'Inventory', value: '0' },
+      { text: 'Service', value: '1' },
+      { text: 'Non-Inventory', value: '2' },
+    ]);
+    expect(typeField!.selectedOption).toEqual({ text: 'Service', value: '1' });
+    // Plain text field must not get options
+    const noField = section!.fields?.find(f => f.name === 'No.');
+    expect(noField!.options).toBeUndefined();
+    expect(noField!.selectedOption).toBeUndefined();
+  });
+
+  it('falls back to stringValue matching for selectedOption when optionIndex is -1', () => {
+    const root = {
+      t: 'lf', ServerId: 'root', PageType: 0, Caption: 'Test',
+      Children: [
+        {
+          t: 'sec', Caption: 'Status', Visible: true, Editable: true,
+          StringValue: 'Started',
+          Items: [
+            { Text: 'Not Started', Value: '0' },
+            { Text: 'Started', Value: '1' },
+          ],
+          CurrentIndex: -1,
+        },
+      ],
+    };
+    const ctx = makeCtx({
+      rootFormId: 'root',
+      forms: new Map([['root', makeFormState('root', root)]]),
+      sections: new Map([['header', { sectionId: 'header', kind: 'header' as const, caption: 'Test', formId: 'root', valid: true }]]),
+    });
+    const section = buildSection(ctx, 'header');
+    const f = section!.fields?.find(f => f.name === 'Status');
+    expect(f!.selectedOption).toEqual({ text: 'Started', value: '1' });
+  });
+
+  it('does not set selectedOption when optionIndex is -1 and stringValue matches no option text', () => {
+    const root = {
+      t: 'lf', ServerId: 'root', PageType: 0, Caption: 'Test',
+      Children: [
+        {
+          t: 'sec', Caption: 'Choice', Visible: true, Editable: true,
+          StringValue: '',
+          Items: [
+            { Text: 'A', Value: '0' },
+            { Text: 'B', Value: '1' },
+          ],
+          CurrentIndex: -1,
+        },
+      ],
+    };
+    const ctx = makeCtx({
+      rootFormId: 'root',
+      forms: new Map([['root', makeFormState('root', root)]]),
+      sections: new Map([['header', { sectionId: 'header', kind: 'header' as const, caption: 'Test', formId: 'root', valid: true }]]),
+    });
+    const section = buildSection(ctx, 'header');
+    const f = section!.fields?.find(f => f.name === 'Choice');
+    expect(f!.options).toBeDefined();
+    expect(f!.selectedOption).toBeUndefined();
+  });
+});
+
 describe('buildAllSections', () => {
   it('emits sections in canonical order: header, lines, subpages, factboxes', () => {
     const rootForm = makeFormState('root', { t: 'lf', ServerId: 'root', PageType: 5, Children: [] });

@@ -175,12 +175,45 @@ function buildRepeater(obj: Record<string, unknown>, controlPath: string): Repea
       });
     }
   }
+
+  // Build the row-cell template children first so we can index their options.
+  const children = buildChildren(obj.Children, controlPath, true);
+
+  // Propagate options from row-cell template FieldNodes (rc.Children with Items)
+  // into the matching rcc column by ColumnBinder name. The rcc header nodes do not
+  // carry Items directly on the wire — they live on the inner sec/bc template child.
+  // Reference: live BC28 wire capture (cuegroup-rolecenter-2026-04-28.json) —
+  // rc.Children sec nodes carry Items + ColumnBinder matching the rcc ColumnBinder.
+  if (children.length > 0 && columns.length > 0) {
+    // Build a map: binderName -> options from children that have Items.
+    const optionsByBinder = new Map<string, ReadonlyArray<{ readonly text: string; readonly value: string }>>();
+    for (const child of children) {
+      if (!('columnBinder' in child) || !child.columnBinder?.name) continue;
+      if (!child.properties.options) continue;
+      optionsByBinder.set(child.columnBinder.name, child.properties.options);
+    }
+    if (optionsByBinder.size > 0) {
+      for (let k = 0; k < columns.length; k++) {
+        const col = columns[k]!;
+        const binderName = col.columnBinder?.name;
+        if (!binderName) continue;
+        const opts = optionsByBinder.get(binderName);
+        if (!opts) continue;
+        // Merge options into the rcc column properties (immutable update).
+        columns[k] = {
+          ...col,
+          properties: { ...col.properties, options: opts },
+        };
+      }
+    }
+  }
+
   return {
     type: 'rc',
     controlPath,
     properties: readProperties(obj),
     columns,
-    children: buildChildren(obj.Children, controlPath, true),
+    children,
   };
 }
 
@@ -260,6 +293,18 @@ function readProperties(obj: Record<string, unknown>): NodeProperties {
   const expr = obj.ExpressionProperties;
   if (expr && typeof expr === 'object' && 'Visible' in (expr as Record<string, unknown>)) {
     p.hasVisibleExpression = true;
+  }
+  // Option/enum items — present on sec (option enum) and bc (boolean) controls.
+  // Reference: live BC28 wire, Item Card page 30 "Type" field; decompiled
+  // LogicalControlSerializer.WriteItems for the Items/CurrentIndex property names.
+  if (Array.isArray(obj.Items)) {
+    p.options = (obj.Items as Array<Record<string, unknown>>).map(item => ({
+      text: String(item.Text ?? ''),
+      value: String(item.Value ?? ''),
+    }));
+  }
+  if (typeof obj.CurrentIndex === 'number') {
+    p.optionIndex = obj.CurrentIndex;
   }
   return p as NodeProperties;
 }

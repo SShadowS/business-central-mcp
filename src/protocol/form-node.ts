@@ -44,6 +44,21 @@ export interface NodeProperties {
    * Reference: `LogicalControlSerializer.WriteExpressionProperty` (decompiled)
    */
   readonly hasVisibleExpression?: boolean;
+  /**
+   * Option/enum choices from the wire `Items` array. Present on `sec`
+   * (option-enum) and `bc` (boolean) controls. Each entry is the human-readable
+   * `text` label and the raw `value` string BC uses for SaveValue.
+   *
+   * Reference: live BC28 wire — Item Card page 30 "Type" field;
+   * decompiled `LogicalControlSerializer.WriteItems`.
+   */
+  readonly options?: ReadonlyArray<{ readonly text: string; readonly value: string }>;
+  /**
+   * Zero-based index into `options` for the currently selected choice.
+   * -1 means no selection / blank. Falls back to matching `stringValue`
+   * against option texts when absent (PropertyChanged echoes may omit it).
+   */
+  readonly optionIndex?: number;
 }
 
 interface NodeBase<T extends string> {

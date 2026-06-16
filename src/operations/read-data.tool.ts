@@ -8,6 +8,8 @@ export function createToolDefinition(ops: Operations): ToolDefinition {
 
 Pass section: "header" (default) to refresh the page's header. Pass section: "lines" to refresh document line items. Pass a factbox sectionId (e.g. "factbox:Customer Statistics", as listed in the bc_open_page response) to refresh the FactBox card.
 
+Option/enum and boolean fields in card-shape sections carry "options" (allowed choices as [{text, value}]) and "selectedOption" (current choice). When writing an enum field with bc_write_data, use the "value" string from "options" -- do NOT guess values. Example: after opening Item Card, the "Type" field returns options=[{text:"Inventory",value:"0"},{text:"Service",value:"1"},{text:"Non-Inventory",value:"2"}]; to change to Service, write value "1".
+
 Filtering applies to list-shape sections only. Pass an array of { column, value }; values use BC filter syntax (exact "10000", ranges "10000..20000", wildcards "*consulting*", expressions ">1000"). Multiple filters combine with AND.
 
 Column selection: pass columns: ["No.", "Name"] to limit the cells in each row, or the fields[] entries on a card section.
