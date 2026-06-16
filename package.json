@@ -1,6 +1,6 @@
 {
   "name": "business-central-mcp",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "MCP server for Microsoft Dynamics 365 Business Central -- speaks BC's native WebSocket protocol directly",
   "main": "dist/server.js",
   "type": "module",
