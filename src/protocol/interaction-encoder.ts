@@ -168,6 +168,8 @@ export class InteractionEncoder {
         return { interactionName: 'ScrollRepeater', formId: interaction.formId, controlPath: interaction.controlPath, namedParameters: JSON.stringify({ delta: interaction.delta }), callbackId };
       case 'SessionAction':
         return { interactionName: interaction.actionName, namedParameters: JSON.stringify(interaction.namedParameters ?? {}), controlPath: interaction.controlPath ?? 'server:c[0]', callbackId };
+      case 'SortColumn':
+        return { interactionName: 'InvokeAction', formId: interaction.formId, controlPath: interaction.controlPath, namedParameters: JSON.stringify({ systemAction: 470, key: null, repeaterControlTarget: null, SortOrder: interaction.sortOrder }), callbackId };
     }
   }
 }

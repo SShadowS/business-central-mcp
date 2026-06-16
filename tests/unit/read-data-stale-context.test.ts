@@ -86,6 +86,7 @@ describe('ReadDataOperation post-mutation context', () => {
     const op = new ReadDataOperation(
       dataService as never,
       filterService as never,
+      { applySort: async () => ok([]) } as never,
       repo,
     );
 
@@ -123,6 +124,7 @@ describe('ReadDataOperation post-mutation context', () => {
     const op = new ReadDataOperation(
       dataService as never,
       filterService as never,
+      { applySort: async () => ok([]) } as never,
       repo,
     );
 

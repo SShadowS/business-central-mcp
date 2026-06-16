@@ -224,4 +224,49 @@ describe('InteractionEncoder', () => {
       expect(navCtxOf(invoke).applicationId).toBe('NAV');
     });
   });
+
+  it('encodes SortColumn as InvokeAction with systemAction=470 and SortOrder', () => {
+    const interaction = {
+      type: 'SortColumn' as const,
+      formId: 'form1',
+      controlPath: 'server:c[3]/co[2]',
+      sortOrder: 1 as const,
+    };
+    const result = encoder.encode(interaction, {
+      callbackId: 'cb-sort',
+      sequenceNo: 'spa1#7',
+      lastClientAckSequenceNumber: 6,
+      openFormIds: new Set(['form1']),
+      session: testSession,
+    });
+    const params = result.params[0] as Record<string, unknown>;
+    const inv = (params.interactionsToInvoke as Record<string, unknown>[])[0]!;
+    expect(inv.interactionName).toBe('InvokeAction');
+    expect(inv.formId).toBe('form1');
+    expect(inv.controlPath).toBe('server:c[3]/co[2]');
+    const namedParams = JSON.parse(inv.namedParameters as string);
+    expect(namedParams.systemAction).toBe(470);
+    expect(namedParams.SortOrder).toBe(1);
+  });
+
+  it('encodes SortColumn descending with SortOrder=2', () => {
+    const interaction = {
+      type: 'SortColumn' as const,
+      formId: 'form1',
+      controlPath: 'server:c[3]/co[2]',
+      sortOrder: 2 as const,
+    };
+    const result = encoder.encode(interaction, {
+      callbackId: 'cb-sort-desc',
+      sequenceNo: 'spa1#8',
+      lastClientAckSequenceNumber: 7,
+      openFormIds: new Set(['form1']),
+      session: testSession,
+    });
+    const params = result.params[0] as Record<string, unknown>;
+    const inv = (params.interactionsToInvoke as Record<string, unknown>[])[0]!;
+    const namedParams = JSON.parse(inv.namedParameters as string);
+    expect(namedParams.systemAction).toBe(470);
+    expect(namedParams.SortOrder).toBe(2);
+  });
 });

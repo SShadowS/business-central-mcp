@@ -72,6 +72,13 @@ function makeFilterService(overrides?: Record<string, unknown>) {
   } as any;
 }
 
+function makeSortService(overrides?: Record<string, unknown>) {
+  return {
+    applySort: vi.fn(async () => ok(undefined as any)),
+    ...overrides,
+  } as any;
+}
+
 function makeDataService(overrides?: Record<string, unknown>) {
   return {
     readRows: vi.fn(() => ok([] as RepeaterRow[])),
@@ -88,7 +95,7 @@ describe('ReadDataOperation — filter application (uncovered)', () => {
     makeListPageContext(repo, 'pc:1', 'F1');
     const filterService = makeFilterService();
     const dataService = makeDataService();
-    const op = new ReadDataOperation(dataService, filterService, repo);
+    const op = new ReadDataOperation(dataService, filterService, makeSortService(), repo);
 
     await op.execute({
       pageContextId: 'pc:1',
@@ -105,7 +112,7 @@ describe('ReadDataOperation — filter application (uncovered)', () => {
       applyFilters: vi.fn(async () => err(new ProtocolError('filter column not found'))),
     });
     const dataService = makeDataService();
-    const op = new ReadDataOperation(dataService, filterService, repo);
+    const op = new ReadDataOperation(dataService, filterService, makeSortService(), repo);
 
     const result = await op.execute({
       pageContextId: 'pc:1',
@@ -123,7 +130,7 @@ describe('ReadDataOperation — filter application (uncovered)', () => {
     makeListPageContext(repo, 'pc:1', 'F1');
     const filterService = makeFilterService();
     const dataService = makeDataService();
-    const op = new ReadDataOperation(dataService, filterService, repo);
+    const op = new ReadDataOperation(dataService, filterService, makeSortService(), repo);
 
     await op.execute({ pageContextId: 'pc:1', filters: [] });
 
@@ -135,7 +142,7 @@ describe('ReadDataOperation — filter application (uncovered)', () => {
     makeListPageContext(repo, 'pc:1', 'F1');
     const filterService = makeFilterService();
     const dataService = makeDataService();
-    const op = new ReadDataOperation(dataService, filterService, repo);
+    const op = new ReadDataOperation(dataService, filterService, makeSortService(), repo);
 
     await op.execute({ pageContextId: 'pc:1' });
 
@@ -149,7 +156,7 @@ describe('ReadDataOperation — section resolution (uncovered)', () => {
     makeCardPageContext(repo, 'pc:1', 'F1');
     const filterService = makeFilterService();
     const dataService = makeDataService();
-    const op = new ReadDataOperation(dataService, filterService, repo);
+    const op = new ReadDataOperation(dataService, filterService, makeSortService(), repo);
 
     const result = await op.execute({
       pageContextId: 'pc:1',
@@ -167,7 +174,7 @@ describe('ReadDataOperation — section resolution (uncovered)', () => {
     makeCardPageContext(repo, 'pc:1', 'F1');
     const filterService = makeFilterService();
     const dataService = makeDataService();
-    const op = new ReadDataOperation(dataService, filterService, repo);
+    const op = new ReadDataOperation(dataService, filterService, makeSortService(), repo);
 
     const result = await op.execute({
       pageContextId: 'pc:1',
@@ -200,7 +207,7 @@ describe('ReadDataOperation — tab filtering (uncovered)', () => {
         },
       ])),
     });
-    const op = new ReadDataOperation(dataService, filterService, repo);
+    const op = new ReadDataOperation(dataService, filterService, makeSortService(), repo);
 
     const result = await op.execute({
       pageContextId: 'pc:1',
@@ -224,7 +231,7 @@ describe('ReadDataOperation — tab filtering (uncovered)', () => {
         { caption: 'General', fields: [{ caption: 'Name' }] },
       ])),
     });
-    const op = new ReadDataOperation(dataService, filterService, repo);
+    const op = new ReadDataOperation(dataService, filterService, makeSortService(), repo);
 
     const result = await op.execute({
       pageContextId: 'pc:1',
@@ -248,7 +255,7 @@ describe('ReadDataOperation — tab filtering (uncovered)', () => {
         { caption: 'General', fields: [{ caption: 'Name' }] },
       ])),
     });
-    const op = new ReadDataOperation(dataService, filterService, repo);
+    const op = new ReadDataOperation(dataService, filterService, makeSortService(), repo);
 
     const result = await op.execute({
       pageContextId: 'pc:1',
@@ -269,7 +276,7 @@ describe('ReadDataOperation — columns filtering (uncovered)', () => {
     makeCardPageContext(repo, 'pc:1', 'F1');
     const filterService = makeFilterService();
     const dataService = makeDataService();
-    const op = new ReadDataOperation(dataService, filterService, repo);
+    const op = new ReadDataOperation(dataService, filterService, makeSortService(), repo);
 
     const result = await op.execute({
       pageContextId: 'pc:1',
@@ -298,7 +305,7 @@ describe('ReadDataOperation — columns filtering (uncovered)', () => {
     const dataService = makeDataService({
       readRows: vi.fn(() => ok([{ bookmark: 'bk1', cells: { No: '10000', Name: 'Contoso' } }])),
     });
-    const op = new ReadDataOperation(dataService, filterService, repo);
+    const op = new ReadDataOperation(dataService, filterService, makeSortService(), repo);
 
     const result = await op.execute({
       pageContextId: 'pc:1',
@@ -326,7 +333,7 @@ describe('ReadDataOperation — stateVersion output (uncovered)', () => {
 
     const filterService = makeFilterService();
     const dataService = makeDataService();
-    const op = new ReadDataOperation(dataService, filterService, repo);
+    const op = new ReadDataOperation(dataService, filterService, makeSortService(), repo);
 
     const result = await op.execute({ pageContextId: 'pc:1' });
 
@@ -341,7 +348,7 @@ describe('ReadDataOperation — stateVersion output (uncovered)', () => {
 
     const filterService = makeFilterService();
     const dataService = makeDataService();
-    const op = new ReadDataOperation(dataService, filterService, repo);
+    const op = new ReadDataOperation(dataService, filterService, makeSortService(), repo);
 
     const result1 = await op.execute({ pageContextId: 'pc:1' });
     expect(result1.ok).toBe(true);
@@ -377,7 +384,7 @@ describe('ReadDataOperation — range with scroll boundary (uncovered)', () => {
       }),
     });
     const filterService = makeFilterService();
-    const op = new ReadDataOperation(dataService, filterService, repo);
+    const op = new ReadDataOperation(dataService, filterService, makeSortService(), repo);
 
     // Request offset=5, limit=5 — but BC won't give more rows
     await op.execute({
@@ -396,7 +403,7 @@ describe('ReadDataOperation — clearFilters wiring', () => {
     makeListPageContext(repo, 'pc:1', 'F1');
     const filterService = makeFilterService();
     const dataService = makeDataService();
-    const op = new ReadDataOperation(dataService, filterService, repo);
+    const op = new ReadDataOperation(dataService, filterService, makeSortService(), repo);
 
     const result = await op.execute({
       pageContextId: 'pc:1',
@@ -413,7 +420,7 @@ describe('ReadDataOperation — clearFilters wiring', () => {
     makeListPageContext(repo, 'pc:1', 'F1');
     const filterService = makeFilterService();
     const dataService = makeDataService();
-    const op = new ReadDataOperation(dataService, filterService, repo);
+    const op = new ReadDataOperation(dataService, filterService, makeSortService(), repo);
 
     await op.execute({
       pageContextId: 'pc:1',
@@ -433,7 +440,7 @@ describe('ReadDataOperation — clearFilters wiring', () => {
       applyFilters: vi.fn(async () => { callOrder.push('apply'); return ok(undefined as any); }),
     });
     const dataService = makeDataService();
-    const op = new ReadDataOperation(dataService, filterService, repo);
+    const op = new ReadDataOperation(dataService, filterService, makeSortService(), repo);
 
     await op.execute({
       pageContextId: 'pc:1',
@@ -449,7 +456,7 @@ describe('ReadDataOperation — clearFilters wiring', () => {
     makeListPageContext(repo, 'pc:1', 'F1');
     const filterService = makeFilterService();
     const dataService = makeDataService();
-    const op = new ReadDataOperation(dataService, filterService, repo);
+    const op = new ReadDataOperation(dataService, filterService, makeSortService(), repo);
 
     await op.execute({
       pageContextId: 'pc:1',
@@ -464,7 +471,7 @@ describe('ReadDataOperation — clearFilters wiring', () => {
     makeListPageContext(repo, 'pc:1', 'F1');
     const filterService = makeFilterService();
     const dataService = makeDataService();
-    const op = new ReadDataOperation(dataService, filterService, repo);
+    const op = new ReadDataOperation(dataService, filterService, makeSortService(), repo);
 
     await op.execute({ pageContextId: 'pc:1' });
 
@@ -478,7 +485,7 @@ describe('ReadDataOperation — clearFilters wiring', () => {
       clearFilters: vi.fn(async () => err(new ProtocolError('cannot clear filters: no repeater'))),
     });
     const dataService = makeDataService();
-    const op = new ReadDataOperation(dataService, filterService, repo);
+    const op = new ReadDataOperation(dataService, filterService, makeSortService(), repo);
 
     const result = await op.execute({
       pageContextId: 'pc:1',
@@ -492,5 +499,91 @@ describe('ReadDataOperation — clearFilters wiring', () => {
     }
     // applyFilters must NOT be called after a clearFilters error
     expect(filterService.applyFilters).not.toHaveBeenCalled();
+  });
+});
+
+describe('ReadDataOperation — sort wiring', () => {
+  it('calls sortService.applySort when sort is provided', async () => {
+    const repo = new PageContextRepository();
+    makeListPageContext(repo, 'pc:1', 'F1');
+    const filterService = makeFilterService();
+    const dataService = makeDataService();
+    const sortService = makeSortService();
+    const op = new ReadDataOperation(dataService, filterService, sortService, repo);
+
+    await op.execute({
+      pageContextId: 'pc:1',
+      sort: { column: 'Name', direction: 'asc' },
+    });
+
+    expect(sortService.applySort).toHaveBeenCalledWith('pc:1', 'Name', 'asc', undefined);
+  });
+
+  it('passes the section to sortService.applySort', async () => {
+    const repo = new PageContextRepository();
+    makeListPageContext(repo, 'pc:1', 'F1');
+    const sortService = makeSortService();
+    const op = new ReadDataOperation(makeDataService(), makeFilterService(), sortService, repo);
+
+    await op.execute({
+      pageContextId: 'pc:1',
+      sort: { column: 'Name', direction: 'desc' },
+      section: 'lines',
+    });
+
+    expect(sortService.applySort).toHaveBeenCalledWith('pc:1', 'Name', 'desc', 'lines');
+  });
+
+  it('does NOT call sortService.applySort when sort is omitted', async () => {
+    const repo = new PageContextRepository();
+    makeListPageContext(repo, 'pc:1', 'F1');
+    const sortService = makeSortService();
+    const op = new ReadDataOperation(makeDataService(), makeFilterService(), sortService, repo);
+
+    await op.execute({ pageContextId: 'pc:1' });
+
+    expect(sortService.applySort).not.toHaveBeenCalled();
+  });
+
+  it('propagates sortService error', async () => {
+    const repo = new PageContextRepository();
+    makeListPageContext(repo, 'pc:1', 'F1');
+    const sortService = makeSortService({
+      applySort: vi.fn(async () => err(new ProtocolError('sort column not found'))),
+    });
+    const op = new ReadDataOperation(makeDataService(), makeFilterService(), sortService, repo);
+
+    const result = await op.execute({
+      pageContextId: 'pc:1',
+      sort: { column: 'NoSuchColumn', direction: 'asc' },
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.message).toContain('sort column not found');
+    }
+  });
+
+  it('calls sort AFTER filters (order: clear -> filter -> sort)', async () => {
+    const repo = new PageContextRepository();
+    makeListPageContext(repo, 'pc:1', 'F1');
+    const callOrder: string[] = [];
+    const filterService = makeFilterService({
+      clearFilters: vi.fn(async () => { callOrder.push('clear'); return ok(undefined as any); }),
+      applyFilters: vi.fn(async () => { callOrder.push('filter'); return ok(undefined as any); }),
+    });
+    const sortService = makeSortService({
+      applySort: vi.fn(async () => { callOrder.push('sort'); return ok(undefined as any); }),
+    });
+    const op = new ReadDataOperation(makeDataService(), filterService, sortService, repo);
+
+    await op.execute({
+      pageContextId: 'pc:1',
+      clearFilters: true,
+      filters: [{ column: 'Name', value: 'Contoso' }],
+      sort: { column: 'Name', direction: 'asc' },
+    });
+
+    expect(callOrder).toEqual(['clear', 'filter', 'sort']);
   });
 });

@@ -2,6 +2,7 @@ import { isOk, isErr, ok, err, type Result } from '../core/result.js';
 import { ProtocolError } from '../core/errors.js';
 import type { DataService } from '../services/data-service.js';
 import type { FilterService } from '../services/filter-service.js';
+import type { SortService } from '../services/sort-service.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import { buildSection, type Section } from '../protocol/section-dto.js';
 
@@ -11,6 +12,7 @@ export interface ReadDataInput {
   tab?: string;
   clearFilters?: boolean;
   filters?: Array<{ column: string; value: string }>;
+  sort?: { column: string; direction: 'asc' | 'desc' };
   columns?: string[];
   range?: { offset: number; limit: number };
 }
@@ -30,6 +32,7 @@ export class ReadDataOperation {
   constructor(
     private readonly dataService: DataService,
     private readonly filterService: FilterService,
+    private readonly sortService: SortService,
     private readonly repo: PageContextRepository,
   ) {}
 
@@ -49,6 +52,15 @@ export class ReadDataOperation {
     if (input.filters && input.filters.length > 0) {
       const filterResult = await this.filterService.applyFilters(input.pageContextId, input.filters, input.section);
       if (isErr(filterResult)) return filterResult;
+    }
+
+    // Sort is applied after clearFilters+filters and before scroll-range
+    // materialization. A sort resets the BC viewport to the top of the sorted
+    // result, so any prior scroll offset is discarded (which is correct: the
+    // caller's range is applied to the freshly sorted result set).
+    if (input.sort) {
+      const sortResult = await this.sortService.applySort(input.pageContextId, input.sort.column, input.sort.direction, input.section);
+      if (isErr(sortResult)) return sortResult;
     }
 
     // For repeater-bearing sections, materialize rows up to the requested range

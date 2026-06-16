@@ -14,6 +14,7 @@ import { PageService } from './services/page-service.js';
 import { DataService } from './services/data-service.js';
 import { ActionService } from './services/action-service.js';
 import { FilterService } from './services/filter-service.js';
+import { SortService } from './services/sort-service.js';
 import { NavigationService } from './services/navigation-service.js';
 import { SearchService } from './services/search-service.js';
 import { OpenPageOperation } from './operations/open-page.js';
@@ -70,12 +71,13 @@ async function main() {
     const dataService = new DataService(s, pageContextRepo, logger);
     const actionService = new ActionService(s, pageContextRepo, logger);
     const filterService = new FilterService(s, pageContextRepo, logger);
+    const sortService = new SortService(s, pageContextRepo, logger);
     const navigationService = new NavigationService(s, pageContextRepo, logger);
     const searchService = new SearchService(s, logger);
 
     const operations: Operations = {
       openPage: new OpenPageOperation(pageService),
-      readData: new ReadDataOperation(dataService, filterService, pageContextRepo),
+      readData: new ReadDataOperation(dataService, filterService, sortService, pageContextRepo),
       writeData: new WriteDataOperation(dataService, pageContextRepo),
       executeAction: new ExecuteActionOperation(actionService, pageContextRepo),
       closePage: new ClosePageOperation(pageService),

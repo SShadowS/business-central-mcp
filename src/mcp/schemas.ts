@@ -21,6 +21,10 @@ export const ReadDataSchema = z.object({
     column: z.string().describe('Column caption name to filter on (e.g., "City", "No.").'),
     value: z.string().describe('Filter value. Supports exact match ("London"), ranges ("10000..20000"), wildcards ("*consulting*"), expressions (">1000").'),
   })).optional().describe('Server-side filters to apply before reading. Multiple filters combine with AND logic.'),
+  sort: z.object({
+    column: z.string().describe('Column caption name to sort by (e.g., "Name", "No."). Must match a repeater column on the section.'),
+    direction: z.enum(['asc', 'desc']).describe('"asc" for ascending (A-Z, 0-9), "desc" for descending (Z-A, 9-0).'),
+  }).optional().describe('Sort the repeater by a column before reading. Applied after filters, resets BC viewport to top of sorted result. Applies to list-shape sections only. Non-sortable columns (FlowFields, BLOBs) may be rejected by BC.'),
   columns: z.array(z.string()).optional().describe('Column caption names to include in results. Omit to return all columns. Reduces output size.'),
   range: z.object({
     offset: z.number().describe('0-based starting row index.'),

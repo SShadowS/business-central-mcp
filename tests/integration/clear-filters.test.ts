@@ -26,6 +26,7 @@ import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
 import { PageService } from '../../src/services/page-service.js';
 import { DataService } from '../../src/services/data-service.js';
 import { FilterService } from '../../src/services/filter-service.js';
+import { SortService } from '../../src/services/sort-service.js';
 import { ReadDataOperation } from '../../src/operations/read-data.js';
 import { isOk, unwrap } from '../../src/core/result.js';
 import { integrationPool, type PooledLease } from './helpers/session-pool.js';
@@ -51,7 +52,8 @@ describe.sequential('clearFilters integration — bc_read_data Filter Reset roun
     pageService = new PageService(session, repo, logger);
     dataService = new DataService(session, repo, logger);
     filterService = new FilterService(session, repo, logger);
-    readData = new ReadDataOperation(dataService, filterService, repo);
+    const sortService = new SortService(session, repo, logger);
+    readData = new ReadDataOperation(dataService, filterService, sortService, repo);
   }, 60000);
 
   afterAll(async () => {

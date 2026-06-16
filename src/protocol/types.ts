@@ -176,7 +176,8 @@ export type BCInteraction =
   | FilterInteraction
   | SetCurrentRowInteraction
   | ScrollRepeaterInteraction
-  | SessionActionInteraction;
+  | SessionActionInteraction
+  | SortColumnInteraction;
 
 interface BaseInteraction {
   readonly formId?: string;
@@ -245,6 +246,28 @@ export interface SessionActionInteraction extends BaseInteraction {
   readonly namedParameters?: Record<string, unknown>;
 }
 
+/**
+ * Sort a list-page repeater by a column header (rcc node).
+ * BC processes this as InvokeAction with SystemAction=SortColumn (470).
+ * The controlPath MUST target the rcc (RepeaterColumnHeader) node for the
+ * column to sort by -- NOT the repeater or a data cell.
+ *
+ * SortOrder values (from decompiled Microsoft.Dynamics.Framework.UI.SortOrder):
+ *   None=0, Ascending=1, Descending=2
+ *
+ * Reference: SortColumnAction.cs, ClientSortOrder.cs (decompiled BC28).
+ * Wire probe: Customer List page 22, Name column rcc server:c[3]/co[2],
+ * namedParameters: { SortOrder: 1 } — confirmed reorders rows alphabetically.
+ */
+export interface SortColumnInteraction extends BaseInteraction {
+  readonly type: 'SortColumn';
+  readonly formId: string;
+  /** controlPath of the rcc (RepeaterColumnHeader) node for the target column. */
+  readonly controlPath: string;
+  /** 1 = Ascending, 2 = Descending (from SortOrder enum). */
+  readonly sortOrder: 1 | 2;
+}
+
 // -- Constants --
 
 export const SystemAction = {
@@ -260,6 +283,8 @@ export const SystemAction = {
   // cancel-shaped wizard nav role.
   CloseOk: 350,
   Yes: 380, No: 390,
+  /** Sort a list by a repeater column header (rcc). Reference: SortColumnAction.cs (decompiled BC28). */
+  SortColumn: 470,
 } as const;
 
 export const FilterOperation = {

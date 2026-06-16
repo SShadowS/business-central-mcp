@@ -14,6 +14,8 @@ Filtering applies to list-shape sections only. Pass an array of { column, value 
 
 clearFilters: true resets agent-applied filters and restores the page to its default/native filtered state before reading. Note: page-defined SourceTableView filters (set in AL code) remain active -- this does NOT guarantee a completely empty filter set. Use before applying new filters to avoid stacking. Applies to list-shape sections only. Runs before any filters[] in the same call.
 
+Sorting: pass sort: { column, direction } to sort the repeater before reading. Applied server-side after any filters. Resets BC viewport to top of sorted result. "asc" = A-Z / 0-9, "desc" = Z-A / 9-0. The column must be a visible repeater column on the section. Non-sortable columns (FlowFields, BLOBs) may be rejected by BC with an error. Applies to list-shape sections only.
+
 Column selection: pass columns: ["No.", "Name"] to limit the cells in each row, or the fields[] entries on a card section.
 
 Range slicing: { offset, limit } returns rows[offset..offset+limit] for list sections. Use with totalRowCount for pagination.
@@ -21,6 +23,9 @@ Range slicing: { offset, limit } returns rows[offset..offset+limit] for list sec
 Examples:
 - Refresh header: { "pageContextId": "abc" }
 - Filter customer list: { "pageContextId": "abc", "filters": [{ "column": "City", "value": "London" }] }
+- Sort by Name ascending: { "pageContextId": "abc", "sort": { "column": "Name", "direction": "asc" } }
+- Sort by Name descending: { "pageContextId": "abc", "sort": { "column": "Name", "direction": "desc" } }
+- Filter and sort: { "pageContextId": "abc", "filters": [{ "column": "City", "value": "London" }], "sort": { "column": "Name", "direction": "asc" } }
 - Clear filters and re-read: { "pageContextId": "abc", "clearFilters": true }
 - Clear and re-filter: { "pageContextId": "abc", "clearFilters": true, "filters": [{ "column": "City", "value": "London" }] }
 - Read sales order lines: { "pageContextId": "abc", "section": "lines" }

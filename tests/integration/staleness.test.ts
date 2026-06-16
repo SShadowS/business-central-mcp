@@ -21,6 +21,7 @@ import { PageService } from '../../src/services/page-service.js';
 import { DataService } from '../../src/services/data-service.js';
 import { ActionService } from '../../src/services/action-service.js';
 import { FilterService } from '../../src/services/filter-service.js';
+import { SortService } from '../../src/services/sort-service.js';
 import { OpenPageOperation } from '../../src/operations/open-page.js';
 import { ReadDataOperation } from '../../src/operations/read-data.js';
 import { WriteDataOperation } from '../../src/operations/write-data.js';
@@ -54,8 +55,9 @@ describe('stateVersion staleness guard (integration, Cronus28)', () => {
     actionService = new ActionService(session, repo, logger);
 
     const filterService = new FilterService(session, repo, logger);
+    const sortService = new SortService(session, repo, logger);
     openPageOp = new OpenPageOperation(pageService);
-    readDataOp = new ReadDataOperation(dataService, filterService, repo);
+    readDataOp = new ReadDataOperation(dataService, filterService, sortService, repo);
     writeDataOp = new WriteDataOperation(dataService, repo);
     executeActionOp = new ExecuteActionOperation(actionService, repo);
   }, 60_000);
