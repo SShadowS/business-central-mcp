@@ -13,6 +13,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [1.1.0] - 2026-06-16
+
+### Added
+
+- **Report output capture.** `bc_run_report` with `format: "pdf"` returns the
+  rendered report bytes (base64) plus `contentType` and `fileName`, and can
+  save to disk via the `BC_REPORT_DIR` env var. Verified end-to-end against
+  live BC28 (Trial Balance report). Other formats return a clear error.
+- **Page staleness guard.** `bc_open_page` and `bc_read_data` now return a
+  `stateVersion`; `bc_write_data` and `bc_execute_action` accept an optional
+  `expectedStateVersion` and reject drifted state with a `STALE_CONTEXT`
+  error before sending anything to BC. Opt-in — omitting it preserves prior
+  behavior.
+- **Actionable error taxonomy.** BC field-validation and business errors now
+  surface as typed MCP errors (`VALIDATION_ERROR`, `BUSINESS_ERROR`,
+  `STALE_CONTEXT`, and others) with next-step hints, instead of raw protocol
+  strings or silent successes. The server now decodes BC `MessageToShow`
+  events and `PropertyChanged.ValidationResults` (previously dropped).
+- **`BC_APPLICATION_ID` env var** (default `FIN`; set `NAV` for some on-prem
+  BC27 containers that reject `FIN` with `NavCancelCredentialPromptException`).
+- **`BC_REPORT_DIR` env var** for report output capture.
+
+### Changed
+
+- The WebSocket client now dispatches inbound JSON-RPC requests (enables the
+  report-download flow; previously inbound requests were dropped).
+- Internal: decomposed four large modules — `tool-registry` (definitions
+  colocated with operations), `page-context-repo` (CQRS: Store / EventRouter /
+  FormStateReducer), `page-service` (factbox/role-center hydration strategies),
+  and `bc-session` (extracted pure helpers). Behavior-preserving; no public
+  API change.
+- Internal: integration test suite reworked for deterministic, back-to-back
+  runs (user-rotation session pool, single-process serial). Substantial new
+  unit coverage across operations, session, protocol, MCP handler, and the
+  REST API layer.
+
+### Fixed
+
+- Dead sessions now fast-fail queued invokes immediately instead of each
+  invoke waiting a full 30-second timeout (drain-on-death), eliminating
+  cascade hangs after a session-killing protocol error.
+- Idempotent session teardown with guaranteed server-side reap; `bc_close_page`
+  always frees its page context even when the close errors.
+
 ## [1.0.2] - 2026-05-01
 
 Install ergonomics across the three primary MCP hosts. Documentation, build
