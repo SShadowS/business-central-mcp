@@ -1,5 +1,5 @@
 import { err, ok, isOk, type Result } from '../core/result.js';
-import { ProtocolError, type BCError } from '../core/errors.js';
+import { ProtocolError, StaleContextError, type BCError } from '../core/errors.js';
 import { classifyBusinessError } from '../protocol/error-classifier.js';
 import type { ActionService, ActionResult } from '../services/action-service.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
@@ -16,6 +16,13 @@ export interface ExecuteActionInput {
   section?: string;
   rowIndex?: number;
   bookmark?: string;
+  /**
+   * Opt-in staleness guard. When provided, the operation checks the page
+   * context's current generation before sending anything to BC. If the
+   * generation differs, the call is rejected immediately with a STALE_CONTEXT
+   * error. Obtain the value from `stateVersion` in bc_open_page / bc_read_data.
+   */
+  expectedStateVersion?: number;
 }
 
 export interface ExecuteActionOutput {
@@ -35,6 +42,13 @@ export class ExecuteActionOperation {
   ) {}
 
   async execute(input: ExecuteActionInput): Promise<Result<ExecuteActionOutput, BCError>> {
+    if (input.expectedStateVersion !== undefined) {
+      const ctx = this.repo.get(input.pageContextId);
+      if (ctx && ctx.generation !== input.expectedStateVersion) {
+        return err(new StaleContextError(input.expectedStateVersion, ctx.generation, { pageContextId: input.pageContextId }));
+      }
+    }
+
     if (input.cue) {
       if (!input.section) {
         return err(new ProtocolError('cue requires a section (e.g. "subpage:Activities")'));

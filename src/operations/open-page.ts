@@ -22,6 +22,13 @@ export interface OpenPageOutput {
    * factboxes, requestPage. See `Section` in protocol/section-dto.ts.
    */
   sections: Section[];
+  /**
+   * Generation token for the page's current state. Increments each time an
+   * event batch mutates the page (form tree or rows changed). Pass as
+   * `expectedStateVersion` to bc_write_data / bc_execute_action to detect
+   * and reject stale-state writes.
+   */
+  stateVersion: number;
 }
 
 export class OpenPageOperation {
@@ -58,6 +65,7 @@ export class OpenPageOperation {
       caption: ctx.caption || ctx.rootFormId,
       isModal: ctx.isModal,
       sections: buildAllSections(ctx),
+      stateVersion: ctx.generation,
     });
   }
 }

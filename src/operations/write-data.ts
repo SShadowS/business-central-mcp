@@ -1,5 +1,5 @@
 import { isOk, ok, err, type Result } from '../core/result.js';
-import type { BCError } from '../core/errors.js';
+import { StaleContextError, type BCError } from '../core/errors.js';
 import type { DataService, FieldWriteResult } from '../services/data-service.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import { detectChangedSections, detectDialogs, extractValidationErrors } from '../protocol/mutation-result.js';
@@ -12,6 +12,15 @@ export interface WriteDataInput {
   section?: string;
   rowIndex?: number;
   bookmark?: string;
+  /**
+   * Opt-in staleness guard. When provided, the operation checks the page
+   * context's current generation before sending anything to BC. If the
+   * generation differs (the page was mutated by async events or a sibling
+   * operation since the last read), the call is rejected immediately with a
+   * STALE_CONTEXT error. Obtain the value from `stateVersion` in the
+   * bc_open_page / bc_read_data response.
+   */
+  expectedStateVersion?: number;
 }
 
 export interface WriteDataOutput {
@@ -37,6 +46,13 @@ export class WriteDataOperation {
   ) {}
 
   async execute(input: WriteDataInput): Promise<Result<WriteDataOutput, BCError>> {
+    if (input.expectedStateVersion !== undefined) {
+      const ctx = this.repo.get(input.pageContextId);
+      if (ctx && ctx.generation !== input.expectedStateVersion) {
+        return err(new StaleContextError(input.expectedStateVersion, ctx.generation, { pageContextId: input.pageContextId }));
+      }
+    }
+
     const result = await this.dataService.writeFields(input.pageContextId, input.fields, {
       sectionId: input.section,
       rowIndex: input.rowIndex,

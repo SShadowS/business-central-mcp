@@ -110,6 +110,29 @@ export class BusinessError extends BCError {
   }
 }
 
+/**
+ * Thrown (as an Err result) when a mutating operation is given an
+ * `expectedStateVersion` that does not match the page context's current
+ * generation. This means the page state drifted (async Message events or a
+ * sibling operation mutated the form) since the LLM last read it.
+ *
+ * The caller should re-read with bc_read_data to obtain the current
+ * stateVersion, then retry.
+ */
+export class StaleContextError extends BCError {
+  public readonly expectedGeneration: number;
+  public readonly actualGeneration: number;
+  constructor(expectedGeneration: number, actualGeneration: number, context?: Record<string, unknown>) {
+    super(
+      `Page state changed since last read: expectedStateVersion=${expectedGeneration}, actual=${actualGeneration}. Re-read with bc_read_data to get the current stateVersion, then retry.`,
+      'STALE_CONTEXT',
+      context,
+    );
+    this.expectedGeneration = expectedGeneration;
+    this.actualGeneration = actualGeneration;
+  }
+}
+
 const ERROR_HINTS: Record<string, string> = {
   VALIDATION_ERROR: 'Correct the field value(s) and retry with bc_write_data.',
   BUSINESS_ERROR: 'BC rejected the operation. Read the message, adjust inputs, and retry.',
@@ -117,6 +140,7 @@ const ERROR_HINTS: Record<string, string> = {
   MODAL_RECONCILE_ERROR: 'A stuck modal was cleared by resetting the session. Re-open the page and retry.',
   TIMEOUT_ERROR: 'BC did not respond in time. Retry; if it persists the operation may be too heavy.',
   CARDPART_STUB: 'This page is a CardPart stub when opened standalone. See the hostHint in this error and open that host page instead.',
+  STALE_CONTEXT: 'The page changed since you last read it (stateVersion mismatch). Re-read with bc_read_data to get the current stateVersion, then retry.',
 };
 
 /**

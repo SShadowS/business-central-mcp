@@ -33,6 +33,7 @@ export const WriteDataSchema = z.object({
   section: z.string().optional().describe('Section to write to (e.g., "lines" for document line items). Omit for header fields.'),
   rowIndex: z.number().optional().describe('0-based row position in the repeater to write to. Use for line items. Prefer bookmark for stability.'),
   bookmark: z.string().optional().describe('Stable row identifier from bc_read_data results. Preferred over rowIndex when rows may be reordered.'),
+  expectedStateVersion: z.number().optional().describe('Opt-in staleness guard. Pass the stateVersion from a prior bc_read_data or bc_open_page response. If the page state has changed since that read (async events or sibling writes mutated it), the call is rejected immediately with code STALE_CONTEXT before touching BC. Omit to skip the check.'),
 });
 
 export const ExecuteActionSchema = z.object({
@@ -42,6 +43,7 @@ export const ExecuteActionSchema = z.object({
   section: z.string().optional().describe('Section context. Required when using cue; optional for action. Examples: "lines", "subpage:Activities".'),
   rowIndex: z.number().optional().describe('0-based row position for row-scoped actions.'),
   bookmark: z.string().optional().describe('Stable row identifier for row-scoped actions.'),
+  expectedStateVersion: z.number().optional().describe('Opt-in staleness guard. Pass the stateVersion from a prior bc_read_data or bc_open_page response. If the page state has changed since that read (async events or sibling writes mutated it), the call is rejected immediately with code STALE_CONTEXT before touching BC. Omit to skip the check.'),
 }).refine(d => !!d.action !== !!d.cue, { message: 'Provide exactly one of: action, cue' });
 
 export const ClosePageSchema = z.object({

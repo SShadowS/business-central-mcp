@@ -38,6 +38,12 @@ describe('errorHint', () => {
     );
   });
 
+  it('maps STALE_CONTEXT', () => {
+    expect(errorHint('STALE_CONTEXT')).toBe(
+      'The page changed since you last read it (stateVersion mismatch). Re-read with bc_read_data to get the current stateVersion, then retry.',
+    );
+  });
+
   it('returns undefined for unknown codes', () => {
     expect(errorHint('PROTOCOL_ERROR')).toBeUndefined();
     expect(errorHint('NOPE')).toBeUndefined();

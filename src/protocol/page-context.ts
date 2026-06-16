@@ -13,6 +13,18 @@ export interface PageContext {
   readonly dialogs: DialogInfo[];
   readonly ownedFormIds: string[];
   /**
+   * Monotonically increasing counter — bumped by one each time an event batch
+   * actually mutates the page's state (form tree changed or rows changed).
+   * No-op batches (events that produce no structural change) leave it
+   * unchanged. Starts at 0 on creation.
+   *
+   * Exposed as `stateVersion` in bc_open_page / bc_read_data output.
+   * Mutating tools (bc_write_data, bc_execute_action) accept an optional
+   * `expectedStateVersion`; if the stored generation differs they return
+   * a STALE_CONTEXT error before touching BC.
+   */
+  readonly generation: number;
+  /**
    * True when the root was a `DialogOpened` (modal page — wizards, request pages,
    * confirmation prompts). Modal-rooted pages must be closed via the modal's own
    * Cancel/Finish/Close action; CloseForm on the root works but BC may emit a

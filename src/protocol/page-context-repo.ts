@@ -72,6 +72,7 @@ export class PageContextRepository {
       ownedFormIds: [rootFormId],
       isModal: options?.isModal ?? false,
       wizardState: options?.wizardState ?? null,
+      generation: 0,
     };
 
     this.store.set(pageContextId, ctx);
@@ -117,28 +118,47 @@ export class PageContextRepository {
   }
 
   applyEvents(events: BCEvent[]): void {
+    // Track which pcIds were mutated so we can bump generation once per batch.
+    const mutated = new Set<string>();
     for (const event of events) {
-      this.applyEvent(event);
+      const pcId = this.applyEvent(event);
+      if (pcId !== undefined) mutated.add(pcId);
     }
+    for (const pcId of mutated) this.bumpGeneration(pcId);
   }
 
   applyToPage(pageContextId: string, events: BCEvent[]): PageContext | undefined {
+    let anyMutated = false;
     for (const event of events) {
-      this.applyEvent(event, pageContextId);
+      const pcId = this.applyEvent(event, pageContextId);
+      if (pcId !== undefined) anyMutated = true;
     }
+    if (anyMutated) this.bumpGeneration(pageContextId);
     return this.store.get(pageContextId);
   }
 
-  private applyEvent(event: BCEvent, targetPcId?: string): void {
+  /** Bump the generation counter on a page context by 1. */
+  private bumpGeneration(pcId: string): void {
+    const page = this.store.get(pcId);
+    if (!page) return;
+    this.store.set(pcId, { ...page, generation: page.generation + 1 });
+  }
+
+  /**
+   * Apply a single event. Returns the pcId if the event mutated page state
+   * (a new object was written to the store), or `undefined` for no-ops /
+   * unmatched events. Callers use the return value to bump generation counters.
+   */
+  private applyEvent(event: BCEvent, targetPcId?: string): string | undefined {
     const decision = this.router.route(event, this.store, targetPcId);
 
     switch (decision.kind) {
       case 'Unmatched':
-        return;
+        return undefined;
 
       case 'AddChildForm':
         this.addChildForm(decision.pcId, event as BCEvent & { type: 'FormCreated' });
-        return;
+        return decision.pcId;
 
       case 'UpdateRootForm':
         this.applyRootControlTree(
@@ -146,11 +166,12 @@ export class PageContextRepository {
           (event as BCEvent & { type: 'FormCreated' }).formId,
           (event as BCEvent & { type: 'FormCreated' }).controlTree,
         );
-        return;
+        return decision.pcId;
 
-      case 'FormClosed':
-        this.markFormClosed(decision.pcId, decision.formId);
-        return;
+      case 'FormClosed': {
+        const changed = this.markFormClosed(decision.pcId, decision.formId);
+        return changed ? decision.pcId : undefined;
+      }
 
       case 'ModalRootLayout':
         this.applyRootControlTree(
@@ -158,18 +179,18 @@ export class PageContextRepository {
           decision.formId,
           (event as BCEvent & { type: 'DialogOpened' }).controlTree,
         );
-        return;
+        return decision.pcId;
 
       case 'AddDialog':
         this.addDialog(decision.pcId, event as BCEvent & { type: 'DialogOpened' });
-        return;
+        return decision.pcId;
 
       case 'ApplyToForm': {
         const page = this.store.get(decision.pcId);
-        if (!page) return;
+        if (!page) return undefined;
 
         const form = page.forms.get(decision.formId);
-        if (!form) return;
+        if (!form) return undefined;
 
         const updated = this.reducer.apply(form, event);
 
@@ -184,7 +205,7 @@ export class PageContextRepository {
               const forms = new Map(page.forms);
               forms.set(childForm.formId, childUpdated);
               this.store.set(decision.pcId, { ...page, forms });
-              return;
+              return decision.pcId;
             }
           }
         }
@@ -203,17 +224,17 @@ export class PageContextRepository {
               const forms = new Map(page.forms);
               forms.set(factboxForm.formId, factboxUpdated);
               this.store.set(decision.pcId, { ...page, forms });
-              return; // Don't also apply to root form
+              return decision.pcId; // Don't also apply to root form
             }
           }
         }
 
         // Commit the primary result (may be unchanged if it was truly a no-op
-        // and no child route matched).
+        // and no child route matched). Only report mutation if the form actually changed.
         const forms = new Map(page.forms);
         forms.set(decision.formId, updated);
         this.store.set(decision.pcId, { ...page, forms });
-        return;
+        return updated !== form ? decision.pcId : undefined;
       }
     }
   }
@@ -298,9 +319,9 @@ export class PageContextRepository {
     this.store.set(pageContextId, { ...page, sections });
   }
 
-  private markFormClosed(pcId: string, formId: string): void {
+  private markFormClosed(pcId: string, formId: string): boolean {
     const page = this.store.get(pcId);
-    if (!page) return;
+    if (!page) return false;
 
     // Mark any sections that reference this formId as invalid
     let changed = false;
@@ -311,9 +332,10 @@ export class PageContextRepository {
         changed = true;
       }
     }
-    if (!changed) return;
+    if (!changed) return false;
 
     this.store.set(pcId, { ...page, sections });
+    return true;
   }
 
   private addDialog(pcId: string, event: BCEvent & { type: 'DialogOpened' }): void {

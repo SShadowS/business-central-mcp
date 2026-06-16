@@ -16,6 +16,13 @@ export interface ReadDataInput {
 
 export interface ReadDataOutput {
   section: Section;
+  /**
+   * Generation token for the page's current state at the time of this read.
+   * Increments each time an event batch mutates the page. Pass as
+   * `expectedStateVersion` to bc_write_data / bc_execute_action to detect
+   * and reject stale-state writes.
+   */
+  stateVersion: number;
 }
 
 export class ReadDataOperation {
@@ -114,6 +121,6 @@ export class ReadDataOperation {
       };
     }
 
-    return ok({ section: materialized });
+    return ok({ section: materialized, stateVersion: ctx.generation });
   }
 }
