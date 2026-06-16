@@ -38,11 +38,16 @@ export class BCSession {
     private readonly reportDownloader?: ReportDownloader,
   ) {
     if (typeof this.ws.setRequestHandler === 'function') {
+      // Safe default handler for any server-initiated inbound JSON-RPC request.
+      // BC's web-client protocol (/csh) does NOT send the FileActionDialog
+      // callback used by the StreamJsonRpc /ws/connect path: report downloads
+      // arrive INLINE as a UriToShow -> FileDownloadReady event in the invoke
+      // callback response (see runReportWithDownload). We still register a
+      // catch-all so that if BC ever does issue an inbound request, we reply
+      // promptly with an empty result instead of letting it block server-side
+      // execution waiting on a response. Returning {} is intentional, not a stub.
       this.ws.setRequestHandler(async (method, _params) => {
-        // FileActionDialog is a /ws/connect (StreamJsonRpc) concept — not used on /csh.
-        // Download URLs for /csh sessions arrive inline as FileDownloadReady events
-        // in the invoke callback response, handled by runReportWithDownload().
-        this.logger.debug('protocol', `Inbound request: method=${method} (no handler for /csh)`);
+        this.logger.debug('protocol', `Inbound request: method=${method} (acked with empty result; /csh has no inbound handlers)`);
         return {};
       });
     }
