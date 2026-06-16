@@ -2,7 +2,7 @@
   "dxt_version": "0.1",
   "name": "business-central-mcp",
   "display_name": "Business Central",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Direct access to Microsoft Dynamics 365 Business Central via its native WebSocket protocol.",
   "author": {
     "name": "Torben Leth",
