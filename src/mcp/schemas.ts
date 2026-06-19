@@ -77,9 +77,11 @@ export const SwitchCompanySchema = z.object({
   companyName: z.string().min(1).describe('Exact company name to switch to. Use bc_list_companies to see available company names.'),
 });
 
+const FORMAT_DESCRIBE = 'Rendered output format to capture via the BC "Send to..." flow. "pdf" captures a PDF (BC default); "excel" captures Excel (prefers "data only" layout); "word" captures a Word document. Format availability depends on the report\'s installed layouts -- reports without the requested layout return an error listing available formats. Omit to open the request page only without executing.';
+
 export const RunReportSchema = z.object({
   reportId: StringOrNumber.describe('Numeric BC report ID to execute (e.g., 1306 for Customer Statement, 6 for Trial Balance).'),
-  format: z.enum(['pdf', 'excel', 'word']).optional().describe('Rendered output format to capture. Only "pdf" is supported (captures a PDF via the BC "Send to..." flow); "excel"/"word" return an error. Omit to open the request page only without executing.'),
+  format: z.enum(['pdf', 'excel', 'word']).optional().describe(FORMAT_DESCRIBE),
 });
 
 export const ListCompaniesSchema = z.object({});
@@ -108,7 +110,7 @@ export function toMcpJsonSchema(schema: z.ZodType): Record<string, unknown> {
   if (schema === RunReportSchema) {
     const safe = z.object({
       reportId: StringOrNumberInput.describe('Numeric BC report ID to execute (e.g., 1306 for Customer Statement, 6 for Trial Balance).'),
-      format: z.enum(['pdf', 'excel', 'word']).optional().describe('Rendered output format to capture. Only "pdf" is supported (captures a PDF via the BC "Send to..." flow); "excel"/"word" return an error. Omit to open the request page only without executing.'),
+      format: z.enum(['pdf', 'excel', 'word']).optional().describe(FORMAT_DESCRIBE),
     });
     return z.toJSONSchema(safe) as Record<string, unknown>;
   }

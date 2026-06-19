@@ -254,7 +254,7 @@ describe('BCSession.runReportWithDownload', () => {
       createMockLogger() as any, 'default', 30000, '', downloader,
     );
 
-    const result = await session.runReportWithDownload(6, /* requestPageFormId */ 'req-already-open');
+    const result = await session.runReportWithDownload(6, 'pdf', { requestPageFormId: 'req-already-open' });
     expect(isOk(result)).toBe(true);
     // Only 2 sendRpc calls: SendTo + OK (no OpenForm)
     expect(ws.sendRpc).toHaveBeenCalledTimes(2);

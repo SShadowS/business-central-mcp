@@ -1,4 +1,4 @@
-import { ok, err, isErr, type Result } from '../core/result.js';
+import { ok, isErr, type Result } from '../core/result.js';
 import { ProtocolError } from '../core/errors.js';
 import type { BCSession } from '../session/bc-session.js';
 import type { ControlField } from '../protocol/types.js';
@@ -75,14 +75,7 @@ export class RunReportOperation {
     reportId: number,
     format: 'pdf' | 'excel' | 'word',
   ): Promise<Result<RunReportOutput, ProtocolError>> {
-    // Only PDF is supported — the "Send to..." flow defaults to PDF when no
-    // SaveValue is sent to change the format selector. Excel/Word would require
-    // driving the format selector first; until that is implemented, reject the
-    // request explicitly rather than silently returning a PDF.
-    if (format !== 'pdf') {
-      return err(new ProtocolError('Only format "pdf" is currently supported for report capture'));
-    }
-    const result = await this.session.runReportWithDownload(reportId);
+    const result = await this.session.runReportWithDownload(reportId, format);
     if (isErr(result)) return result;
 
     const { events, bytes, contentType, fileName } = result.value;

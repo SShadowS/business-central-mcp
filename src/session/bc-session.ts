@@ -11,6 +11,9 @@ import { ModalStack } from './modal-stack.js';
 import { isFatalRpcError } from './rpc-error-classifier.js';
 import { findLicenseDialog } from './license-dialog.js';
 import type { ReportDownloader } from './report-downloader.js';
+import { resolveFormatLabel } from './report-format-resolver.js';
+import { buildFormTree } from '../protocol/form-tree-builder.js';
+import { walkTree } from '../protocol/form-tree-walk.js';
 
 const DEFAULT_TIMEOUT_MS = 30000;
 const QUIESCENCE_MS = 150; // Trailing window for async Message bursts
@@ -542,34 +545,43 @@ export class BCSession {
    * rendered output bytes. The flow mirrors what the BC web browser client does:
    *
    *   1. OpenForm(report=<id>) → request page (DialogOpened)
-   *   2. InvokeAction(410=SendTo) on request page → format dialog (DialogOpened)
-   *   3. InvokeAction(300=OK) on format dialog → FileDownloadReady event inline
-   *   4. Fetch `DynamicFileHandler.axd?...` with NTLM headers → bytes
+   *   2. InvokeAction(410=SendTo) on request page → format dialog (DialogOpened, MappingHint "PrintDialog")
+   *   3. [If format is not pdf] SaveValue the format text label into the SelectionControl
+   *   4. InvokeAction(300=OK) on format dialog → FileDownloadReady event inline
+   *   5. Fetch `DynamicFileHandler.axd?...` with NTLM headers → bytes
    *
-   * Steps 1–4 are driven internally. The caller may have already opened the
+   * Steps 1–5 are driven internally. The caller may have already opened the
    * request page (via `runReport`) and optionally filled parameters; in that
-   * case pass the already-opened `requestPageFormId` to skip step 1.
+   * case pass `options.requestPageFormId` to skip step 1.
    *
-   * SystemAction 410 is the "Send to..." action that opens the format selection
-   * dialog. The default format (PDF) is pre-selected; no SaveValue is needed.
+   * Format selection:
+   *   BC's PrintDialog SelectionControl carries Items with human-readable text
+   *   labels. SaveValue requires the TEXT label (not a numeric index) — numeric
+   *   values are rejected by BC. For 'pdf' (the default selection), SaveValue is
+   *   skipped unless the dialog can be read. For 'excel' / 'word', the SelectionControl
+   *   is located by walking the format-dialog form tree and matching the first node
+   *   whose `options` array is non-empty; resolveFormatLabel then picks the right text.
+   *   If the requested format has no matching option, ProtocolError is returned with
+   *   the available option texts listed.
    *
    * Reference: decompiled `NavRunReportPropertyBagInvokedAction.cs`,
    * `ReportResultSetDownloadDecorator.cs`, `FileUrlAddressProvider.cs`, and
    * `ResponseManager.RegisterUriToShowEvents` (BC28). Verified from live BC28
-   * wire capture (2026-06-15).
+   * wire capture (2026-06-15). Format SaveValue verified live (2026-06-19):
+   * "Microsoft Word Document" / "Microsoft Excel Document (data only)".
    */
   async runReportWithDownload(
     reportId: number,
-    requestPageFormId?: string,
-    downloadTimeoutMs?: number,
+    format: 'pdf' | 'excel' | 'word' = 'pdf',
+    options?: { requestPageFormId?: string; downloadTimeoutMs?: number },
   ): Promise<Result<{ events: BCEvent[]; bytes: Buffer; contentType: string; fileName?: string }, ProtocolError>> {
     if (this.dead) return err(new ProtocolError('Session is dead'));
     if (!this.reportDownloader) return err(new ProtocolError('No report downloader configured'));
 
-    const effectiveDownloadTimeout = downloadTimeoutMs ?? Math.max(this.timeoutMs, 120000);
+    const effectiveDownloadTimeout = options?.downloadTimeoutMs ?? Math.max(this.timeoutMs, 120000);
 
     // Step 1: Open request page (skip if already open)
-    let reqFormId = requestPageFormId;
+    let reqFormId = options?.requestPageFormId;
     const openEvents: BCEvent[] = [];
 
     if (!reqFormId) {
@@ -597,7 +609,18 @@ export class BCSession {
     }
     const fmtFormId = fmtDlg.formId;
 
-    // Step 3: Confirm format dialog (OK=300). The FileDownloadReady event
+    // Step 3: Select format via SaveValue on the PrintDialog SelectionControl.
+    // PDF is the BC default — if the user wants pdf and we cannot locate the
+    // SelectionControl, we silently skip SaveValue and let BC render PDF.
+    // For excel/word, we MUST locate the SelectionControl and its options.
+    //
+    // The format-dialog controlTree is the raw eventData from the DialogOpened
+    // event. Walk the built form tree to find the first FieldNode whose options
+    // list is non-empty — that is the format SelectionControl (a 'sec' node).
+    const saveValueResult = await this.selectReportFormat(fmtFormId, fmtDlg.controlTree, format, reportId, effectiveDownloadTimeout);
+    if (saveValueResult !== null && isErr(saveValueResult)) return saveValueResult;
+
+    // Step 4: Confirm format dialog (OK=300). The FileDownloadReady event
     // arrives INLINE in this response — not as a separate async message.
     const okResult = await this.invoke(
       { type: 'InvokeAction', formId: fmtFormId, controlPath: 'server:', systemAction: 300 },
@@ -606,14 +629,15 @@ export class BCSession {
     );
     if (isErr(okResult)) return err(new ProtocolError(`Format OK (300) failed: ${okResult.error.message}`));
 
-    const allEvents = [...openEvents, ...sendToResult.value, ...okResult.value];
+    const saveValueEvents = saveValueResult !== null && isOk(saveValueResult) ? saveValueResult.value : [];
+    const allEvents = [...openEvents, ...sendToResult.value, ...saveValueEvents, ...okResult.value];
 
     const dlReady = okResult.value.find(e => e.type === 'FileDownloadReady');
     if (!dlReady || dlReady.type !== 'FileDownloadReady') {
       return err(new ProtocolError('Report rendered but no download URL received (FileDownloadReady event missing)'));
     }
 
-    // Step 4: Fetch the file
+    // Step 5: Fetch the file
     this.logger.info(`Report download URL: ${dlReady.relativeUrl}`);
     try {
       const { bytes, contentType, fileName } = await this.reportDownloader.downloadFromUrl(dlReady.relativeUrl);
@@ -622,6 +646,91 @@ export class BCSession {
     } catch (e) {
       return err(new ProtocolError(`Download from DynamicFileHandler failed: ${e instanceof Error ? e.message : String(e)}`));
     }
+  }
+
+  /**
+   * Walk the PrintDialog form tree to find the format SelectionControl, then
+   * either SaveValue the chosen format label or (for pdf) skip if it is already
+   * the default.
+   *
+   * Returns:
+   *  - null if no SaveValue is needed (pdf default, or no SelectionControl found)
+   *  - ok(events) if SaveValue was sent and acknowledged
+   *  - err(ProtocolError) if the requested format is unavailable or SaveValue failed
+   */
+  private async selectReportFormat(
+    fmtFormId: string,
+    controlTree: unknown,
+    format: 'pdf' | 'excel' | 'word',
+    reportId: number,
+    timeoutMs: number,
+  ): Promise<Result<BCEvent[], ProtocolError> | null> {
+    // Locate the SelectionControl: first FieldNode in the dialog tree whose
+    // options array is non-empty. The path ~server:c[0]/c[1]/c[0] is typical
+    // but not guaranteed — read from tree for robustness.
+    let selectionControlPath: string | undefined;
+    let availableOptions: ReadonlyArray<{ text: string; value: string }> = [];
+
+    try {
+      const tree = buildFormTree(controlTree);
+      for (const node of walkTree(tree)) {
+        if (node.properties.options && node.properties.options.length > 0) {
+          selectionControlPath = node.controlPath;
+          availableOptions = node.properties.options;
+          break;
+        }
+      }
+    } catch {
+      // Malformed tree — treat as "no SelectionControl found"
+    }
+
+    if (!selectionControlPath || availableOptions.length === 0) {
+      // No SelectionControl found in the dialog tree.
+      if (format === 'pdf') {
+        // PDF is BC's default; safe to proceed without SaveValue.
+        this.logger.debug('protocol', `Report ${reportId}: no format SelectionControl found; proceeding with BC default (pdf)`);
+        return null;
+      }
+      return err(new ProtocolError(
+        `Report ${reportId}: format dialog has no SelectionControl with options; cannot select ${format}`,
+      ));
+    }
+
+    // Resolve format → label text using the dialog's actual option list.
+    const label = resolveFormatLabel(availableOptions, format);
+    const availableTexts = availableOptions.map(o => o.text).join(', ');
+
+    if (!label) {
+      return err(new ProtocolError(
+        `Report ${reportId} does not offer ${format}; available: ${availableTexts}`,
+      ));
+    }
+
+    // For PDF: check if it is already the current selection (skip SaveValue).
+    if (format === 'pdf') {
+      const currentValue = availableOptions.find(o => o.text === label)?.value;
+      const currentIndex = availableOptions.findIndex(o => o.text === label);
+      // BC typically pre-selects PDF (index 0). If it is index 0 or current, skip.
+      // We check by optionIndex on the node (if present) or default to index 0.
+      // Since we cannot reliably know the pre-selection from the raw dialog tree
+      // without full PropertyChanged hydration, and PDF is always BC's default,
+      // we skip SaveValue for pdf unconditionally.
+      void currentValue; void currentIndex;
+      this.logger.debug('protocol', `Report ${reportId}: pdf is BC default; skipping SaveValue`);
+      return null;
+    }
+
+    // Send SaveValue with the matched label text.
+    this.logger.info(`Report ${reportId}: setting format to "${label}" (controlPath=${selectionControlPath})`);
+    const svResult = await this.invoke(
+      { type: 'SaveValue', formId: fmtFormId, controlPath: selectionControlPath, newValue: label },
+      (e) => e.type === 'InvokeCompleted' || e.type === 'PropertyChanged',
+      timeoutMs,
+    );
+    if (isErr(svResult)) {
+      return err(new ProtocolError(`SaveValue format label "${label}" failed: ${svResult.error.message}`));
+    }
+    return svResult;
   }
 
   /**
