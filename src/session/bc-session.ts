@@ -706,16 +706,10 @@ export class BCSession {
       ));
     }
 
-    // For PDF: check if it is already the current selection (skip SaveValue).
+    // PDF is always BC's pre-selected default, so we skip SaveValue for it
+    // (the raw dialog tree does not reliably expose the current selection
+    // without full PropertyChanged hydration, and OK alone renders PDF).
     if (format === 'pdf') {
-      const currentValue = availableOptions.find(o => o.text === label)?.value;
-      const currentIndex = availableOptions.findIndex(o => o.text === label);
-      // BC typically pre-selects PDF (index 0). If it is index 0 or current, skip.
-      // We check by optionIndex on the node (if present) or default to index 0.
-      // Since we cannot reliably know the pre-selection from the raw dialog tree
-      // without full PropertyChanged hydration, and PDF is always BC's default,
-      // we skip SaveValue for pdf unconditionally.
-      void currentValue; void currentIndex;
       this.logger.debug('protocol', `Report ${reportId}: pdf is BC default; skipping SaveValue`);
       return null;
     }
