@@ -8,10 +8,18 @@
 //   2. Ensure edit mode (InvokeAction Edit=40 if field is read-only)
 //   3. InvokeAction(Lookup=110) on the field controlPath
 //   4. LookupFormReady event decoded as FormCreated (see event-decoder.ts)
-//   5. Register lookup form in repo, LoadForm(loadData:true)
+//   5. Register lookup form in repo; extract inline rows from rc.Data.Rows.LoadedRows
+//      (BC embeds rows in the control tree, NOT via separate DataLoaded events)
 //   6. Optionally apply search (Filter(AddLine) preferred, SaveValue fallback)
-//   7. Collect DataLoaded rows, map via row-mapping helpers
+//   7. Collect rows (inline or from DataLoaded after filter), map via row-mapping helpers
 //   8. Always: InvokeAction(LookupCancel=340) in finally block
+//
+// Live-verified protocol finding (BC28, 2026-06-20):
+//   LoadForm(loadData:true) on a lookup form returns only InvokeCompleted — no DataLoaded.
+//   Rows are delivered inline in the LookupFormReady control tree under:
+//     rc.Data.Rows.LoadedRows  (Array of { bookmark, cells: { "<binderName>": { stringValue } } })
+//   The binderName keys match rcc ColumnBinder.Name (e.g. "1", "2") which mapRowCellKeys
+//   remaps to column captions ("Code", "Name") via buildBinderToCaptionMap.
 
 import { ok, err, isErr, type Result } from '../core/result.js';
 import { ProtocolError } from '../core/errors.js';
@@ -19,10 +27,12 @@ import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { Logger } from '../core/logger.js';
 import { SystemAction } from '../protocol/types.js';
-import { fields as treeFields, repeaters as treeRepeaters, filterControlPath as treeFilterControlPath } from '../protocol/form-views.js';
+import type { RepeaterRow } from '../protocol/types.js';
+import { fields as treeFields, repeaters as treeRepeaters } from '../protocol/form-views.js';
 import { mapRowCellKeys } from '../protocol/row-mapping.js';
 import { buildFormTree } from '../protocol/form-tree-builder.js';
 import type { FormNode } from '../protocol/form-node.js';
+import { walkTree } from '../protocol/form-tree-walk.js';
 
 export interface LookupRow {
   /** Bookmark for this row (empty string if not available). */
@@ -132,7 +142,7 @@ export class LookupService {
     this.repo.create(lookupPcId, lookupFormId);
     this.repo.applyToPage(lookupPcId, lookupResult.value);
 
-    // Pre-build the form tree for search (in case repo state doesn't have it yet)
+    // Build the form tree for the lookup form (needed for search path discovery)
     let lookupRoot: FormNode | null = null;
     try {
       lookupRoot = buildFormTree(lookupFormCreated.controlTree);
@@ -140,7 +150,19 @@ export class LookupService {
       // non-fatal -- repo state from applyToPage will be used
     }
 
-    // 9. Always cancel in finally (non-mutating cleanup)
+    // 9. Seed inline rows from rc.Data.Rows.LoadedRows in the control tree.
+    //    BC embeds rows directly in LookupFormReady — LoadForm(loadData:true) returns
+    //    only InvokeCompleted with no DataLoaded. (Live-verified BC28, 2026-06-20.)
+    if (lookupRoot) {
+      const inlineRows = extractInlineRows(lookupFormCreated.controlTree);
+      const repeaterMap = treeRepeaters(lookupRoot);
+      const firstRepeater = repeaterMap.values().next();
+      if (!firstRepeater.done && inlineRows.length > 0) {
+        this.repo.seedRepeaterRows(lookupPcId, lookupFormId, firstRepeater.value.controlPath, inlineRows);
+      }
+    }
+
+    // 10. Always cancel in finally (non-mutating cleanup)
     try {
       return await this.doLookupWork(lookupFormId, lookupPcId, lookupRoot, fieldCaption, maxRows, opts?.search);
     } finally {
@@ -164,17 +186,11 @@ export class LookupService {
     maxRows: number,
     search?: string,
   ): Promise<Result<LookupResult, ProtocolError>> {
-    // 10. LoadForm(loadData:true) to populate rows
-    const loadResult = await this.session.invoke(
-      { type: 'LoadForm', formId: lookupFormId, loadData: true },
-      (e) => e.type === 'InvokeCompleted' || e.type === 'DataLoaded',
-    );
-    if (isErr(loadResult)) {
-      return err(new ProtocolError(`LoadForm on lookup form failed: ${loadResult.error.message}`));
-    }
-    this.repo.applyToPage(lookupPcId, loadResult.value);
+    // Rows are already seeded from inline rc.Data.Rows.LoadedRows (see caller).
+    // No LoadForm call is needed: BC returns only InvokeCompleted with no DataLoaded
+    // for lookup forms. (Live-verified on BC28, 2026-06-20.)
 
-    // 11. Optional search
+    // 11. Optional search — filter on the already-open lookup form
     if (search) {
       await this.applyLookupSearch(lookupFormId, lookupPcId, lookupRoot, search);
     }
@@ -227,16 +243,30 @@ export class LookupService {
     const root = lookupForm?.root ?? lookupRoot;
     if (!root) return;
 
-    // Prefer Filter(AddLine) if a filc node exists
-    const filterPath = treeFilterControlPath(root);
-    if (filterPath) {
+    // Lookup forms use a filter value control (type "fvc") for search input.
+    // Live-verified on BC28 (Salesperson/Purchaser lookup, 2026-06-20):
+    //   - The filc node at server:c[3] is present but Filter(AddLine) is REJECTED by BC
+    //     with InteractionParameterException, which then causes LookupCancel to fail
+    //     with InvalidSessionException (fatal). DO NOT use Filter(AddLine) on lookup forms.
+    //   - The correct path is SaveValue on the fvc (filter value control) node inside
+    //     the filc subtree: filc -> sfcl -> fvc (caption "Search").
+    //   - SaveValue on fvc triggers DataLoaded with the filtered row set.
+    let fvcPath: string | undefined;
+    for (const node of walkTree(root)) {
+      if (node.type === 'fvc') {
+        fvcPath = node.controlPath;
+        break;
+      }
+    }
+
+    if (fvcPath) {
       try {
-        const filterResult = await this.session.invoke(
-          { type: 'Filter', formId: lookupFormId, controlPath: filterPath, filterOperation: 1, filterValue: search },
+        const svResult = await this.session.invoke(
+          { type: 'SaveValue', formId: lookupFormId, controlPath: fvcPath, newValue: search },
           (e) => e.type === 'InvokeCompleted' || e.type === 'DataLoaded',
         );
-        if (!isErr(filterResult)) {
-          this.repo.applyToPage(lookupPcId, filterResult.value);
+        if (!isErr(svResult)) {
+          this.repo.applyToPage(lookupPcId, svResult.value);
         }
       } catch {
         // ignore -- return unfiltered
@@ -262,4 +292,45 @@ export class LookupService {
       }
     }
   }
+}
+
+/**
+ * Extract inline rows from the LookupFormReady control tree.
+ *
+ * BC embeds the initial row set in the first rc child node under:
+ *   controlTree.Children[N].Data.Rows.LoadedRows
+ * where Children[N] is the repeater (t="rc"). Each LoadedRow is already in
+ * RepeaterRow format: { bookmark, cells: { "<binderName>": { stringValue } } }.
+ *
+ * Live-verified: Salesperson/Purchaser lookup form (Cronus28, 2026-06-20).
+ */
+function extractInlineRows(controlTree: unknown): RepeaterRow[] {
+  if (!controlTree || typeof controlTree !== 'object') return [];
+  const lf = controlTree as Record<string, unknown>;
+  const children = lf.Children;
+  if (!Array.isArray(children)) return [];
+
+  for (const child of children) {
+    if (!child || typeof child !== 'object') continue;
+    const node = child as Record<string, unknown>;
+    if (node.t !== 'rc') continue;
+
+    const data = node.Data as Record<string, unknown> | undefined;
+    if (!data) continue;
+    const rowsBlock = data.Rows as Record<string, unknown> | undefined;
+    if (!rowsBlock) continue;
+    const loadedRows = rowsBlock.LoadedRows;
+    if (!Array.isArray(loadedRows)) continue;
+
+    const result: RepeaterRow[] = [];
+    for (const raw of loadedRows) {
+      if (!raw || typeof raw !== 'object') continue;
+      const r = raw as Record<string, unknown>;
+      const bookmark = typeof r.bookmark === 'string' ? r.bookmark : '';
+      const cells = (r.cells && typeof r.cells === 'object') ? r.cells as Record<string, unknown> : {};
+      result.push({ bookmark, cells });
+    }
+    return result; // Only the first rc node's rows
+  }
+  return [];
 }

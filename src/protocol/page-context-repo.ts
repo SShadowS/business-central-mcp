@@ -410,6 +410,36 @@ export class PageContextRepository {
     };
   }
 
+  /**
+   * Directly seed repeater rows into a form's FormState.rows map.
+   *
+   * Used by LookupService to populate inline rows that BC delivers inside the
+   * LookupFormReady control tree (rc.Data.Rows.LoadedRows) rather than via
+   * separate DataLoaded events. The rows must already be in RepeaterRow format
+   * (bookmark + cells with columnBinderName keys).
+   *
+   * No-op if the page context or form is not found, or if the repeater path
+   * has no corresponding node in the form tree.
+   */
+  seedRepeaterRows(
+    pageContextId: string,
+    formId: string,
+    repeaterPath: string,
+    rows: ReadonlyArray<import('./types.js').RepeaterRow>,
+  ): void {
+    const page = this.store.get(pageContextId);
+    if (!page) return;
+    const form = page.forms.get(formId);
+    if (!form) return;
+
+    const newRowsMap = new Map(form.rows);
+    newRowsMap.set(repeaterPath, rows);
+    const updatedForm = { ...form, rows: newRowsMap };
+    const forms = new Map(page.forms);
+    forms.set(formId, updatedForm);
+    this.store.set(pageContextId, { ...page, forms, generation: page.generation + 1 });
+  }
+
   remove(pageContextId: string): void {
     this.store.removePage(pageContextId);
   }
