@@ -175,6 +175,9 @@ export class LookupService {
         // best effort
       }
       this.session.removeOpenForm(lookupFormId);
+      // Drop the temporary lookup page context so the session:lookup:* pcId and
+      // its formId index entry do not accumulate in the repo on every call.
+      this.repo.remove(lookupPcId);
     }
   }
 
