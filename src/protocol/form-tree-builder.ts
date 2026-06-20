@@ -121,6 +121,8 @@ function buildField(obj: Record<string, unknown>, t: FieldType, controlPath: str
   }
   const binder = obj.ColumnBinder as { Name?: string; Path?: string } | undefined;
   const hasLookup = !!(obj.AssistEditAction || obj.LookupAction);
+  const lookupAction = obj.LookupAction as { CanShowSimpleLookup?: boolean } | undefined;
+  const canShowSimpleLookup = lookupAction?.CanShowSimpleLookup;
 
   return {
     type: t,
@@ -128,6 +130,7 @@ function buildField(obj: Record<string, unknown>, t: FieldType, controlPath: str
     properties: props,
     ...(binder?.Name ? { columnBinder: { name: binder.Name, ...(binder.Path ? { path: binder.Path } : {}) } } : {}),
     ...(hasLookup ? { hasLookup: true } : {}),
+    ...(canShowSimpleLookup === false ? { canShowSimpleLookup: false } : {}),
   };
 }
 

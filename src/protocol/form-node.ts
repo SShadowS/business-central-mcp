@@ -88,6 +88,9 @@ export type FieldType = 'sc' | 'dc' | 'bc' | 'dtc' | 'i32c' | 'sec' | 'pc' | 'ss
 export interface FieldNode extends NodeBase<FieldType> {
   readonly columnBinder?: { readonly name: string; readonly path?: string };
   readonly hasLookup?: boolean;
+  /** False when the field uses an AL OnLookup trigger (LookupAction.CanShowSimpleLookup=false).
+   * Invoking Lookup=110 on such a field will not emit LookupFormReady. */
+  readonly canShowSimpleLookup?: boolean;
 }
 
 export interface ActionNode extends NodeBase<'ac'> {
