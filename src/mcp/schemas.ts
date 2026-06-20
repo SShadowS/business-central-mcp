@@ -91,6 +91,13 @@ export const WizardNavigateSchema = z.object({
   action: z.enum(['back', 'next', 'finish', 'cancel']).describe('Wizard step navigation. "next" advances, "back" returns to previous step, "finish" completes the wizard, "cancel" aborts.'),
 });
 
+export const LookupSchema = z.object({
+  pageContextId: z.string().min(1).describe('Page context ID of the open page (card or list) returned by bc_open_page.'),
+  field: z.string().min(1).describe('Caption of the field to enumerate lookup candidates for (e.g., "Salesperson Code", "Gen. Bus. Posting Group"). Must be an editable FK/related-table field that has a lookup (isLookup=true in bc_open_page or bc_read_data response).'),
+  search: z.string().optional().describe('Optional search string to filter candidates (e.g., "AR" to narrow to codes starting with AR). Applied via BC\'s native search on the lookup list. Omit to return all rows up to maxRows.'),
+  maxRows: z.number().int().min(1).max(500).optional().describe('Maximum number of candidate rows to return. Defaults to 50. Max 500. BC may return fewer if the table has fewer records.'),
+});
+
 /**
  * Generate MCP-compatible JSON schema from a Zod schema.
  * Handles the OpenPageSchema specially since it uses .transform() which
