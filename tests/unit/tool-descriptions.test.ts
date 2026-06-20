@@ -13,6 +13,8 @@ const mockOps = {
   switchCompany: { execute: async () => ({}) },
   listCompanies: { execute: async () => ({}) },
   runReport: { execute: async () => ({}) },
+  wizardNavigate: { execute: async () => ({}) },
+  lookup: { execute: async () => ({}) },
 } as unknown as Operations;
 
 describe('tool descriptions', () => {

@@ -28,6 +28,8 @@ import { SwitchCompanyOperation } from './operations/switch-company.js';
 import { ListCompaniesOperation } from './operations/list-companies.js';
 import { RunReportOperation } from './operations/run-report.js';
 import { WizardNavigateOperation } from './operations/wizard-navigate.js';
+import { LookupService } from './services/lookup-service.js';
+import { LookupOperation } from './operations/lookup.js';
 import { buildToolRegistry, type Operations } from './mcp/tool-registry.js';
 import { MCPHandler } from './mcp/handler.js';
 import { createApiRoutes } from './api/routes.js';
@@ -72,6 +74,7 @@ async function main() {
     const sortService = new SortService(s, pageContextRepo, logger);
     const navigationService = new NavigationService(s, pageContextRepo, logger);
     const searchService = new SearchService(s, logger);
+    const lookupService = new LookupService(s, pageContextRepo, logger);
 
     const operations: Operations = {
       openPage: new OpenPageOperation(pageService),
@@ -86,6 +89,7 @@ async function main() {
       listCompanies: new ListCompaniesOperation(pageService, dataService, () => s.companyName, logger),
       runReport: new RunReportOperation(s),
       wizardNavigate: new WizardNavigateOperation(actionService, pageContextRepo),
+      lookup: new LookupOperation(lookupService),
     };
 
     return { operations, tools: buildToolRegistry(operations) };
