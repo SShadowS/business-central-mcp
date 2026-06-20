@@ -30,6 +30,7 @@ import { RunReportOperation } from './operations/run-report.js';
 import { WizardNavigateOperation } from './operations/wizard-navigate.js';
 import { LookupService } from './services/lookup-service.js';
 import { LookupOperation } from './operations/lookup.js';
+import { QueryOperation } from './operations/query.js';
 import { buildToolRegistry, type Operations } from './mcp/tool-registry.js';
 import { MCPHandler } from './mcp/handler.js';
 import { createApiRoutes } from './api/routes.js';
@@ -90,6 +91,13 @@ async function main() {
       runReport: new RunReportOperation(s),
       wizardNavigate: new WizardNavigateOperation(actionService, pageContextRepo),
       lookup: new LookupOperation(lookupService),
+      query: new QueryOperation({
+        odataUrl: config.bc.odataUrl,
+        tenantId: config.bc.tenantId,
+        username: config.bc.username,
+        password: config.bc.password,
+        defaultCompanyName: config.bc.odataCompanyName,
+      }),
     };
 
     return { operations, tools: buildToolRegistry(operations) };

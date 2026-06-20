@@ -1,3 +1,5 @@
+import { deriveODataUrl } from '../odata/odata-client.js';
+
 export interface BCConfig {
   baseUrl: string;
   username: string;
@@ -11,6 +13,11 @@ export interface BCConfig {
   invokeTimeoutMs: number;
   reconnectMaxRetries: number;
   reconnectBaseDelayMs: number;
+  /** Base URL for the BC OData / Standard API endpoint (port 7048).
+   *  Derived from baseUrl by injecting port 7048 if BC_ODATA_URL is not set. */
+  odataUrl: string;
+  /** Company name for OData queries. Omit to use the first available company. */
+  odataCompanyName: string | undefined;
 }
 
 export interface LoggingConfig {
@@ -82,6 +89,8 @@ export function loadConfig(): AppConfig {
       invokeTimeoutMs: optionalEnvInt('BC_INVOKE_TIMEOUT', 30000),
       reconnectMaxRetries: optionalEnvInt('BC_RECONNECT_MAX_RETRIES', 4),
       reconnectBaseDelayMs: optionalEnvInt('BC_RECONNECT_BASE_DELAY', 1000),
+      odataUrl: deriveODataUrl(requireEnv('BC_BASE_URL').replace(/\/+$/, '')),
+      odataCompanyName: process.env.BC_ODATA_COMPANY || undefined,
     },
     logging: {
       level: optionalEnv('LOG_LEVEL', 'info'),

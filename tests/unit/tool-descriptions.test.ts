@@ -15,6 +15,7 @@ const mockOps = {
   runReport: { execute: async () => ({}) },
   wizardNavigate: { execute: async () => ({}) },
   lookup: { execute: async () => ({}) },
+  query: { execute: async () => ({}) },
 } as unknown as Operations;
 
 describe('tool descriptions', () => {

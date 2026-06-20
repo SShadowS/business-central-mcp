@@ -12,6 +12,7 @@ import type { ListCompaniesOperation } from '../operations/list-companies.js';
 import type { RunReportOperation } from '../operations/run-report.js';
 import type { WizardNavigateOperation } from '../operations/wizard-navigate.js';
 import type { LookupOperation } from '../operations/lookup.js';
+import type { QueryOperation } from '../operations/query.js';
 import { createToolDefinition as openPageTool } from '../operations/open-page.tool.js';
 import { createToolDefinition as readDataTool } from '../operations/read-data.tool.js';
 import { createToolDefinition as writeDataTool } from '../operations/write-data.tool.js';
@@ -25,6 +26,7 @@ import { createToolDefinition as listCompaniesTool } from '../operations/list-co
 import { createToolDefinition as runReportTool } from '../operations/run-report.tool.js';
 import { createToolDefinition as wizardNavigateTool } from '../operations/wizard-navigate.tool.js';
 import { createToolDefinition as lookupTool } from '../operations/lookup.tool.js';
+import { createToolDefinition as queryTool } from '../operations/query.tool.js';
 
 export interface ToolDefinition {
   name: string;
@@ -48,6 +50,7 @@ export interface Operations {
   runReport: RunReportOperation;
   wizardNavigate: WizardNavigateOperation;
   lookup: LookupOperation;
+  query: QueryOperation;
 }
 
 export function buildToolRegistry(ops: Operations): ToolDefinition[] {
@@ -65,5 +68,6 @@ export function buildToolRegistry(ops: Operations): ToolDefinition[] {
     runReportTool(ops),
     wizardNavigateTool(ops),
     lookupTool(ops),
+    queryTool(ops),
   ];
 }

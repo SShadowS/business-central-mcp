@@ -98,6 +98,16 @@ export const LookupSchema = z.object({
   maxRows: z.number().int().min(1).max(500).optional().describe('Maximum number of candidate rows to return. Defaults to 50. Max 500. BC may return fewer if the table has fewer records.'),
 });
 
+export const QuerySchema = z.object({
+  entity: z.string().min(1).describe('BC Standard API v2.0 entity name (camelCase). Examples: customers, vendors, items, salesOrders, salesInvoices, purchaseOrders, generalLedgerEntries, accounts, companies, employees. See BC Standard API docs for the full list.'),
+  filter: z.string().optional().describe('OData $filter expression for server-side filtering. Examples: "city eq \'London\'", "amount gt 1000", "postingDate ge 2024-01-01 and postingDate le 2024-12-31", "contains(displayName, \'Contoso\')". Applied by BC before returning data.'),
+  select: z.string().optional().describe('Comma-separated OData $select field names to limit response size. Examples: "number,displayName,city", "id,amount,postingDate". Omit to return all fields.'),
+  top: z.number().int().min(1).optional().describe('Maximum number of rows to return. Defaults to 100 if omitted to prevent accidental full-table scans. Pass explicitly to get more rows.'),
+  orderby: z.string().optional().describe('OData $orderby expression. Examples: "displayName asc", "postingDate desc", "amount desc,number asc".'),
+  expand: z.string().optional().describe('OData $expand for related entities. Examples: "salesLines", "customer($select=displayName)". Use sparingly — expanded entities increase response size significantly.'),
+  company: z.string().optional().describe('Override the BC company name for this query. Defaults to the server-configured company (BC_ODATA_COMPANY or first available company). Use when querying a specific company in a multi-company BC environment.'),
+});
+
 /**
  * Generate MCP-compatible JSON schema from a Zod schema.
  * Handles the OpenPageSchema specially since it uses .transform() which
