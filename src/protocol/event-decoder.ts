@@ -85,6 +85,21 @@ export class EventDecoder {
       case SESSION_EVENTS.ClosePendingForm:
         events.push({ type: 'FormClosed', formId: (eventData.ServerId ?? eventData.formId ?? eventData.FormId ?? '') as string } satisfies FormClosedEvent);
         break;
+      case SESSION_EVENTS.LookupFormReady: {
+        // LookupFormReady: params[1] is the raw lf JSON of the lookup form.
+        // Emit FormCreated so BCSession.updateFormTracking tracks the lookup
+        // form's ServerId in _openFormIds, enabling LookupCancel to include
+        // it in the openFormIds array of subsequent requests.
+        // Reference: live-verified design: docs/superpowers/plans/2026-06-20-bc-lookup-tool.md
+        events.push({
+          type: 'FormCreated',
+          formId: (eventData.ServerId ?? '') as string,
+          parentFormId: undefined,
+          isReload: false,
+          controlTree: eventData,
+        } satisfies FormCreatedEvent);
+        break;
+      }
       case SESSION_EVENTS.MessageToShow: {
         // Non-modal toast: AL Message(), license-expiry warnings, etc.
         // Wire: params[1] = { Text, Type?, Actions?, DefaultAction?, AutomationId? }
