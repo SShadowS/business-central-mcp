@@ -176,6 +176,20 @@ Uses `InvokeSessionAction` with `SystemAction: 500` (ChangeCompany). All server-
 
 Reference: `ChangeCompanyAction.cs`, `NavSystemCodeunitSystemActionTriggers.cs` (decompiled). Wire format needs further protocol investigation -- the exact namedParameters may differ from the initial implementation.
 
+### Dimensions Read/Write Workflow (No New Tool Required)
+
+Reading and writing dimensions on any document or card uses only existing tools. Verified live against Cronus28.
+
+1. Open the host document/card: `bc_open_page`.
+2. Invoke the dimensions editor: `bc_execute_action(pageContextId, "Dimensions")`. This opens the "Default Dimensions" or "Dimensions" list page as a non-modal form; its `pageContextId` is returned in `openedPages`. The action often sits under a "Related" section — pass `section` if the host page has multiple action sections.
+3. Read current dimensions: `bc_read_data(dimPcId)`. The repeater exposes columns: "Dimension Code", "Dimension Value Code", "Dimension Value Name", "Value Posting", "Allowed Values Filter".
+4. Set a value: `bc_write_data` targeting the "Dimension Value Code" column on the relevant row (by bookmark). BC validates the code against the Dimension Value table — an invalid code returns `VALIDATION_ERROR`. New rows use synthetic `DraftRecord{N}` bookmarks and are writable immediately. Use `bc_lookup` on the "Dimension Value Code" field to browse valid values before writing.
+5. Commit: `bc_execute_action(dimPcId, "OK")` or `bc_close_page`.
+
+Notes:
+- "Value Posting" is an option field (blank / "Code Mandatory" / "Same Code" / "No Code") — values are exposed in the `options` array on read.
+- The dimensions page is list-style; all standard `bc_read_data` / `bc_write_data` row-targeting patterns apply.
+
 ### BC27 vs BC28 Wire Compatibility
 Wire format is identical: same handler types, type abbreviations (~50 aliases), compatibility version (15041). Only addition in BC28: `CopilotSettingsChanged` event (ignorable). A single codec handles both.
 
