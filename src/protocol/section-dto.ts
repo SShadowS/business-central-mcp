@@ -35,6 +35,13 @@ export interface SectionField {
   /** True if the field has an AssistEdit/Lookup action attached. */
   readonly isLookup?: boolean;
   /**
+   * True when the field's lookup is driven by a custom AL OnLookup trigger
+   * (LookupAction.CanShowSimpleLookup=false). Such fields have isLookup=true
+   * but are NOT browseable via bc_lookup — BC does not emit an enumerable
+   * lookup form. Use the field's own UI / AssistEdit instead.
+   */
+  readonly lookupCustom?: boolean;
+  /**
    * For option/enum fields (`sec`) and boolean fields (`bc`): the allowed
    * choices. Use the `value` string as the SaveValue payload when writing
    * this field. Absent on plain text/numeric fields.
@@ -175,6 +182,7 @@ export function buildSection(ctx: PageContext, sectionId: string): Section | nul
           type: f.type,
           ...(f.properties.showMandatory ? { showMandatory: true as const } : {}),
           ...(f.hasLookup ? { isLookup: true as const } : {}),
+          ...(f.hasLookup && f.canShowSimpleLookup === false ? { lookupCustom: true as const } : {}),
           ...(opts && opts.length > 0 ? { options: opts } : {}),
           ...(selectedOption ? { selectedOption } : {}),
         };

@@ -85,6 +85,45 @@ describe('buildSection', () => {
     expect(section!.rows).toBeUndefined();
   });
 
+  it('marks isLookup and lookupCustom from the field LookupAction', () => {
+    const root = {
+      t: 'lf', ServerId: 'root', PageType: 0, Caption: 'Customer',
+      Children: [
+        // Browseable lookup: CanShowSimpleLookup=true -> isLookup, no lookupCustom.
+        {
+          t: 'sc', Caption: 'Salesperson Code', Visible: true, Editable: true,
+          LookupAction: { t: 'lookac', SystemAction: 110, CanShowSimpleLookup: true },
+        },
+        // Custom AL OnLookup: CanShowSimpleLookup=false -> isLookup AND lookupCustom.
+        {
+          t: 'sc', Caption: 'Item No.', Visible: true, Editable: true,
+          LookupAction: { t: 'lookac', SystemAction: 110, CanShowSimpleLookup: false },
+        },
+        // Plain field: neither flag.
+        { t: 'sc', Caption: 'Name', Visible: true, Editable: true },
+      ],
+    };
+    const ctx = makeCtx({
+      rootFormId: 'root',
+      forms: new Map([['root', makeFormState('root', root)]]),
+      sections: new Map<string, SectionDescriptor>([['header', {
+        sectionId: 'header', kind: 'header', caption: 'Customer',
+        formId: 'root', valid: true,
+      }]]),
+    });
+    const section = buildSection(ctx, 'header');
+    const byName = (n: string) => section!.fields!.find(f => f.name === n)!;
+
+    expect(byName('Salesperson Code').isLookup).toBe(true);
+    expect(byName('Salesperson Code').lookupCustom).toBeUndefined();
+
+    expect(byName('Item No.').isLookup).toBe(true);
+    expect(byName('Item No.').lookupCustom).toBe(true);
+
+    expect(byName('Name').isLookup).toBeUndefined();
+    expect(byName('Name').lookupCustom).toBeUndefined();
+  });
+
   it('builds a lines section with rows but no fields', () => {
     const child = {
       t: 'lf', ServerId: 'child', PageType: 1, Caption: 'Lines',

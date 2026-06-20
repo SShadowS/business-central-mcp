@@ -19,6 +19,7 @@ export function fieldNodeToControlField(root: FormNode, f: FieldNode): ControlFi
     value: f.properties.objectValue ?? f.properties.stringValue,
     columnBinderName: f.columnBinder?.name,
     ...(f.hasLookup ? { isLookup: true } : {}),
+    ...(f.hasLookup && f.canShowSimpleLookup === false ? { lookupCustom: true } : {}),
     ...(f.properties.showMandatory ? { showMandatory: true } : {}),
     ancestorGroupPaths: ancestorGroupPaths(root, f.controlPath),
   };

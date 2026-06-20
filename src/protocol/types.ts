@@ -367,6 +367,7 @@ export interface ControlField {
   readonly stringValue?: string;
   readonly columnBinderName?: string; // e.g., "1165569367_c2" — key in row cells
   readonly isLookup?: boolean;        // true if field has AssistEditAction or LookupAction
+  readonly lookupCustom?: boolean;    // true if isLookup but the lookup is a custom AL OnLookup trigger (CanShowSimpleLookup=false) — NOT browseable via bc_lookup
   readonly showMandatory?: boolean;   // true if field is marked as mandatory in BC
   /**
    * controlPaths of every gc ancestor between the form root (`server:`) and
