@@ -172,6 +172,27 @@ describe('ODataClient.resolveCompanyId', () => {
     const id = await client.resolveCompanyId();
     expect(id).toBe('first');
   });
+
+  it('does NOT cache a rejected resolution — a second call re-fetches and can succeed', async () => {
+    // First fetch throws (transient failure), second succeeds.
+    let call = 0;
+    const fetchMock = vi.fn(async () => {
+      call++;
+      if (call === 1) throw new Error('ECONNREFUSED');
+      return { ok: true, status: 200, json: async () => ({ value: [{ id: 'recovered', name: 'Co' }] }) };
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const client = new ODataClient(makeConfig());
+
+    // First call rejects
+    await expect(client.resolveCompanyId()).rejects.toBeInstanceOf(ODataError);
+
+    // Second call must RE-FETCH (not return the poisoned rejected promise) and succeed
+    const id = await client.resolveCompanyId();
+    expect(id).toBe('recovered');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -206,7 +227,7 @@ describe('ODataClient.query — URL construction', () => {
     expect(decodeURIComponent(url)).toContain("$filter=city eq 'London'");
   });
 
-  it('appends $select when provided', async () => {
+  it('appends $select with LITERAL commas (not %2C)', async () => {
     const fetchMock = mockFetch([
       companiesResponse([{ id: 'co-id', name: 'Co' }]),
       rowsResponse([]),
@@ -215,8 +236,39 @@ describe('ODataClient.query — URL construction', () => {
 
     await new ODataClient(makeConfig()).query('customers', { select: 'number,displayName' });
 
+    // Assert against the RAW url — the comma must stay literal so BC's OData
+    // tokenizer treats it as a list separator. A %2C would be a regression.
     const url: string = fetchMock.mock.calls[1]![0] as string;
-    expect(decodeURIComponent(url)).toContain('$select=number,displayName');
+    expect(url).toContain('$select=number,displayName');
+    expect(url).not.toContain('%2C');
+  });
+
+  it('trims whitespace around $select field names but keeps literal commas', async () => {
+    const fetchMock = mockFetch([
+      companiesResponse([{ id: 'co-id', name: 'Co' }]),
+      rowsResponse([]),
+    ]);
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    await new ODataClient(makeConfig()).query('customers', { select: 'number, displayName , city' });
+
+    const url: string = fetchMock.mock.calls[1]![0] as string;
+    expect(url).toContain('$select=number,displayName,city');
+    expect(url).not.toContain('%2C');
+  });
+
+  it('appends $expand with LITERAL commas (not %2C)', async () => {
+    const fetchMock = mockFetch([
+      companiesResponse([{ id: 'co-id', name: 'Co' }]),
+      rowsResponse([]),
+    ]);
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    await new ODataClient(makeConfig()).query('salesOrders', { expand: 'salesLines,customer' });
+
+    const url: string = fetchMock.mock.calls[1]![0] as string;
+    expect(url).toContain('$expand=salesLines,customer');
+    expect(url).not.toContain('%2C');
   });
 
   it('appends $orderby when provided', async () => {

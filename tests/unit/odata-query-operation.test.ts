@@ -5,6 +5,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { QueryOperation } from '../../src/operations/query.js';
+import { QuerySchema } from '../../src/mcp/schemas.js';
 
 function makeConfig(overrides?: object) {
   return {
@@ -114,5 +115,35 @@ describe('QueryOperation', () => {
     expect(decoded).toContain("$filter=displayName eq 'Test'");
     expect(decoded).toContain('$select=number,displayName');
     expect(decoded).toContain('$orderby=number asc');
+  });
+});
+
+describe('QuerySchema entity validation', () => {
+  it('accepts valid camelCase API identifiers', () => {
+    for (const entity of ['items', 'salesOrders', 'generalLedgerEntries', 'dimension_values', 'C']) {
+      expect(QuerySchema.safeParse({ entity }).success, entity).toBe(true);
+    }
+  });
+
+  it('rejects an entity containing "?" (query-injection / cap bypass)', () => {
+    const result = QuerySchema.safeParse({ entity: 'items?$top=999999' });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects an entity containing "/" (path traversal)', () => {
+    expect(QuerySchema.safeParse({ entity: '../accounts' }).success).toBe(false);
+    expect(QuerySchema.safeParse({ entity: 'items/123' }).success).toBe(false);
+  });
+
+  it('rejects an entity containing a space', () => {
+    expect(QuerySchema.safeParse({ entity: 'sales orders' }).success).toBe(false);
+  });
+
+  it('rejects an entity starting with a digit', () => {
+    expect(QuerySchema.safeParse({ entity: '1items' }).success).toBe(false);
+  });
+
+  it('rejects an empty entity', () => {
+    expect(QuerySchema.safeParse({ entity: '' }).success).toBe(false);
   });
 });

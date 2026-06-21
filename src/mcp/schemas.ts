@@ -99,7 +99,7 @@ export const LookupSchema = z.object({
 });
 
 export const QuerySchema = z.object({
-  entity: z.string().min(1).describe('BC Standard API v2.0 entity name (camelCase). Examples: customers, vendors, items, salesOrders, salesInvoices, purchaseOrders, generalLedgerEntries, accounts, companies, employees. See BC Standard API docs for the full list.'),
+  entity: z.string().min(1).regex(/^[a-zA-Z][a-zA-Z0-9_]*$/, 'Entity must be a valid API identifier, e.g. "salesOrders", "items"').describe('BC Standard API v2.0 entity name (camelCase). Examples: customers, vendors, items, salesOrders, salesInvoices, purchaseOrders, generalLedgerEntries, accounts, companies, employees. See BC Standard API docs for the full list.'),
   filter: z.string().optional().describe('OData $filter expression for server-side filtering. Examples: "city eq \'London\'", "amount gt 1000", "postingDate ge 2024-01-01 and postingDate le 2024-12-31", "contains(displayName, \'Contoso\')". Applied by BC before returning data.'),
   select: z.string().optional().describe('Comma-separated OData $select field names to limit response size. Examples: "number,displayName,city", "id,amount,postingDate". Omit to return all fields.'),
   top: z.number().int().min(1).optional().describe('Maximum number of rows to return. Defaults to 100 if omitted to prevent accidental full-table scans. Pass explicitly to get more rows.'),

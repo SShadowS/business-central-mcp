@@ -81,10 +81,19 @@ export class ODataClient {
   async resolveCompanyId(): Promise<string> {
     if (this.cachedCompanyId !== null) return this.cachedCompanyId;
     if (this.companyResolutionPromise === null) {
-      this.companyResolutionPromise = this._fetchCompanyId().then(id => {
-        this.cachedCompanyId = id;
-        return id;
-      });
+      // Cache only the SUCCESS. On rejection, clear the in-flight promise so a
+      // transient failure (network blip, 401, server-down) doesn't permanently
+      // poison the client — the next call re-fetches.
+      this.companyResolutionPromise = this._fetchCompanyId().then(
+        id => {
+          this.cachedCompanyId = id;
+          return id;
+        },
+        err => {
+          this.companyResolutionPromise = null;
+          throw err;
+        },
+      );
     }
     return this.companyResolutionPromise;
   }
@@ -143,10 +152,14 @@ export class ODataClient {
     parts.push(`$top=${String(effectiveTop)}`);
 
     if (opts.filter) parts.push(`$filter=${encodeURIComponent(opts.filter)}`);
-    if (opts.select) parts.push(`$select=${encodeURIComponent(opts.select)}`);
+    // $select / $expand are comma-separated lists — encode each field name
+    // individually and keep the commas literal, since BC's OData tokenizer
+    // treats the list separator as a raw ',' (a %2C-encoded comma may not be
+    // recognised as a separator).
+    if (opts.select) parts.push(`$select=${encodeFieldList(opts.select)}`);
     if (opts.skip !== undefined) parts.push(`$skip=${String(opts.skip)}`);
     if (opts.orderby) parts.push(`$orderby=${encodeURIComponent(opts.orderby)}`);
-    if (opts.expand) parts.push(`$expand=${encodeURIComponent(opts.expand)}`);
+    if (opts.expand) parts.push(`$expand=${encodeFieldList(opts.expand)}`);
     if (opts.count) parts.push(`$count=true`);
 
     const url = `${this.baseApiUrl}/companies(${companyId})/${entity}?${parts.join('&')}`;
@@ -222,14 +235,30 @@ export class ODataClient {
       );
     }
 
+    const pathOnly = url.replace(/\?.*$/, '');
     const detail = bcMessage ? ` BC says: ${bcMessage}` : '';
     throw new ODataError(
-      `BC OData returned ${response.status} for ${url.replace(/\?.*$/, '')}.${detail}`,
+      `BC OData returned ${response.status} for ${pathOnly}.${detail}`,
       response.status,
       bcCode,
-      { url, bcErrorCode: bcCode, bcMessage },
+      // Keep only the path in context — the query string carries tenant=... and
+      // user filter values which must not leak into logs.
+      { url: pathOnly, bcErrorCode: bcCode, bcMessage },
     );
   }
+}
+
+/**
+ * Encodes a comma-separated OData field list ($select / $expand) by encoding
+ * each field name individually and rejoining with literal commas. This keeps
+ * the list separator as a raw ',' for BC's OData tokenizer while still safely
+ * encoding any special characters within a field name.
+ */
+function encodeFieldList(list: string): string {
+  return list
+    .split(',')
+    .map(f => encodeURIComponent(f.trim()))
+    .join(',');
 }
 
 /**
