@@ -138,9 +138,22 @@ export class ODataClient {
    * full-table scans. Pass top explicitly to override.
    */
   async query(entity: string, opts: ODataQueryOptions = {}): Promise<ODataQueryResult> {
-    const companyId = opts.company
-      ? await this._resolveCompanyByName(opts.company)
-      : await this.resolveCompanyId();
+    // Defense-in-depth: the MCP tool schema validates entity upstream, but a
+    // caller bypassing it must not be able to inject '?'/'#'/'&'/'/' into the
+    // URL path.
+    if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(entity)) {
+      throw new ODataError(`Invalid entity name: ${entity}`, 400);
+    }
+
+    // The top-level `companies` entity is NOT company-scoped —
+    // /companies(<id>)/companies is an invalid OData path. Query it directly
+    // and skip company resolution (which would just re-query companies).
+    const isCompaniesEntity = entity.toLowerCase() === 'companies';
+    const companyId = isCompaniesEntity
+      ? null
+      : opts.company
+        ? await this._resolveCompanyByName(opts.company)
+        : await this.resolveCompanyId();
 
     // Build query string manually — URLSearchParams encodes '$' as '%24' which
     // breaks OData param names, and encodes spaces as '+' instead of '%20'.
@@ -162,7 +175,9 @@ export class ODataClient {
     if (opts.expand) parts.push(`$expand=${encodeFieldList(opts.expand)}`);
     if (opts.count) parts.push(`$count=true`);
 
-    const url = `${this.baseApiUrl}/companies(${companyId})/${entity}?${parts.join('&')}`;
+    const url = isCompaniesEntity
+      ? `${this.baseApiUrl}/companies?${parts.join('&')}`
+      : `${this.baseApiUrl}/companies(${companyId})/${entity}?${parts.join('&')}`;
 
     const data = await this._fetch<{ value: unknown[]; '@odata.count'?: number }>(url);
 

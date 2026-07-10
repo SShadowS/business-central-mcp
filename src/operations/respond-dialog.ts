@@ -1,9 +1,10 @@
 import { ok, err, isOk, type Result } from '../core/result.js';
-import { ProtocolError } from '../core/errors.js';
+import { ProtocolError, type BCError } from '../core/errors.js';
 import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import { SystemAction } from '../protocol/types.js';
 import { detectChangedSections, detectDialogs } from '../protocol/mutation-result.js';
+import { classifyBusinessError } from '../protocol/error-classifier.js';
 
 export interface RespondDialogInput {
   pageContextId: string;
@@ -33,7 +34,7 @@ export class RespondDialogOperation {
     private readonly repo: PageContextRepository,
   ) {}
 
-  async execute(input: RespondDialogInput): Promise<Result<RespondDialogOutput, ProtocolError>> {
+  async execute(input: RespondDialogInput): Promise<Result<RespondDialogOutput, BCError>> {
     const ctx = this.repo.get(input.pageContextId);
     if (!ctx) return err(new ProtocolError(`Page context not found: ${input.pageContextId}`));
 
@@ -44,6 +45,11 @@ export class RespondDialogOperation {
         (event) => event.type === 'InvokeCompleted',
       );
       if (!isOk(closeResult)) return closeResult;
+
+      this.repo.applyToPage(input.pageContextId, closeResult.value);
+
+      const closeBizErr = classifyBusinessError(closeResult.value);
+      if (closeBizErr !== null) return err(closeBizErr);
 
       const updatedCtx = this.repo.get(input.pageContextId);
       const changedSections = updatedCtx ? detectChangedSections(updatedCtx, closeResult.value) : [];
@@ -76,6 +82,9 @@ export class RespondDialogOperation {
 
     const events = result.value;
     this.repo.applyToPage(input.pageContextId, events);
+
+    const bizErr = classifyBusinessError(events);
+    if (bizErr !== null) return err(bizErr);
 
     const updatedCtx = this.repo.get(input.pageContextId);
     const changedSections = updatedCtx ? detectChangedSections(updatedCtx, events) : [];

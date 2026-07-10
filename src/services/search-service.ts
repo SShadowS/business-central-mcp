@@ -87,6 +87,18 @@ export class SearchService {
     // Extract search results from DataLoaded events
     const results = extractTellMeResults(queryResult.value);
 
+    // Close the Tell Me form so it doesn't leak server-side and accumulate in
+    // the session's openFormIds (serialized into every later request). Best
+    // effort — a failed close must not fail the search.
+    const closeResult = await this.session.invoke(
+      { type: 'CloseForm' as const, formId: tellMeFormId },
+      (event) => event.type === 'InvokeCompleted',
+    );
+    if (isErr(closeResult)) {
+      this.logger.warn(`Failed to close Tell Me form ${tellMeFormId}: ${closeResult.error.message}`);
+    }
+    this.session.removeOpenForm(tellMeFormId);
+
     this.logger.info(`Search "${query}": ${results.length} results`);
     return ok(results);
   }

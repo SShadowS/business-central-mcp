@@ -29,6 +29,7 @@ const DEFAULT_RECONNECT: ReconnectOptions = { maxRetries: 4, baseDelayMs: 1000 }
 export class SessionManager {
   private session: BCSession | null = null;
   private servicesInvalidated = false;
+  private inFlight: Promise<BCSession> | null = null;
   private readonly reconnectOptions: ReconnectOptions;
 
   /** Exposed for testing -- override to avoid real delays. */
@@ -68,6 +69,23 @@ export class SessionManager {
    */
   async getSession(): Promise<BCSession> {
     // Happy path: session exists and is alive
+    if (this.session !== null && this.session.isAlive) {
+      return this.session;
+    }
+
+    // Single-flight: concurrent callers that observe a missing/dead session all
+    // await the SAME creation/recovery promise. Without this, two parallel first
+    // requests each build a BCSession; the loser is overwritten and leaks its
+    // WebSocket plus a scarce NTLM auth slot.
+    if (this.inFlight === null) {
+      this.inFlight = this.acquire().finally(() => { this.inFlight = null; });
+    }
+    return this.inFlight;
+  }
+
+  private async acquire(): Promise<BCSession> {
+    // Re-check under the in-flight slot: another caller may have established a
+    // live session between the alive-check in getSession and this point.
     if (this.session !== null && this.session.isAlive) {
       return this.session;
     }

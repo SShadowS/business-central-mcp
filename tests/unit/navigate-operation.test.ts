@@ -71,13 +71,15 @@ describe('NavigateOperation routing', () => {
     expect(svc.drillDown).not.toHaveBeenCalled();
   });
 
-  it('calls selectRow when action is "lookup"', async () => {
+  it('rejects the unsupported "lookup" action instead of silently selecting', async () => {
     const svc = makeNavigationService();
     const op = new NavigateOperation(svc);
 
-    await op.execute({ pageContextId: 'pc:list:1', bookmark: 'bk3', action: 'lookup' });
+    const result = await op.execute({ pageContextId: 'pc:list:1', bookmark: 'bk3', action: 'lookup' as never });
 
-    expect(svc.selectRow).toHaveBeenCalledWith('pc:list:1', 'bk3', undefined);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toMatch(/lookup/i);
+    expect(svc.selectRow).not.toHaveBeenCalled();
     expect(svc.drillDown).not.toHaveBeenCalled();
   });
 

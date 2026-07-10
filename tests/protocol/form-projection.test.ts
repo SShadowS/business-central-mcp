@@ -88,6 +88,66 @@ describe('FormProjection', () => {
     expect(rows[1]!.cells['No.']).toBe('20000');
   });
 
+  it('currentRowOnly DataLoaded appends a re-bookmarked row instead of dropping it', () => {
+    const base = makeRepeaterForm();
+    const form: FormState = {
+      ...base,
+      rows: new Map([['server:c[1]', [{ bookmark: 'draft1', cells: { 'No.': '' } }]]]),
+    };
+    const event: BCEvent = {
+      type: 'DataLoaded', formId: 'f1', controlPath: 'server:c[1]', currentRowOnly: true,
+      rows: [{ t: 'DataRowInserted', DataRowInserted: [0, { cells: { 'No.': '10000' }, bookmark: 'committed1' }] }],
+    };
+    const rows = projection.apply(form, event).rows.get('server:c[1]')!;
+    expect(rows.map(r => r.bookmark)).toContain('committed1');
+  });
+
+  it('applies RowDelta remove by bookmark', () => {
+    const base = makeRepeaterForm();
+    const form: FormState = {
+      ...base,
+      rows: new Map([['server:c[1]', [
+        { bookmark: 'bm1', cells: { 'No.': '10000' } },
+        { bookmark: 'bm2', cells: { 'No.': '20000' } },
+      ]]]),
+    };
+    const event: BCEvent = { type: 'RowDelta', formId: 'f1', controlPath: 'server:c[1]', op: 'remove', bookmark: 'bm1' };
+    const rows = projection.apply(form, event).rows.get('server:c[1]')!;
+    expect(rows.map(r => r.bookmark)).toEqual(['bm2']);
+  });
+
+  it('applies RowDelta update by bookmark', () => {
+    const base = makeRepeaterForm();
+    const form: FormState = {
+      ...base,
+      rows: new Map([['server:c[1]', [{ bookmark: 'bm1', cells: { 'No.': '10000' } }]]]),
+    };
+    const event: BCEvent = { type: 'RowDelta', formId: 'f1', controlPath: 'server:c[1]', op: 'update', bookmark: 'bm1', cells: { 'No.': '10009' } };
+    const rows = projection.apply(form, event).rows.get('server:c[1]')!;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.cells['No.']).toBe('10009');
+  });
+
+  it('applies RowDelta insert at the given viewport index', () => {
+    const base = makeRepeaterForm();
+    const form: FormState = {
+      ...base,
+      rows: new Map([['server:c[1]', [
+        { bookmark: 'bm1', cells: { 'No.': '10000' } },
+        { bookmark: 'bm3', cells: { 'No.': '30000' } },
+      ]]]),
+    };
+    const event: BCEvent = { type: 'RowDelta', formId: 'f1', controlPath: 'server:c[1]', op: 'insert', bookmark: 'bm2', index: 1, cells: { 'No.': '20000' } };
+    const rows = projection.apply(form, event).rows.get('server:c[1]')!;
+    expect(rows.map(r => r.bookmark)).toEqual(['bm1', 'bm2', 'bm3']);
+  });
+
+  it('RowDelta on an unknown controlPath is a no-op (same reference)', () => {
+    const form = makeRepeaterForm();
+    const event: BCEvent = { type: 'RowDelta', formId: 'f1', controlPath: 'server:c[99]', op: 'remove', bookmark: 'x' };
+    expect(projection.apply(form, event)).toBe(form);
+  });
+
   it('applies PropertyChanged TotalRowCount to repeater', () => {
     const form = makeRepeaterForm();
     const event: BCEvent = {

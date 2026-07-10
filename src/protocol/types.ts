@@ -6,6 +6,7 @@ export type BCEvent =
   | DialogOpenedEvent
   | MessageToShowEvent
   | DataLoadedEvent
+  | RowDeltaEvent
   | PropertyChangedEvent
   | BookmarkChangedEvent
   | InvokeCompletedEvent
@@ -108,6 +109,28 @@ export interface DataLoadedEvent {
   readonly controlPath: string;
   readonly currentRowOnly: boolean;
   readonly rows: unknown[];
+}
+
+/**
+ * Incremental repeater-row change delivered as a TOP-LEVEL entry in a
+ * LogicalClientChangeHandler's changes[] array (NOT nested inside a
+ * DataRefreshChange). BC emits these on the delta path — e.g. after New (insert),
+ * a row recompute (update), or Delete (remove).
+ *
+ * Wire shapes (verified from decompiled LogicalChangeSetSerializer, BC28):
+ *   DataRowInserted / DataRowUpdated: { t, ControlReference, "<t>": [index, { bookmark, cells }] }
+ *   DataRowRemoved:                   { t, ControlReference, Bookmark: "<key>" }   (by bookmark, no index)
+ */
+export interface RowDeltaEvent {
+  readonly type: 'RowDelta';
+  readonly formId: string;
+  readonly controlPath: string;
+  readonly op: 'insert' | 'update' | 'remove';
+  readonly bookmark: string;
+  /** Viewport insertion index (inserts only). Absent for update/remove. */
+  readonly index?: number;
+  /** Row cell values (insert/update). Absent for remove. */
+  readonly cells?: Record<string, unknown>;
 }
 
 export interface PropertyChangedEvent {

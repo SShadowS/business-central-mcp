@@ -1,14 +1,13 @@
-import { isErr, mapResult, type Result } from '../core/result.js';
-import type { ProtocolError } from '../core/errors.js';
+import { err, isErr, mapResult, type Result } from '../core/result.js';
+import { ProtocolError } from '../core/errors.js';
 import type { NavigationService } from '../services/navigation-service.js';
 import { buildAllSections, buildSection, type Section } from '../protocol/section-dto.js';
 
 export interface NavigateInput {
   pageContextId: string;
   bookmark: string;
-  action?: 'drill_down' | 'select' | 'lookup';
+  action?: 'drill_down' | 'select';
   section?: string;
-  field?: string;
 }
 
 export interface NavigateOutput {
@@ -26,6 +25,13 @@ export class NavigateOperation {
   constructor(private readonly navigationService: NavigationService) {}
 
   async execute(input: NavigateInput): Promise<Result<NavigateOutput, ProtocolError>> {
+    // The schema no longer advertises 'lookup'/'field', but the REST path casts
+    // raw bodies without validation — reject the removed surface explicitly
+    // rather than silently falling through to a plain row select.
+    if ((input.action as string) === 'lookup') {
+      return err(new ProtocolError('navigate action "lookup" is not supported. Use the bc_lookup tool to enumerate lookup candidates for a field.'));
+    }
+
     if (input.action === 'drill_down') {
       const result = await this.navigationService.drillDown(input.pageContextId, input.bookmark, input.section);
       return mapResult(result, (r) => ({

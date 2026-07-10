@@ -249,7 +249,13 @@ export class DataService {
     if (isErr(saveResult)) return saveResult;
     const allEvents = [...selectResult.value, ...saveResult.value];
     this.repo.applyToPage(pageContextId, saveResult.value);
-    return ok({ fieldName, controlPath: cellPath, success: true, newValue: value, events: allEvents });
+
+    const updatedCtx = this.repo.get(pageContextId);
+    const updatedForm = updatedCtx?.forms.get(formId);
+    const updatedNode = updatedForm ? findByControlPath(updatedForm.root, cellPath) : undefined;
+    const newValue = updatedNode && isFieldNode(updatedNode) ? (updatedNode.properties.stringValue ?? value) : value;
+
+    return ok({ fieldName, controlPath: cellPath, success: true, newValue, events: allEvents });
   }
 
   private resolveFieldNode(root: FormNode, fieldName: string): FieldNode | undefined {

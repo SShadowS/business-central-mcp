@@ -125,27 +125,9 @@ export class ActionService {
       return err(new ProtocolError(`Cue '${cueName}' is not drill-downable (HasAction=false).`));
     }
 
-    const result = await this.invokeAction(pageContextId, form, cue.controlPath, SystemAction.DrillDown);
-    if (isErr(result)) return result;
-
-    // Cue drill-down opens an underlying list page as a top-level FormCreated
-    // event (no parentFormId). The page-context-repo's applyEvent treats
-    // ownerless FormCreated as "update existing form" -- so without an
-    // explicit registration here, the new list page never gets a
-    // pageContextId, and ExecuteActionOperation.openedPages stays empty.
-    // Mirror NavigationService.drillDown: create a new page context for
-    // each ownerless FormCreated whose formId is unknown to the repo.
-    for (const event of result.value.events) {
-      if (event.type !== 'FormCreated') continue;
-      if (event.parentFormId) continue;
-      if (event.formId === form.formId) continue;
-      if (this.repo.getByFormId(event.formId)) continue;
-      const newPcId = `session:page:cue:${uuid().substring(0, 8)}`;
-      this.repo.create(newPcId, event.formId);
-      this.repo.applyToPage(newPcId, result.value.events);
-    }
-
-    return result;
+    // invokeAction registers any ownerless FormCreated the drill-down opens as
+    // its own page context (prefix 'cue'), so the new list page is addressable.
+    return this.invokeAction(pageContextId, form, cue.controlPath, SystemAction.DrillDown, 'cue');
   }
 
   /**
@@ -229,6 +211,7 @@ export class ActionService {
     form: FormState,
     controlPath: string,
     systemAction: number,
+    openedPagePrefix = 'action',
   ): Promise<Result<ActionResult, ProtocolError>> {
     const interaction: InvokeActionInteraction = {
       type: 'InvokeAction',
@@ -246,6 +229,22 @@ export class ActionService {
 
     const events = result.value;
     this.repo.applyToPage(pageContextId, events);
+
+    // Register any newly-opened ownerless forms as their own page contexts.
+    // Actions like "Dimensions" / "Ledger Entries" / "New" open a page as a
+    // top-level FormCreated (no parentFormId). The event router deliberately
+    // does NOT graft these onto the source page, so without an explicit
+    // registration the new form would be unaddressable and unclosable.
+    // Mirrors NavigationService.drillDown.
+    for (const event of events) {
+      if (event.type !== 'FormCreated') continue;
+      if (event.parentFormId) continue;
+      if (event.formId === form.formId) continue;
+      if (this.repo.getByFormId(event.formId)) continue;
+      const newPcId = `session:page:${openedPagePrefix}:${uuid().substring(0, 8)}`;
+      this.repo.create(newPcId, event.formId);
+      this.repo.applyToPage(newPcId, events);
+    }
 
     // Check for dialog
     const dialogEvent = events.find(e => e.type === 'DialogOpened');

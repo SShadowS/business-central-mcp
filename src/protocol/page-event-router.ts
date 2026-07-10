@@ -125,6 +125,16 @@ export class PageEventRouter {
     if (event.type === 'FormCreated' && event.parentFormId) {
       const pcId = targetPcId ?? store.lookupPcId(event.parentFormId);
       if (!pcId) return { kind: 'Unmatched' };
+      // With a caller-supplied hint (applyToPage replays a whole event batch
+      // onto a specific page), only attach the child if its parent genuinely
+      // belongs to that page. Otherwise a drill-down's card FormCreated,
+      // replayed onto the source list, would graft an unrelated form.
+      if (targetPcId) {
+        const page = store.get(pcId);
+        if (!page || (event.parentFormId !== page.rootFormId && !page.forms.has(event.parentFormId))) {
+          return { kind: 'Unmatched' };
+        }
+      }
       return { kind: 'AddChildForm', pcId };
     }
 
@@ -134,6 +144,16 @@ export class PageEventRouter {
     if (event.type === 'FormCreated' && !event.parentFormId) {
       const pcId = targetPcId ?? store.lookupPcId(formId);
       if (!pcId) return { kind: 'Unmatched' };
+      // With a hint, only treat this as a root refresh when the form IS this
+      // page's root (or already one of its forms). A brand-new ownerless
+      // FormCreated must NOT overwrite the target page's root/caption — it
+      // belongs to a different page the caller registers separately.
+      if (targetPcId) {
+        const page = store.get(pcId);
+        if (!page || (formId !== page.rootFormId && !page.forms.has(formId))) {
+          return { kind: 'Unmatched' };
+        }
+      }
       return { kind: 'UpdateRootForm', pcId };
     }
 

@@ -11,7 +11,7 @@
 import type { BCEvent } from './types.js';
 import type { PageContext } from './page-context.js';
 import type { FormState } from './form-state.js';
-import { SectionResolver } from './section-resolver.js';
+import { SectionResolver, type SectionDescriptor } from './section-resolver.js';
 import { buildFormTree } from './form-tree-builder.js';
 import { isLogicalFormNode, type FormNode } from './form-node.js';
 import { applyPropertyChange } from './form-tree-mutator.js';
@@ -243,6 +243,21 @@ export class PageContextRepository {
     const page = this.store.get(pcId);
     if (!page) return;
 
+    // Idempotent: a repeated FormCreated for a child already in this page
+    // (factbox reload with LoadForm openForm:true, isReload FormToShow) must
+    // update the tree in place — NOT reset its FormState (dropping loaded rows),
+    // duplicate its section, or re-append it to ownedFormIds.
+    const existingChild = page.forms.get(event.formId);
+    if (existingChild) {
+      const tree = tryBuildFormTree(event.controlTree);
+      if (tree) {
+        const forms = new Map(page.forms);
+        forms.set(event.formId, { ...existingChild, root: tree });
+        this.store.set(pcId, { ...page, forms });
+      }
+      return;
+    }
+
     // Create FormState for child
     const childForm = this.reducer.createInitial(event.formId, event.parentFormId);
     const tree = tryBuildFormTree(event.controlTree) ?? childForm.root;
@@ -251,8 +266,16 @@ export class PageContextRepository {
       root: tree,
     };
 
-    // Derive section
-    const section = this.sectionResolver.deriveSection(page, event.formId, event.controlTree);
+    // Derive section. deriveSection re-parses the raw controlTree via
+    // buildFormTree (unguarded), which throws on exactly the malformed inputs
+    // tryBuildFormTree tolerates above. Fall back to a plain subpage so a bad
+    // child tree can't abort the whole event batch mid-apply.
+    let section: SectionDescriptor;
+    try {
+      section = this.sectionResolver.deriveSection(page, event.formId, event.controlTree);
+    } catch {
+      section = { sectionId: `subpage:${event.formId}`, kind: 'subpage', caption: 'Subpage', formId: event.formId, valid: true };
+    }
 
     // Update PageContext
     const forms = new Map(page.forms);
@@ -323,7 +346,10 @@ export class PageContextRepository {
     const page = this.store.get(pcId);
     if (!page) return false;
 
-    // Mark any sections that reference this formId as invalid
+    // A child FormClosed must never tear down the page's own root form.
+    const isRoot = formId === page.rootFormId;
+
+    // Mark any sections that reference this formId as invalid.
     let changed = false;
     const sections = new Map(page.sections);
     for (const [sectionId, section] of sections) {
@@ -332,9 +358,35 @@ export class PageContextRepository {
         changed = true;
       }
     }
+
+    // For non-root forms, also drop the form itself so long-lived contexts
+    // (Role Center) don't accumulate every dialog/child ever opened: remove it
+    // from forms/dialogs/ownedFormIds and deindex the formId (which otherwise
+    // reports closed dialogs as open and leaks the formId index forever).
+    let forms = page.forms;
+    let dialogs = page.dialogs;
+    let ownedFormIds = page.ownedFormIds;
+    if (!isRoot) {
+      if (page.forms.has(formId)) {
+        const nextForms = new Map(page.forms);
+        nextForms.delete(formId);
+        forms = nextForms;
+        changed = true;
+      }
+      if (page.dialogs.some(d => d.formId === formId)) {
+        dialogs = page.dialogs.filter(d => d.formId !== formId);
+        changed = true;
+      }
+      if (page.ownedFormIds.includes(formId)) {
+        ownedFormIds = page.ownedFormIds.filter(id => id !== formId);
+        changed = true;
+      }
+      this.store.deindexFormId(formId);
+    }
+
     if (!changed) return false;
 
-    this.store.set(pcId, { ...page, sections });
+    this.store.set(pcId, { ...page, sections, forms, dialogs, ownedFormIds });
     return true;
   }
 

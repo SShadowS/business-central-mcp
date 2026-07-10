@@ -138,7 +138,7 @@ describe('ExecuteActionOperation — expectedStateVersion guard', () => {
     const repo = makeRepo(5); // generation is 5
     expect(repo.get('pc1')!.generation).toBe(5);
 
-    const op = new ExecuteActionOperation(makeActionServiceStub(), repo);
+    const op = new ExecuteActionOperation(makeActionServiceStub(), repo, { selectRow: async () => ({ ok: true, value: {} }) } as any);
     const result = await op.execute({
       pageContextId: 'pc1',
       action: 'Post',
@@ -156,7 +156,7 @@ describe('ExecuteActionOperation — expectedStateVersion guard', () => {
   it('does not call executeAction when rejected for staleness', async () => {
     const repo = makeRepo(5);
     const actionService = makeActionServiceStub();
-    const op = new ExecuteActionOperation(actionService, repo);
+    const op = new ExecuteActionOperation(actionService, repo, { selectRow: async () => ({ ok: true, value: {} }) } as any);
 
     await op.execute({
       pageContextId: 'pc1',
@@ -170,7 +170,7 @@ describe('ExecuteActionOperation — expectedStateVersion guard', () => {
   it('proceeds normally when expectedStateVersion matches current generation', async () => {
     const repo = makeRepo(5);
     const actionService = makeActionServiceStub();
-    const op = new ExecuteActionOperation(actionService, repo);
+    const op = new ExecuteActionOperation(actionService, repo, { selectRow: async () => ({ ok: true, value: {} }) } as any);
 
     const result = await op.execute({
       pageContextId: 'pc1',
@@ -185,7 +185,7 @@ describe('ExecuteActionOperation — expectedStateVersion guard', () => {
   it('proceeds normally when expectedStateVersion is omitted (opt-in only)', async () => {
     const repo = makeRepo(5);
     const actionService = makeActionServiceStub();
-    const op = new ExecuteActionOperation(actionService, repo);
+    const op = new ExecuteActionOperation(actionService, repo, { selectRow: async () => ({ ok: true, value: {} }) } as any);
 
     const result = await op.execute({
       pageContextId: 'pc1',

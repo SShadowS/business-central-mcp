@@ -20,6 +20,7 @@ import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
 import { PageService } from '../../src/services/page-service.js';
 import { DataService } from '../../src/services/data-service.js';
 import { ActionService } from '../../src/services/action-service.js';
+import { NavigationService } from '../../src/services/navigation-service.js';
 import { FilterService } from '../../src/services/filter-service.js';
 import { SortService } from '../../src/services/sort-service.js';
 import { OpenPageOperation } from '../../src/operations/open-page.js';
@@ -59,7 +60,8 @@ describe('stateVersion staleness guard (integration, Cronus28)', () => {
     openPageOp = new OpenPageOperation(pageService);
     readDataOp = new ReadDataOperation(dataService, filterService, sortService, repo);
     writeDataOp = new WriteDataOperation(dataService, repo);
-    executeActionOp = new ExecuteActionOperation(actionService, repo);
+    const navigationService = new NavigationService(session, repo, logger);
+    executeActionOp = new ExecuteActionOperation(actionService, repo, navigationService);
   }, 60_000);
 
   afterAll(async () => {

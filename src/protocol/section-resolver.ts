@@ -40,7 +40,21 @@ export class SectionResolver {
     const childRoot = buildFormTree(childControlTree);
     const reps = treeRepeaters(childRoot);
 
-    if (reps.size > 0) {
+    // Wire discriminators on the child lf root (verified from decompiled
+    // LogicalFormSerializer, BC28): IsSubForm marks a lines subpage; IsPart
+    // marks a hosted part. A lines subpage compiles to a Part too, so it sets
+    // BOTH IsSubForm AND IsPart — meaning `!isPart` alone cannot exclude
+    // factboxes. The reliable split:
+    //   - lines   = has a repeater AND (it is a subform OR it is not a part)
+    //   - factbox = a part that is NOT a subform (ListPart/CardPart FactBox)
+    //   - subpage = everything else (incl. a card-style subform with no repeater)
+    const raw = (childControlTree && typeof childControlTree === 'object')
+      ? childControlTree as Record<string, unknown>
+      : {};
+    const isSubForm = raw['IsSubForm'] === true;
+    const isPart = raw['IsPart'] === true;
+
+    if (reps.size > 0 && (isSubForm || !isPart)) {
       const [repeaterPath] = reps.keys();
       const id = this.uniqueSectionId(parentPageContext, 'lines');
       return {
@@ -50,6 +64,12 @@ export class SectionResolver {
         repeaterControlPath: repeaterPath,
         valid: true,
       };
+    }
+
+    if (isPart && !isSubForm) {
+      const caption = childRoot.properties.caption || 'FactBox';
+      const id = this.uniqueSectionId(parentPageContext, `factbox:${caption}`);
+      return { sectionId: id, kind: 'factbox', caption, formId: childFormId, valid: true };
     }
 
     const caption = childRoot.properties.caption || 'Subpage';

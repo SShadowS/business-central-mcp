@@ -142,10 +142,11 @@ describe('success path (ok result)', () => {
     const handler = routes.get('POST /api/v1/pages/open')!;
 
     const res = makeRes();
-    const body = { pageId: 'CustomerList' };
+    const body = { pageId: '22' };
     await handler(fakeReq, res as unknown as ServerResponse, body);
 
-    expect(ops.openPage.execute).toHaveBeenCalledWith(body);
+    // Routes now validate + normalize via zod; execute receives the parsed data.
+    expect(ops.openPage.execute).toHaveBeenCalledWith({ pageId: '22' });
     expect(statusCode(res)).toBe(200);
     expect(contentType(res)).toBe('application/json');
     expect(bodyJson(res)).toEqual({ data: 'test' });
@@ -166,7 +167,7 @@ describe('success path (ok result)', () => {
     const routes = createApiRoutes(ops, makeLogger());
     const handler = routes.get('POST /api/v1/pages/write')!;
     const res = makeRes();
-    await handler(fakeReq, res as unknown as ServerResponse, { pageContextId: 'ctx1', field: 'Name', value: 'Foo' });
+    await handler(fakeReq, res as unknown as ServerResponse, { pageContextId: 'ctx1', fields: { Name: 'Foo' } });
     expect(statusCode(res)).toBe(200);
     expect(ops.writeData.execute).toHaveBeenCalledTimes(1);
   });
@@ -206,7 +207,7 @@ describe('success path (ok result)', () => {
     const routes = createApiRoutes(ops, makeLogger());
     const handler = routes.get('POST /api/v1/navigate')!;
     const res = makeRes();
-    await handler(fakeReq, res as unknown as ServerResponse, { target: 'home' });
+    await handler(fakeReq, res as unknown as ServerResponse, { pageContextId: 'ctx1', bookmark: 'bk1' });
     expect(statusCode(res)).toBe(200);
     expect(ops.navigate.execute).toHaveBeenCalledTimes(1);
   });
@@ -220,7 +221,7 @@ describe('success path (ok result)', () => {
     const routes = createApiRoutes(ops, makeLogger());
     const handler = routes.get('POST /api/v1/pages/open')!;
     const res = makeRes();
-    await handler(fakeReq, res as unknown as ServerResponse, {});
+    await handler(fakeReq, res as unknown as ServerResponse, { pageId: '22' });
     expect(statusCode(res)).toBe(200);
     expect(bodyJson(res)).toBeNull();
   });
@@ -240,7 +241,7 @@ describe('error path (err result)', () => {
     const routes = createApiRoutes(ops, makeLogger());
     const handler = routes.get('POST /api/v1/pages/open')!;
     const res = makeRes();
-    await handler(fakeReq, res as unknown as ServerResponse, { pageId: 'Missing' });
+    await handler(fakeReq, res as unknown as ServerResponse, { pageId: '404' });
     expect(statusCode(res)).toBe(400);
     expect(contentType(res)).toBe('application/json');
     expect(bodyJson(res)).toEqual({ error: 'Page not found', code: 'PAGE_NOT_FOUND' });
@@ -255,7 +256,7 @@ describe('error path (err result)', () => {
     const routes = createApiRoutes(ops, makeLogger());
     const handler = routes.get('POST /api/v1/pages/read')!;
     const res = makeRes();
-    await handler(fakeReq, res as unknown as ServerResponse, {});
+    await handler(fakeReq, res as unknown as ServerResponse, { pageContextId: 'ctx1' });
     expect(statusCode(res)).toBe(400);
     expect(bodyJson(res)).toMatchObject({ error: 'Session expired', code: 'SESSION_LOST' });
   });
@@ -284,7 +285,7 @@ describe('error path (err result)', () => {
     const routes = createApiRoutes(ops, makeLogger());
     const handler = routes.get('POST /api/v1/pages/open')!;
     const res = makeRes();
-    await handler(fakeReq, res as unknown as ServerResponse, {});
+    await handler(fakeReq, res as unknown as ServerResponse, { pageId: '22' });
     expect(statusCode(res)).toBe(400);
     const body = bodyJson(res) as Record<string, unknown>;
     // Both fields are undefined; JSON.stringify converts undefined values to
@@ -298,14 +299,24 @@ describe('error path (err result)', () => {
 // Body is forwarded to the operation as-is
 // ---------------------------------------------------------------------------
 
-describe('body forwarding', () => {
-  it('passes the body argument directly to the operation execute method', async () => {
+describe('input validation and forwarding', () => {
+  it('rejects a schema-invalid body with 400 VALIDATION_ERROR and does not call the operation', async () => {
     const ops = makeMockOps();
     const routes = createApiRoutes(ops, makeLogger());
     const handler = routes.get('POST /api/v1/navigate')!;
-    const inputBody = { target: 'some-page', extra: 42 };
     const res = makeRes();
-    await handler(fakeReq, res as unknown as ServerResponse, inputBody);
-    expect(ops.navigate.execute).toHaveBeenCalledWith(inputBody);
+    await handler(fakeReq, res as unknown as ServerResponse, { target: 'some-page', extra: 42 });
+    expect(statusCode(res)).toBe(400);
+    expect(bodyJson(res)).toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(ops.navigate.execute).not.toHaveBeenCalled();
+  });
+
+  it('forwards the validated (schema-shaped) input, stripping unknown keys', async () => {
+    const ops = makeMockOps();
+    const routes = createApiRoutes(ops, makeLogger());
+    const handler = routes.get('POST /api/v1/navigate')!;
+    const res = makeRes();
+    await handler(fakeReq, res as unknown as ServerResponse, { pageContextId: 'ctx1', bookmark: 'bk1', extra: 42 });
+    expect(ops.navigate.execute).toHaveBeenCalledWith({ pageContextId: 'ctx1', bookmark: 'bk1' });
   });
 });

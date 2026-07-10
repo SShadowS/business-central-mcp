@@ -34,12 +34,18 @@ export class SessionFactory {
       reportDownloader,
     );
 
-    const initResult = await session.initialize(this.tenantId);
-    if (isErr(initResult)) {
+    try {
+      const initResult = await session.initialize(this.tenantId);
+      if (isErr(initResult)) {
+        session.close();
+        return err(new ConnectionError(`Session initialization failed: ${initResult.error.message}`));
+      }
+      return ok(session);
+    } catch (e) {
+      // initialize() threw instead of returning err -- close the session so the
+      // WebSocket + NTLM slot are not leaked, then surface a consistent err Result.
       session.close();
-      return err(new ConnectionError(`Session initialization failed: ${initResult.error.message}`));
+      return err(new ConnectionError(`Session initialization failed: ${e instanceof Error ? e.message : String(e)}`));
     }
-
-    return ok(session);
   }
 }

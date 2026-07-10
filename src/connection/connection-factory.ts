@@ -31,7 +31,13 @@ export class ConnectionFactory {
       timeoutMs: this.bcConfig.timeoutMs,
     });
 
-    if (isErr(connectResult)) return connectResult;
+    if (isErr(connectResult)) {
+      // Cached auth cookies may be stale (BC restart / cookie expiry). Drop them
+      // so the next create() re-authenticates instead of reusing dead cookies on
+      // every backoff retry, which would otherwise brick recovery permanently.
+      this.authProvider.invalidate();
+      return connectResult;
+    }
     return ok(ws);
   }
 

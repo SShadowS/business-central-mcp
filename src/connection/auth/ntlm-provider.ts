@@ -60,6 +60,22 @@ export class NTLMAuthProvider implements IBCAuthProvider {
         body: postBody.toString(),
       });
 
+      // Detect rejected credentials. A successful sign-in 302-redirects to the
+      // app root; a failure re-renders the login page as a 2xx that still
+      // carries the antiforgery-token input. Positively matching that re-render
+      // (rather than trusting the presence of a CfDJ8 cookie, which the
+      // antiforgery cookie ALSO has) avoids reporting success for bad creds.
+      // Verified against decompiled BC28 SignIn behavior + NavUserPasswordValidator.
+      if (postResponse.status < 300) {
+        const postHtml = await postResponse.text();
+        if (postHtml.includes('__RequestVerificationToken')) {
+          return err(new AuthenticationError(
+            'Sign-in failed: Business Central re-rendered the login page (credentials rejected or account locked).',
+            { baseUrl: this.config.baseUrl, username: this.config.username },
+          ));
+        }
+      }
+
       // Merge updated cookies
       const postCookies = postResponse.headers.getSetCookie?.() ?? [];
       if (postCookies.length > 0) {
@@ -118,5 +134,11 @@ export class NTLMAuthProvider implements IBCAuthProvider {
 
   isAuthenticated(): boolean {
     return this.authenticated;
+  }
+
+  invalidate(): void {
+    this.cookies = '';
+    this.csrfToken = '';
+    this.authenticated = false;
   }
 }

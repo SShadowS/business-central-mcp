@@ -1,6 +1,8 @@
-import { ok, isErr, type Result } from '../core/result.js';
+import { v4 as uuid } from 'uuid';
+import { ok, err, isErr, type Result } from '../core/result.js';
 import { ProtocolError } from '../core/errors.js';
 import type { BCSession } from '../session/bc-session.js';
+import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { ControlField } from '../protocol/types.js';
 import { detectDialogs } from '../protocol/mutation-result.js';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
@@ -15,6 +17,9 @@ export interface RunReportOutput {
   success: boolean;
   reportId: number;
   requestPage?: {
+    /** Page context of the registered request page — target bc_write_data /
+     * bc_respond_dialog against this to fill parameters and run the report. */
+    pageContextId: string;
     formId: string;
     fields?: ControlField[];
     message?: string;
@@ -35,10 +40,18 @@ export interface RunReportOutput {
 export class RunReportOperation {
   constructor(
     private readonly session: BCSession,
+    private readonly repo: PageContextRepository,
   ) {}
 
   async execute(input: RunReportInput): Promise<Result<RunReportOutput, ProtocolError>> {
-    const reportId = parseInt(input.reportId, 10);
+    // Number() rejects trailing garbage ("12abc" -> NaN) that parseInt would
+    // silently truncate; Number.isInteger rejects NaN and fractions.
+    const reportId = Number(input.reportId);
+    if (!Number.isInteger(reportId)) {
+      return err(new ProtocolError(
+        `Invalid reportId "${input.reportId}": must be a whole number, e.g. "6" for Trial Balance.`,
+      ));
+    }
 
     if (input.format) {
       return this.executeWithDownload(reportId, input.format);
@@ -51,11 +64,18 @@ export class RunReportOperation {
     const events = result.value;
     const dialogsOpened = detectDialogs(events);
 
-    // The first dialog opened is typically the request page
+    // The first dialog opened is typically the request page. Register it as a
+    // page context so the caller can fill parameters with bc_write_data and run
+    // the report with bc_respond_dialog(response: "ok") — without a
+    // pageContextId the returned formId is unaddressable by those tools.
     let requestPage: RunReportOutput['requestPage'] | undefined;
     if (dialogsOpened.length > 0) {
       const first = dialogsOpened[0]!;
+      const pcId = `session:page:report:${uuid().substring(0, 8)}`;
+      this.repo.create(pcId, first.formId);
+      this.repo.applyToPage(pcId, events);
       requestPage = {
+        pageContextId: pcId,
         formId: first.formId,
         fields: first.fields,
         message: first.message,

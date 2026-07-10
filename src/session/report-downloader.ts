@@ -21,7 +21,7 @@ export class ReportDownloader {
    *   Microsoft.Dynamics.Framework.UI.Web). Verified from live BC28 wire capture
    *   (2026-06-15): Trial Balance PDF, DynamicFileHandler.axd.
    */
-  async downloadFromUrl(relativeUrl: string): Promise<{ bytes: Buffer; contentType: string; fileName?: string }> {
+  async downloadFromUrl(relativeUrl: string, timeoutMs = 120000): Promise<{ bytes: Buffer; contentType: string; fileName?: string }> {
     const url = relativeUrl.startsWith('http')
       ? relativeUrl
       : `${this.baseUrl}/${relativeUrl}`;
@@ -34,6 +34,7 @@ export class ReportDownloader {
         ...this.getAuthHeaders(),
         'User-Agent': 'BCMCPServer/2.0',
       },
+      signal: AbortSignal.timeout(timeoutMs),
     });
 
     if (!response.ok) {
@@ -44,8 +45,7 @@ export class ReportDownloader {
 
     const contentType = response.headers.get('content-type') ?? 'application/octet-stream';
     const disposition = response.headers.get('content-disposition') ?? '';
-    const fnMatch = disposition.match(/filename\*?=(?:UTF-8'')?["']?([^"';\r\n]+)/i);
-    const fileName = fnMatch ? decodeURIComponent(fnMatch[1]!.trim()) : extractFileNameFromUrl(relativeUrl);
+    const fileName = extractFileNameFromDisposition(disposition) ?? extractFileNameFromUrl(relativeUrl);
 
     const arrayBuffer = await response.arrayBuffer();
     const bytes = Buffer.from(arrayBuffer);
@@ -53,6 +53,24 @@ export class ReportDownloader {
     this.logger.debug('protocol', `Report downloaded: ${bytes.length} bytes, content-type: ${contentType}${fileName ? `, fileName: ${fileName}` : ''}`);
     return { bytes, contentType, fileName };
   }
+}
+
+function extractFileNameFromDisposition(disposition: string): string | undefined {
+  // The RFC 5987 form (filename*=UTF-8''...) is percent-encoded and takes
+  // precedence; only it is decodeURIComponent'ed. Plain filename="..." values
+  // are used verbatim -- decoding them would throw URIError on a literal `%`
+  // not followed by two hex digits (e.g. `filename="100% Done.pdf"`).
+  const extMatch = disposition.match(/filename\*=UTF-8''([^";\r\n]+)/i);
+  if (extMatch) {
+    const raw = extMatch[1]!.trim();
+    try {
+      return decodeURIComponent(raw);
+    } catch {
+      return raw;
+    }
+  }
+  const plainMatch = disposition.match(/filename=["']?([^"';\r\n]+)/i);
+  return plainMatch ? plainMatch[1]!.trim() : undefined;
 }
 
 function extractFileNameFromUrl(relativeUrl: string): string | undefined {

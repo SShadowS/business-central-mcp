@@ -81,7 +81,7 @@ export class PageService {
   }
 
   async openPage(pageId: string, options?: { bookmark?: string; tenantId?: string }): Promise<Result<PageContext, ProtocolError>> {
-    const tenantId = options?.tenantId ?? 'default';
+    const tenantId = options?.tenantId ?? this.session.boundTenantId;
     let query = `page=${pageId}&tenant=${tenantId}`;
     if (options?.bookmark) {
       query += `&bookmark=${encodeURIComponent(options.bookmark)}`;
@@ -296,6 +296,7 @@ export class PageService {
     if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
 
     const allEvents: BCEvent[] = [];
+    let blockingDialog = false;
     try {
       for (const formId of ctx.ownedFormIds) {
         const closeInteraction: CloseFormInteraction = { type: 'CloseForm', formId };
@@ -305,7 +306,9 @@ export class PageService {
 
           // Handle "save changes?" dialogs triggered by CloseForm.
           // When discardChanges is true, auto-dismiss with "no" to complete the close.
-          // Otherwise, the dialog info is returned in events for the caller to handle.
+          // Otherwise, the dialog blocks the close — stop and keep the page
+          // context so the caller can answer it via bc_respond_dialog (removing
+          // the context here would strand the modal with no pcId to target).
           if (options?.discardChanges) {
             for (const event of result.value) {
               if (event.type === 'DialogOpened' && event.formId) {
@@ -320,17 +323,24 @@ export class PageService {
                 this.session.removeOpenForm(event.formId);
               }
             }
+          } else if (result.value.some(e => e.type === 'DialogOpened' && e.formId)) {
+            blockingDialog = true;
+            break;
           }
         }
         this.session.removeOpenForm(formId);
       }
     } finally {
-      // Always remove the page context from the repo, even if a form-close
-      // invoke throws (e.g. session killed mid-close). A dangling context
-      // referencing a dead form would cause stale-context errors on all
-      // subsequent tool calls.
-      this.repo.remove(pageContextId);
-      this.logger.info(`Page closed: ${pageContextId}`);
+      // Remove the page context unless a save-changes dialog is now awaiting the
+      // caller's response (keep it so bc_respond_dialog can target the dialog).
+      // On a throw, blockingDialog stays false so a context dangling on a dead
+      // form is still cleaned up (avoids stale-context errors on later calls).
+      if (!blockingDialog) {
+        this.repo.remove(pageContextId);
+        this.logger.info(`Page closed: ${pageContextId}`);
+      } else {
+        this.logger.info(`Page ${pageContextId} kept open: close raised a save-changes dialog awaiting response`);
+      }
     }
     return ok({ events: allEvents });
   }

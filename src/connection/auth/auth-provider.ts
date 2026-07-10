@@ -11,4 +11,8 @@ export interface IBCAuthProvider {
   getWebSocketHeaders(): Record<string, string>;
   getWebSocketQueryParams(): Record<string, string>;
   isAuthenticated(): boolean;
+  /** Drop cached credentials so the next authenticate() re-runs the login flow.
+   * Called when a WebSocket connect fails (cookies may be stale after a BC
+   * restart or cookie expiry). */
+  invalidate(): void;
 }

@@ -49,6 +49,13 @@ export class OpenPageOperation {
         : [];
       const cueCount = rootForm ? treeCues(rootForm.root).length : 0;
       if (captionedFields.length === 0 && cueCount === 0) {
+        // The stub page was already opened on BC -- close it so it doesn't
+        // leak. A close failure must not mask the CardPartStubError.
+        try {
+          await this.pageService.closePage(ctx.pageContextId, { discardChanges: true });
+        } catch {
+          // best-effort cleanup only
+        }
         return err(new CardPartStubError(
           `Page ${input.pageId} is a CardPart and BC returned a placeholder shell. CardParts are server stubs unless reached through a host page (Role Center or another page that embeds them). Open the host page instead.`,
           {

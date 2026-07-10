@@ -1,5 +1,6 @@
-import { mapResult, type Result } from '../core/result.js';
-import type { ProtocolError } from '../core/errors.js';
+import { err, isOk, mapResult, type Result } from '../core/result.js';
+import type { BCError } from '../core/errors.js';
+import { classifyBusinessError } from '../protocol/error-classifier.js';
 import type { ActionService } from '../services/action-service.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import { resolveSection } from '../protocol/section-resolver.js';
@@ -36,8 +37,14 @@ export class WizardNavigateOperation {
     private readonly repo: PageContextRepository,
   ) {}
 
-  async execute(input: WizardNavigateInput): Promise<Result<WizardNavigateOutput, ProtocolError>> {
+  async execute(input: WizardNavigateInput): Promise<Result<WizardNavigateOutput, BCError>> {
     const result = await this.actionService.executeWizardNav(input.pageContextId, input.action);
+    if (isOk(result)) {
+      // A finish/next that raises a BC error (message or error dialog) must
+      // not be reported as success.
+      const bizErr = classifyBusinessError(result.value.events);
+      if (bizErr !== null) return err(bizErr);
+    }
     return mapResult(result, (ar) => {
       const ctx = this.repo.get(input.pageContextId);
       const dialogsOpened = detectDialogs(ar.events);

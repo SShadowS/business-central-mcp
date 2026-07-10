@@ -68,6 +68,11 @@ export class BCSession {
     return this.company;
   }
 
+  /** The tenant this session is bound to — used as the default for page opens. */
+  get boundTenantId(): string {
+    return this.tenantId;
+  }
+
   get isAlive(): boolean {
     return !this.dead && this.ws.isConnected;
   }
@@ -105,7 +110,7 @@ export class BCSession {
           { type: 'InvokeAction', formId: licenseDialog.formId, controlPath: 'server:', systemAction: 300 }, // Ok=300
           (e) => e.type === 'InvokeCompleted',
         );
-        this._openFormIds.delete(licenseDialog.formId);
+        this.removeOpenForm(licenseDialog.formId);
       } catch {
         this.logger.warn('Failed to auto-dismiss license dialog, continuing anyway');
       }
@@ -145,11 +150,15 @@ export class BCSession {
     if (this.dead) return err(new ProtocolError('Session is dead'));
     const effectiveTimeout = timeoutMs ?? this.timeoutMs;
     try {
-      return await this.withTimeout(
-        this.enqueue(() => this.invokeUnqueued(interaction, expect, effectiveTimeout)),
+      // The timeout must wrap execution INSIDE the queued task, not the enqueue
+      // itself — otherwise time spent waiting behind earlier queued invokes
+      // counts against the timer and a healthy backlog spuriously kills the
+      // session.
+      return await this.enqueue(() => this.withTimeout(
+        this.invokeUnqueued(interaction, expect, effectiveTimeout),
         effectiveTimeout + 5000, // Session-level timeout is 5s longer than RPC timeout
         `Invoke(${interaction.type})`,
-      );
+      ));
     } catch (e) {
       if (e instanceof TimeoutError) {
         return err(new ProtocolError(e.message));
@@ -511,11 +520,11 @@ export class BCSession {
   ): Promise<Result<BCEvent[], ProtocolError>> {
     const effectiveTimeout = timeoutMs ?? this.timeoutMs;
     try {
-      return this.withTimeout(
-        this.enqueue(() => this.invokeUnqueued(interaction, expect, effectiveTimeout, /* bypassDeadCheck */ true)),
+      return this.enqueue(() => this.withTimeout(
+        this.invokeUnqueued(interaction, expect, effectiveTimeout, /* bypassDeadCheck */ true),
         effectiveTimeout + 5000,
         `InvokeRaw(${interaction.type})`,
-      );
+      ));
     } catch (e) {
       if (e instanceof TimeoutError) {
         return Promise.resolve(err(new ProtocolError(e.message)));

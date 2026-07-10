@@ -32,9 +32,18 @@ export class ListCompaniesOperation {
       // Extract company names from rows
       const companies = readResult.value.map(row => {
         const cells = row.cells as Record<string, unknown>;
-        // Find the cell that contains the company name
-        const name = Object.values(cells).find(v => typeof v === 'string') as string ?? '';
-        return { name, displayName: name };
+        const byCaption = (caption: string): string | undefined => {
+          const entry = Object.entries(cells).find(
+            ([key, value]) => key.toLowerCase() === caption.toLowerCase() && typeof value === 'string',
+          );
+          return entry?.[1] as string | undefined;
+        };
+        // Prefer the "Name" column; fall back to the first string cell
+        const name = byCaption('Name')
+          ?? (Object.values(cells).find(v => typeof v === 'string') as string | undefined)
+          ?? '';
+        const displayName = byCaption('Display Name') ?? name;
+        return { name, displayName };
       });
 
       this.logger.info(`Listed ${companies.length} companies (current: ${this.getCurrentCompany()})`);

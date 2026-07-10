@@ -20,8 +20,10 @@ export function findLicenseDialog(
     if (e.type !== 'DialogOpened') return false;
     const tree = e.controlTree as Record<string, unknown> | undefined;
     if (!tree) return false;
-    const caption = ((tree.Caption ?? tree.caption ?? '') as string).toLowerCase();
-    const message = ((tree.Message ?? tree.message ?? '') as string).toLowerCase();
+    const rawCaption = tree.Caption ?? tree.caption;
+    const rawMessage = tree.Message ?? tree.message;
+    const caption = typeof rawCaption === 'string' ? rawCaption.toLowerCase() : '';
+    const message = typeof rawMessage === 'string' ? rawMessage.toLowerCase() : '';
     const text = caption + ' ' + message;
     return text.includes('license') || text.includes('evaluation') || text.includes('trial');
   });

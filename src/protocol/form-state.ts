@@ -1,7 +1,7 @@
 // src/protocol/form-state.ts
 import type {
   RepeaterRow, ControlContainerType,
-  BCEvent, DataLoadedEvent, PropertyChangedEvent, BookmarkChangedEvent,
+  BCEvent, DataLoadedEvent, RowDeltaEvent, PropertyChangedEvent, BookmarkChangedEvent,
 } from './types.js';
 import type { FormNode } from './form-node.js';
 import type { NodeProperties } from './form-node.js';
@@ -37,6 +37,8 @@ export class FormProjection {
     switch (event.type) {
       case 'DataLoaded':
         return this.applyDataLoaded(form, event);
+      case 'RowDelta':
+        return this.applyRowDelta(form, event);
       case 'PropertyChanged':
         return this.applyPropertyChanged(form, event);
       case 'BookmarkChanged':
@@ -55,14 +57,62 @@ export class FormProjection {
 
     let newRows: readonly RepeaterRow[];
     if (event.currentRowOnly) {
+      // Upsert by bookmark: update matched rows in place and append any row whose
+      // bookmark is new (BC can re-bookmark the current row, e.g. draft→committed,
+      // which the old update-only map would silently drop).
       const existing = form.rows.get(event.controlPath) ?? [];
-      newRows = existing.map(r => extractedRows.find(x => x.bookmark === r.bookmark) ?? r);
+      const seen = new Set<string>();
+      newRows = [
+        ...existing.map(r => {
+          const upd = extractedRows.find(x => x.bookmark === r.bookmark);
+          if (upd) seen.add(upd.bookmark);
+          return upd ?? r;
+        }),
+        ...extractedRows.filter(x => !seen.has(x.bookmark) && !existing.some(r => r.bookmark === x.bookmark)),
+      ];
     } else {
       newRows = extractedRows;
     }
 
     const newRowsMap = new Map(form.rows);
     newRowsMap.set(event.controlPath, newRows);
+    return { ...form, rows: newRowsMap };
+  }
+
+  /**
+   * Apply an incremental repeater-row delta (insert / update / remove) delivered
+   * as a top-level DataRow* change. No-op if the repeater path is not in this
+   * form's tree (so the facade falls back to the child form that owns it).
+   */
+  private applyRowDelta(form: FormState, event: RowDeltaEvent): FormState {
+    const repeaterNode = treeRepeaters(form.root).get(event.controlPath);
+    if (!repeaterNode) return form;
+
+    const existing = form.rows.get(event.controlPath) ?? [];
+    let next: readonly RepeaterRow[];
+
+    if (event.op === 'remove') {
+      if (!existing.some(r => r.bookmark === event.bookmark)) return form;
+      next = existing.filter(r => r.bookmark !== event.bookmark);
+    } else {
+      const row: RepeaterRow = { bookmark: event.bookmark, cells: event.cells ?? {} };
+      const idx = existing.findIndex(r => r.bookmark === event.bookmark);
+      if (idx >= 0) {
+        const copy = existing.slice();
+        copy[idx] = row;
+        next = copy;
+      } else {
+        const at = event.op === 'insert' && typeof event.index === 'number'
+          ? Math.max(0, Math.min(event.index, existing.length))
+          : existing.length;
+        const copy = existing.slice();
+        copy.splice(at, 0, row);
+        next = copy;
+      }
+    }
+
+    const newRowsMap = new Map(form.rows);
+    newRowsMap.set(event.controlPath, next);
     return { ...form, rows: newRowsMap };
   }
 
@@ -80,6 +130,17 @@ export class FormProjection {
     if ('TotalRowCount' in changes && typeof changes.TotalRowCount === 'number') (nodeChanges as Record<string, unknown>).totalRowCount = changes.TotalRowCount;
     if ('Bookmark' in changes && typeof changes.Bookmark === 'string') (nodeChanges as Record<string, unknown>).bookmark = changes.Bookmark;
     if ('HasFiltersApplied' in changes && typeof changes.HasFiltersApplied === 'boolean') (nodeChanges as Record<string, unknown>).hasFiltersApplied = changes.HasFiltersApplied;
+
+    // Option fields: BC echoes the selected index as CurrentIndex. When a
+    // SaveValue echoes only StringValue (no CurrentIndex), the build-time
+    // optionIndex is now stale — clear it so section-dto falls back to matching
+    // the new stringValue against the option texts instead of reporting the
+    // pre-change option.
+    if ('CurrentIndex' in changes && typeof changes.CurrentIndex === 'number') {
+      (nodeChanges as Record<string, unknown>).optionIndex = changes.CurrentIndex;
+    } else if ('StringValue' in changes) {
+      (nodeChanges as Record<string, unknown>).optionIndex = undefined;
+    }
 
     const newRoot = applyPropertyChange(form.root, event.controlPath, nodeChanges);
     if (newRoot === form.root) return form;

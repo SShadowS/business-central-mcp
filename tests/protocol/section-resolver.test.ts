@@ -74,6 +74,56 @@ describe('SectionResolver', () => {
     expect(section.kind).toBe('lines');
   });
 
+  it('classifies a ListPart FactBox (repeater + IsPart) as factbox, not lines', () => {
+    const ctx = makePageContext();
+    const childTree = {
+      t: 'lf', ServerId: 'fb1', Caption: 'Customer Statistics', PageType: 1, IsPart: true,
+      Children: [{ t: 'rc', Columns: [{ t: 'rcc', Caption: 'Entry No.' }] }],
+    };
+    const section = resolver.deriveSection(ctx, 'fb1', childTree);
+    expect(section.kind).toBe('factbox');
+    expect(section.sectionId).toBe('factbox:Customer Statistics');
+  });
+
+  it('classifies a CardPart FactBox (no repeater + IsPart) as factbox', () => {
+    const ctx = makePageContext();
+    const childTree = { t: 'lf', ServerId: 'fb2', Caption: 'Details', PageType: 0, IsPart: true, Children: [] };
+    const section = resolver.deriveSection(ctx, 'fb2', childTree);
+    expect(section.kind).toBe('factbox');
+  });
+
+  it('classifies a lines subform that sets BOTH IsSubForm and IsPart as lines', () => {
+    // Real BC: a lines subpage (e.g. Sales Order Subform) compiles to a Part, so
+    // it carries IsPart=true alongside IsSubForm=true. It must still be lines,
+    // not factbox — regression guard for the Sales Order document.
+    const ctx = makePageContext();
+    const childTree = {
+      t: 'lf', ServerId: 'sol', Caption: 'Sales Order Subform', PageType: 1, IsSubForm: true, IsPart: true,
+      Children: [{ t: 'rc', Columns: [{ t: 'rcc', Caption: 'No.' }] }],
+    };
+    const section = resolver.deriveSection(ctx, 'sol', childTree);
+    expect(section.kind).toBe('lines');
+  });
+
+  it('classifies an explicit IsSubForm child with a repeater as lines', () => {
+    const ctx = makePageContext();
+    const childTree = {
+      t: 'lf', ServerId: 'sub1', Caption: 'Lines', PageType: 1, IsSubForm: true,
+      Children: [{ t: 'rc', Columns: [{ t: 'rcc', Caption: 'No.' }] }],
+    };
+    const section = resolver.deriveSection(ctx, 'sub1', childTree);
+    expect(section.kind).toBe('lines');
+  });
+
+  it('classifies an IsSubForm child WITHOUT a repeater as subpage (not lines)', () => {
+    // A card-style subform: IsSubForm=true but no repeater. Must not become
+    // 'lines' (which would wrongly flip the host page to Document).
+    const ctx = makePageContext();
+    const childTree = { t: 'lf', ServerId: 'sub2', Caption: 'Detail', PageType: 0, IsSubForm: true, Children: [] };
+    const section = resolver.deriveSection(ctx, 'sub2', childTree);
+    expect(section.kind).toBe('subpage');
+  });
+
   it('creates header section for root form', () => {
     const section = resolver.createHeaderSection('rootForm');
     expect(section.sectionId).toBe('header');

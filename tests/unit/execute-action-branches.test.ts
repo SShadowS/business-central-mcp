@@ -38,11 +38,16 @@ function makeRepo(withPage = true) {
   return repo;
 }
 
+// These branch tests never pass bookmark/rowIndex, so selectRow is never hit.
+function makeNav() {
+  return { selectRow: async () => ({ ok: true, value: {} }) } as any;
+}
+
 describe('ExecuteActionOperation — input validation (uncovered branches)', () => {
   it('returns PROTOCOL_ERROR when cue is provided without section, before calling service', async () => {
     const actionService = makeActionService();
     const repo = makeRepo();
-    const op = new ExecuteActionOperation(actionService, repo);
+    const op = new ExecuteActionOperation(actionService, repo, makeNav());
 
     const result = await op.execute({
       pageContextId: 'pc:1',
@@ -62,7 +67,7 @@ describe('ExecuteActionOperation — input validation (uncovered branches)', () 
   it('returns PROTOCOL_ERROR when neither action nor cue is provided', async () => {
     const actionService = makeActionService();
     const repo = makeRepo();
-    const op = new ExecuteActionOperation(actionService, repo);
+    const op = new ExecuteActionOperation(actionService, repo, makeNav());
 
     const result = await op.execute({
       pageContextId: 'pc:1',
@@ -85,7 +90,7 @@ describe('ExecuteActionOperation — service error propagation (uncovered)', () 
       executeAction: vi.fn(async () => err(new ProtocolError('Action not found: Post'))),
     });
     const repo = makeRepo();
-    const op = new ExecuteActionOperation(actionService, repo);
+    const op = new ExecuteActionOperation(actionService, repo, makeNav());
 
     const result = await op.execute({
       pageContextId: 'pc:1',
@@ -103,7 +108,7 @@ describe('ExecuteActionOperation — service error propagation (uncovered)', () 
       executeOnCue: vi.fn(async () => err(new ProtocolError('Cue not found: Sales Quotes'))),
     });
     const repo = makeRepo();
-    const op = new ExecuteActionOperation(actionService, repo);
+    const op = new ExecuteActionOperation(actionService, repo, makeNav());
 
     const result = await op.execute({
       pageContextId: 'pc:1',
@@ -131,7 +136,7 @@ describe('ExecuteActionOperation — business error classification (uncovered)',
       executeAction: vi.fn(async () => ok({ success: false, events: [businessErrorEvent] })),
     });
     const repo = makeRepo();
-    const op = new ExecuteActionOperation(actionService, repo);
+    const op = new ExecuteActionOperation(actionService, repo, makeNav());
 
     const result = await op.execute({
       pageContextId: 'pc:1',
@@ -155,7 +160,7 @@ describe('ExecuteActionOperation — business error classification (uncovered)',
       executeOnCue: vi.fn(async () => ok({ success: false, events: [businessErrorEvent] })),
     });
     const repo = makeRepo();
-    const op = new ExecuteActionOperation(actionService, repo);
+    const op = new ExecuteActionOperation(actionService, repo, makeNav());
 
     const result = await op.execute({
       pageContextId: 'pc:1',
@@ -176,7 +181,7 @@ describe('ExecuteActionOperation — buildOutput (uncovered branches)', () => {
       executeAction: vi.fn(async () => ok({ success: true, events: [] as BCEvent[], updatedState: undefined })),
     });
     const repo = makeRepo();
-    const op = new ExecuteActionOperation(actionService, repo);
+    const op = new ExecuteActionOperation(actionService, repo, makeNav());
 
     const result = await op.execute({ pageContextId: 'pc:1', action: 'Refresh' });
 
@@ -195,7 +200,7 @@ describe('ExecuteActionOperation — buildOutput (uncovered branches)', () => {
       executeAction: vi.fn(async () => ok({ success: true, events: [dialogEvent] })),
     });
     const repo = makeRepo();
-    const op = new ExecuteActionOperation(actionService, repo);
+    const op = new ExecuteActionOperation(actionService, repo, makeNav());
 
     const result = await op.execute({ pageContextId: 'pc:1', action: 'Post' });
 
@@ -210,7 +215,7 @@ describe('ExecuteActionOperation — buildOutput (uncovered branches)', () => {
   it('returns requiresDialogResponse=false when no DialogOpened events', async () => {
     const actionService = makeActionService();
     const repo = makeRepo();
-    const op = new ExecuteActionOperation(actionService, repo);
+    const op = new ExecuteActionOperation(actionService, repo, makeNav());
 
     const result = await op.execute({ pageContextId: 'pc:1', action: 'Refresh' });
 
@@ -236,7 +241,7 @@ describe('ExecuteActionOperation — buildOutput (uncovered branches)', () => {
     const actionService = makeActionService({
       executeAction: vi.fn(async () => ok({ success: true, events: [formCreatedEvent] })),
     });
-    const op = new ExecuteActionOperation(actionService, repo);
+    const op = new ExecuteActionOperation(actionService, repo, makeNav());
 
     const result = await op.execute({ pageContextId: 'pc:1', action: 'Post' });
 
@@ -259,7 +264,7 @@ describe('ExecuteActionOperation — buildOutput (uncovered branches)', () => {
     const actionService = makeActionService({
       executeAction: vi.fn(async () => ok({ success: true, events: [selfReloadEvent] })),
     });
-    const op = new ExecuteActionOperation(actionService, repo);
+    const op = new ExecuteActionOperation(actionService, repo, makeNav());
 
     const result = await op.execute({ pageContextId: 'pc:1', action: 'Refresh' });
 
@@ -282,7 +287,7 @@ describe('ExecuteActionOperation — buildOutput (uncovered branches)', () => {
     const actionService = makeActionService({
       executeAction: vi.fn(async () => ok({ success: true, events: [unknownFormEvent] })),
     });
-    const op = new ExecuteActionOperation(actionService, repo);
+    const op = new ExecuteActionOperation(actionService, repo, makeNav());
 
     const result = await op.execute({ pageContextId: 'pc:1', action: 'Post' });
 

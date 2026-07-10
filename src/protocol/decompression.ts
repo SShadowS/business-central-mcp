@@ -1,11 +1,16 @@
-import { gunzipSync } from 'node:zlib';
+import { unzipSync } from 'node:zlib';
 import { ok, err, type Result } from '../core/result.js';
 import { ProtocolError } from '../core/errors.js';
+
+// Generous cap on decompressed payload size to guard against zip bombs.
+const MAX_DECOMPRESSED_BYTES = 64 * 1024 * 1024;
 
 export function decompressPayload(base64Data: string): Result<unknown, ProtocolError> {
   try {
     const buffer = Buffer.from(base64Data, 'base64');
-    const decompressed = gunzipSync(buffer);
+    // unzipSync auto-detects gzip AND zlib/deflate wrapping (gunzipSync only
+    // accepts gzip, failing on zlib-wrapped payloads).
+    const decompressed = unzipSync(buffer, { maxOutputLength: MAX_DECOMPRESSED_BYTES });
     const text = decompressed.toString('utf8');
     return ok(JSON.parse(text));
   } catch (e) {

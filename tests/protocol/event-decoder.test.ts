@@ -28,6 +28,51 @@ describe('EventDecoder', () => {
     }
   });
 
+  it('decodes a top-level DataRowInserted into a RowDelta insert', () => {
+    const handlers = [{
+      handlerType: HANDLER_TYPES.LogicalClientChange,
+      parameters: ['f1', [
+        { t: 'DataRowInserted', ControlReference: { controlPath: 'server:c[1]' }, DataRowInserted: [2, { bookmark: 'bmX', cells: { 'No.': '99' } }] },
+      ]],
+    }];
+    const rd = decoder.decode(handlers).find(e => e.type === 'RowDelta');
+    expect(rd).toBeDefined();
+    if (rd?.type === 'RowDelta') {
+      expect(rd.op).toBe('insert');
+      expect(rd.controlPath).toBe('server:c[1]');
+      expect(rd.bookmark).toBe('bmX');
+      expect(rd.index).toBe(2);
+      expect(rd.cells!['No.']).toBe('99');
+    }
+  });
+
+  it('decodes a top-level DataRowUpdated into a RowDelta update', () => {
+    const handlers = [{
+      handlerType: HANDLER_TYPES.LogicalClientChange,
+      parameters: ['f1', [
+        { t: 'DataRowUpdated', ControlReference: { controlPath: 'server:c[1]' }, DataRowUpdated: [0, { bookmark: 'bmU', cells: { 'No.': '5' } }] },
+      ]],
+    }];
+    const rd = decoder.decode(handlers).find(e => e.type === 'RowDelta');
+    expect(rd?.type).toBe('RowDelta');
+    if (rd?.type === 'RowDelta') expect(rd.op).toBe('update');
+  });
+
+  it('decodes a top-level DataRowRemoved into a RowDelta remove (by bookmark)', () => {
+    const handlers = [{
+      handlerType: HANDLER_TYPES.LogicalClientChange,
+      parameters: ['f1', [
+        { t: 'DataRowRemoved', ControlReference: { controlPath: 'server:c[1]' }, Bookmark: 'bmGone' },
+      ]],
+    }];
+    const rd = decoder.decode(handlers).find(e => e.type === 'RowDelta');
+    expect(rd?.type).toBe('RowDelta');
+    if (rd?.type === 'RowDelta') {
+      expect(rd.op).toBe('remove');
+      expect(rd.bookmark).toBe('bmGone');
+    }
+  });
+
   it('decodes PropertyChanges', () => {
     const handlers = [{
       handlerType: HANDLER_TYPES.LogicalClientChange,

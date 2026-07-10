@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { RunReportOperation } from '../../src/operations/run-report.js';
+import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
 import type { BCSession } from '../../src/session/bc-session.js';
 import { ok, err, isErr, isOk } from '../../src/core/result.js';
 import { ProtocolError } from '../../src/core/errors.js';
@@ -32,7 +33,7 @@ describe('RunReportOperation format handling', () => {
       fileName: 'Report 6.pdf',
     }));
     const session = createMockSession({ runReportWithDownload });
-    const op = new RunReportOperation(session);
+    const op = new RunReportOperation(session, new PageContextRepository());
 
     const result = await op.execute({ reportId: '6', format: 'pdf' });
 
@@ -53,7 +54,7 @@ describe('RunReportOperation format handling', () => {
       fileName: 'Report 6.xlsx',
     }));
     const session = createMockSession({ runReportWithDownload });
-    const op = new RunReportOperation(session);
+    const op = new RunReportOperation(session, new PageContextRepository());
 
     const result = await op.execute({ reportId: '6', format: 'excel' });
 
@@ -74,7 +75,7 @@ describe('RunReportOperation format handling', () => {
       fileName: 'Report 6.docx',
     }));
     const session = createMockSession({ runReportWithDownload });
-    const op = new RunReportOperation(session);
+    const op = new RunReportOperation(session, new PageContextRepository());
 
     const result = await op.execute({ reportId: '120', format: 'word' });
 
@@ -90,7 +91,7 @@ describe('RunReportOperation format handling', () => {
     const unavailableErr = new ProtocolError('Report 6 does not offer excel; available: PDF Document, Microsoft Word Document');
     const runReportWithDownload = vi.fn().mockResolvedValue(err(unavailableErr));
     const session = createMockSession({ runReportWithDownload });
-    const op = new RunReportOperation(session);
+    const op = new RunReportOperation(session, new PageContextRepository());
 
     const result = await op.execute({ reportId: '6', format: 'excel' });
 
@@ -102,7 +103,7 @@ describe('RunReportOperation format handling', () => {
   it('opens request page only when format is omitted (no download)', async () => {
     const runReport = vi.fn().mockResolvedValue(ok([]));
     const session = createMockSession({ runReport });
-    const op = new RunReportOperation(session);
+    const op = new RunReportOperation(session, new PageContextRepository());
 
     const result = await op.execute({ reportId: '6' });
 

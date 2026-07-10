@@ -1,7 +1,8 @@
-import { err, ok, isOk, type Result } from '../core/result.js';
+import { err, ok, isOk, isErr, type Result } from '../core/result.js';
 import { ProtocolError, StaleContextError, type BCError } from '../core/errors.js';
 import { classifyBusinessError } from '../protocol/error-classifier.js';
 import type { ActionService, ActionResult } from '../services/action-service.js';
+import type { NavigationService } from '../services/navigation-service.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { ControlField } from '../protocol/types.js';
 import { resolveSection } from '../protocol/section-resolver.js';
@@ -39,6 +40,7 @@ export class ExecuteActionOperation {
   constructor(
     private readonly actionService: ActionService,
     private readonly repo: PageContextRepository,
+    private readonly navigationService: NavigationService,
   ) {}
 
   async execute(input: ExecuteActionInput): Promise<Result<ExecuteActionOutput, BCError>> {
@@ -62,11 +64,52 @@ export class ExecuteActionOperation {
     if (!input.action) {
       return err(new ProtocolError('Provide exactly one of: action, cue'));
     }
+
+    // Position the current row before a row-scoped action (Delete/Edit/View/...).
+    // BC's row actions target `{repeater}/cr/c[0]` = the currently-selected row,
+    // so without this a Delete/Edit would silently hit the wrong record.
+    if (input.bookmark !== undefined || input.rowIndex !== undefined) {
+      const positioned = await this.positionRow(input);
+      if (isErr(positioned)) return positioned;
+    }
+
     const result = await this.actionService.executeAction(input.pageContextId, input.action, input.section);
     if (!isOk(result)) return result;
     const bizErr = classifyBusinessError(result.value.events);
     if (bizErr !== null) return err(bizErr);
     return ok(this.buildOutput(input.pageContextId, result.value));
+  }
+
+  /**
+   * Move BC's current-row cursor to the caller's target row so a subsequent
+   * row-scoped action (which BC resolves against `{repeater}/cr/c[0]`) operates
+   * on the intended record. Prefers `bookmark`; resolves `rowIndex` against the
+   * section's loaded repeater rows.
+   */
+  private async positionRow(input: ExecuteActionInput): Promise<Result<void, BCError>> {
+    let bookmark = input.bookmark;
+    if (bookmark === undefined && input.rowIndex !== undefined) {
+      const ctx = this.repo.get(input.pageContextId);
+      if (!ctx) return err(new ProtocolError(`Page context not found: ${input.pageContextId}`));
+      const resolved = resolveSection(ctx, input.section);
+      if ('error' in resolved) {
+        return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
+      }
+      if (!resolved.repeater) {
+        return err(new ProtocolError('rowIndex/bookmark supplied but the target section has no repeater.'));
+      }
+      const rows = resolved.form.rows.get(resolved.repeater.controlPath) ?? [];
+      const row = rows[input.rowIndex];
+      if (!row) {
+        return err(new ProtocolError(
+          `rowIndex ${input.rowIndex} is out of range (${rows.length} rows loaded). Read the section first or pass a bookmark.`,
+        ));
+      }
+      bookmark = row.bookmark;
+    }
+    const selectResult = await this.navigationService.selectRow(input.pageContextId, bookmark!, input.section);
+    if (isErr(selectResult)) return selectResult;
+    return ok(undefined);
   }
 
   private buildOutput(pageContextId: string, ar: ActionResult): ExecuteActionOutput {

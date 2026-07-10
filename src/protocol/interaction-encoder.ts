@@ -128,11 +128,26 @@ export class InteractionEncoder {
     const now = new Date();
     const offset = -now.getTimezoneOffset();
     const year = now.getFullYear();
+    // Derive DST from the host timezone instead of hardcoding EU rules:
+    // compare the January and July offsets. Equal offsets mean the zone
+    // observes no DST; otherwise the difference is the DST shift.
+    const janOffset = new Date(year, 0, 1).getTimezoneOffset();
+    const julOffset = new Date(year, 6, 1).getTimezoneOffset();
+    if (janOffset === julOffset) {
+      // Zone has no DST -- send a zero-offset, zero-length DST period.
+      const jan1 = new Date(year, 0, 1);
+      return {
+        timeZoneBaseOffset: offset,
+        dstOffset: 0,
+        dstPeriodStart: jan1.toISOString(),
+        dstPeriodEnd: jan1.toISOString(),
+      };
+    }
     const dstStart = this.lastSunday(year, 2); // March (0-indexed)
     const dstEnd = this.lastSunday(year, 9);   // October (0-indexed)
     return {
       timeZoneBaseOffset: offset,
-      dstOffset: 60,
+      dstOffset: Math.abs(janOffset - julOffset),
       dstPeriodStart: dstStart.toISOString(),
       dstPeriodEnd: dstEnd.toISOString(),
     };

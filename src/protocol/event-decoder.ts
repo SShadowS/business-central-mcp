@@ -2,7 +2,7 @@ import { HANDLER_TYPES } from './handler-types.js';
 import { resolveChangeType, SESSION_EVENTS } from './wire-types.js';
 import type {
   BCEvent, FormCreatedEvent, FormClosedEvent, DialogOpenedEvent, MessageToShowEvent,
-  DataLoadedEvent, PropertyChangedEvent, BookmarkChangedEvent, InvokeCompletedEvent,
+  DataLoadedEvent, RowDeltaEvent, PropertyChangedEvent, BookmarkChangedEvent, InvokeCompletedEvent,
   SessionInfoEvent, FileDownloadReadyEvent,
 } from './types.js';
 
@@ -52,6 +52,33 @@ export class EventDecoder {
         case 'DataRefreshChange':
           events.push({ type: 'DataLoaded', formId, controlPath, currentRowOnly: (c.CurrentRowOnly as boolean) ?? false, rows: (c.RowChanges as unknown[]) ?? [] } satisfies DataLoadedEvent);
           break;
+        case 'DataRowInserted':
+        case 'DataRowUpdated': {
+          // Top-level incremental row change: { t, ControlReference, "<t>": [index, { bookmark, cells }] }.
+          // Verified from decompiled LogicalChangeSetSerializer (BC28): these are
+          // emitted as top-level siblings on the delta path, not nested in a
+          // DataRefreshChange. The payload key equals the (long) type name.
+          const arr = (c[resolved] ?? c[wireType]) as unknown[] | undefined;
+          if (Array.isArray(arr) && arr.length >= 2 && arr[1] && typeof arr[1] === 'object') {
+            const payload = arr[1] as Record<string, unknown>;
+            events.push({
+              type: 'RowDelta', formId, controlPath,
+              op: resolved === 'DataRowInserted' ? 'insert' : 'update',
+              bookmark: (payload['bookmark'] ?? payload['Bookmark'] ?? '') as string,
+              index: typeof arr[0] === 'number' ? (arr[0] as number) : undefined,
+              cells: (payload['cells'] ?? payload['Cells'] ?? {}) as Record<string, unknown>,
+            } satisfies RowDeltaEvent);
+          }
+          break;
+        }
+        case 'DataRowRemoved': {
+          // Removal is identified by bookmark only (no index). Wire: { t, ControlReference, Bookmark }.
+          const bookmark = (c.Bookmark ?? c.bookmark) as string | undefined;
+          if (bookmark) {
+            events.push({ type: 'RowDelta', formId, controlPath, op: 'remove', bookmark } satisfies RowDeltaEvent);
+          }
+          break;
+        }
         case 'PropertyChanges':
           events.push({ type: 'PropertyChanged', formId, controlPath, changes: (c.Changes as Record<string, unknown>) ?? {} } satisfies PropertyChangedEvent);
           break;
