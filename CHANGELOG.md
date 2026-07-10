@@ -13,6 +13,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [1.3.0] - 2026-07-10
+
+### Added
+
+- **`bc_query` OData tool.** Bulk, structured reads via BC's Standard API v2.0
+  (customers, items, salesOrders, generalLedgerEntries, …) with `$filter`,
+  `$select`, `$orderby`, `$top`, and `$expand`. Company-scoped automatically,
+  with a per-query `company` override.
+- **`lookupCustom` field flag.** Field DTOs surface `lookupCustom` for AL
+  `OnLookup` fields so an agent knows a field needs the custom lookup path.
+- **Incremental repeater rows.** `bc_read_data` now reflects live row
+  inserts/updates/deletes on document lines. BC's top-level `DataRow*` change
+  events (previously dropped) are decoded and applied, so reads after New /
+  Delete / recompute no longer serve stale or deleted rows.
+- **Report request page is addressable.** `bc_run_report` returns a
+  `pageContextId` for the request page, so parameters can be filled with
+  `bc_write_data` and the report run with `bc_respond_dialog` — the documented
+  flow now actually works.
+
+### Changed
+
+- **Stricter input validation.** Page/report IDs must be numeric; `range`
+  offset/limit and `rowIndex` are bounded non-negative integers; REST bodies
+  are zod-validated and size-capped; the API token is compared in constant
+  time. Malformed inputs are rejected up front instead of producing opaque BC
+  failures.
+- **`bc_navigate`** no longer advertises the non-functional `action: "lookup"`
+  / `field` inputs (they were silent no-ops); use `bc_lookup` for field
+  lookups.
+
+### Fixed
+
+- **Row-scoped actions target the intended row.** `bc_execute_action` with a
+  `bookmark`/`rowIndex` now positions that row before Delete/Edit, instead of
+  acting on whatever row was selected.
+- **FactBox sections classify correctly.** ListPart/CardPart FactBoxes are no
+  longer misclassified as document lines (and no longer flip a Card page to
+  Document); verified via `IsSubForm`/`IsPart` on the child form.
+- **Silent-success bugs.** `bc_switch_company`, `bc_respond_dialog`, and
+  `bc_wizard_navigate` now surface BC posting/validation errors instead of
+  reporting success; `bc_respond_dialog` applies close-path events.
+- **OData `companies` entity.** `bc_query("companies")` no longer wrongly
+  company-scopes the top-level entity (it previously always failed).
+- **Session robustness.** Recovery re-authenticates instead of reusing dead
+  cookies; concurrent first requests share one session (no leak); the invoke
+  timeout clocks execution rather than queue wait; the Tell Me search form is
+  closed after use.
+- **Line-cell writes** report BC's echoed/validated value, not the raw input.
+- **Sign-in** rejects bad credentials up front instead of failing later at the
+  WebSocket handshake.
+
+See `docs/code-review-2026-07-10.md` for the full list of resolved findings.
+
 ## [1.2.0] - 2026-06-16
 
 ### Added
