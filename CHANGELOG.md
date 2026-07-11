@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-## [1.3.0] - 2026-07-10
+## [1.4.0] - 2026-07-11
 
 ### Added
 
@@ -23,6 +23,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `bc_find_page`, `bc_read_list`, `bc_edit_record`, `bc_create_document`,
   `bc_post_document`, `bc_set_dimensions`, `bc_report`, `bc_bulk_read`, and
   `bc_run_wizard`. The `prompts` capability is advertised on `initialize`.
+
+### Fixed
+
+- **Tool descriptions synced with current behavior.** Refreshed the
+  bc_navigate (dropped the removed `lookup`/`field`), bc_run_report (documents
+  `requestPage.pageContextId`/`formId`), bc_respond_dialog, bc_open_page,
+  bc_read_data, bc_search_pages, and bc_query tool descriptions to match the
+  shipped schema and outputs.
+
+## [1.3.0] - 2026-07-10
+
+### Added
+
 - **`bc_query` OData tool.** Bulk, structured reads via BC's Standard API v2.0
   (customers, items, salesOrders, generalLedgerEntries, …) with `$filter`,
   `$select`, `$orderby`, `$top`, and `$expand`. Company-scoped automatically,
