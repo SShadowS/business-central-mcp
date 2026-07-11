@@ -1,4 +1,5 @@
 import type { ToolDefinition } from './tool-registry.js';
+import type { PromptDefinition } from './prompts.js';
 import type { Logger } from '../core/logger.js';
 import { SessionLostError, BCError, errorHint } from '../core/errors.js';
 
@@ -47,6 +48,7 @@ export class MCPHandler {
   constructor(
     private readonly tools: ToolDefinition[],
     private readonly logger: Logger,
+    private readonly prompts: PromptDefinition[] = [],
   ) {}
 
   async handleRequest(request: JsonRpcRequest): Promise<JsonRpcResponse> {
@@ -65,9 +67,9 @@ export class MCPHandler {
         case 'resources/read':
           return { jsonrpc: '2.0', id: request.id, error: { code: -32601, message: 'Resource not found' } };
         case 'prompts/list':
-          return { jsonrpc: '2.0', id: request.id, result: { prompts: [] } };
+          return this.handlePromptsList(request);
         case 'prompts/get':
-          return { jsonrpc: '2.0', id: request.id, error: { code: -32601, message: 'Prompt not found' } };
+          return this.handlePromptsGet(request);
         default:
           return { jsonrpc: '2.0', id: request.id, error: { code: -32601, message: `Method not found: ${request.method}` } };
       }
@@ -91,7 +93,7 @@ export class MCPHandler {
         capabilities: {
           tools: { listChanged: false },
           resources: { subscribe: false, listChanged: false },
-          prompts: { listChanged: false },
+          ...(this.prompts.length > 0 ? { prompts: { listChanged: false } } : {}),
         },
       },
     };
@@ -109,6 +111,44 @@ export class MCPHandler {
         })),
       },
     };
+  }
+
+  private handlePromptsList(request: JsonRpcRequest): JsonRpcResponse {
+    return {
+      jsonrpc: '2.0',
+      id: request.id,
+      result: {
+        prompts: this.prompts.map(p => ({
+          name: p.name,
+          description: p.description,
+          arguments: p.arguments,
+        })),
+      },
+    };
+  }
+
+  private handlePromptsGet(request: JsonRpcRequest): JsonRpcResponse {
+    const params = request.params as { name?: string; arguments?: Record<string, string> } | undefined;
+    if (!params?.name) {
+      return { jsonrpc: '2.0', id: request.id, error: { code: -32602, message: 'Missing prompt name' } };
+    }
+    const prompt = this.prompts.find(p => p.name === params.name);
+    if (!prompt) {
+      return { jsonrpc: '2.0', id: request.id, error: { code: -32602, message: `Unknown prompt: ${params.name}` } };
+    }
+    const args = params.arguments ?? {};
+    const missing = prompt.arguments
+      .filter(a => a.required && !(typeof args[a.name] === 'string' && args[a.name]!.trim()))
+      .map(a => a.name);
+    if (missing.length > 0) {
+      return {
+        jsonrpc: '2.0',
+        id: request.id,
+        error: { code: -32602, message: `Missing required argument(s) for ${params.name}: ${missing.join(', ')}` },
+      };
+    }
+    const result = prompt.build(args);
+    return { jsonrpc: '2.0', id: request.id, result };
   }
 
   private async handleToolsCall(request: JsonRpcRequest): Promise<JsonRpcResponse> {

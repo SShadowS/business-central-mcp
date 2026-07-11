@@ -51,8 +51,10 @@ describe('MCPHandler.handleRequest — initialize', () => {
     expect(result.capabilities).toMatchObject({
       tools: { listChanged: false },
       resources: expect.any(Object),
-      prompts: expect.any(Object),
     });
+    // The prompts capability is advertised only when the handler is given
+    // prompts; this bare handler has none.
+    expect((result.capabilities as Record<string, unknown>).prompts).toBeUndefined();
   });
 
   it('sets isInitialized to true after the call', async () => {
@@ -402,11 +404,11 @@ describe('MCPHandler.handleRequest — prompts/list', () => {
 // ---------------------------------------------------------------------------
 
 describe('MCPHandler.handleRequest — prompts/get', () => {
-  it('returns error -32601 Prompt not found', async () => {
+  it('returns error -32602 for an unknown prompt', async () => {
     const handler = new MCPHandler([], makeLogger());
     const res = await handler.handleRequest(makeRequest('prompts/get', { name: 'no-such-prompt' }));
     expect(res.result).toBeUndefined();
-    expect(res.error).toMatchObject({ code: -32601, message: expect.stringContaining('not found') });
+    expect(res.error).toMatchObject({ code: -32602, message: expect.stringContaining('Unknown prompt') });
   });
 });
 

@@ -34,6 +34,7 @@ import { LookupOperation } from './operations/lookup.js';
 import { QueryOperation } from './operations/query.js';
 import { buildToolRegistry, type Operations } from './mcp/tool-registry.js';
 import { MCPHandler } from './mcp/handler.js';
+import { PROMPTS } from './mcp/prompts.js';
 // isErr no longer needed — SessionManager handles session creation errors internally
 
 async function main() {
@@ -134,7 +135,7 @@ async function main() {
     },
   }));
 
-  const mcpHandler = new MCPHandler(lazyTools, logger);
+  const mcpHandler = new MCPHandler(lazyTools, logger, PROMPTS);
 
   // Read JSON-RPC from stdin, write responses to stdout
   const rl = createInterface({ input: process.stdin, terminal: false });

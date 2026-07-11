@@ -33,6 +33,7 @@ import { LookupOperation } from './operations/lookup.js';
 import { QueryOperation } from './operations/query.js';
 import { buildToolRegistry, type Operations } from './mcp/tool-registry.js';
 import { MCPHandler } from './mcp/handler.js';
+import { PROMPTS } from './mcp/prompts.js';
 import { createApiRoutes } from './api/routes.js';
 import { parseJsonBody, checkApiToken } from './api/middleware.js';
 // isErr no longer needed — SessionManager handles session creation errors internally
@@ -111,7 +112,7 @@ async function main() {
     // Rebuild services if session was recreated or first call
     if (mcpHandler === null || sessionManager.needsServiceRebuild) {
       const { operations, tools } = buildServices(s);
-      mcpHandler = new MCPHandler(tools, logger);
+      mcpHandler = new MCPHandler(tools, logger, PROMPTS);
       apiRoutes = createApiRoutes(operations, logger);
       sessionManager.markServicesRebuilt();
     }

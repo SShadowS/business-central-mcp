@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **MCP prompt workflows.** The server now implements the MCP `prompts/*`
+  primitive (`prompts/list` + `prompts/get`), shipping 9 parameterized
+  workflow templates that encode the correct multi-step tool choreography:
+  `bc_find_page`, `bc_read_list`, `bc_edit_record`, `bc_create_document`,
+  `bc_post_document`, `bc_set_dimensions`, `bc_report`, `bc_bulk_read`, and
+  `bc_run_wizard`. The `prompts` capability is advertised on `initialize`.
 - **`bc_query` OData tool.** Bulk, structured reads via BC's Standard API v2.0
   (customers, items, salesOrders, generalLedgerEntries, …) with `$filter`,
   `$select`, `$orderby`, `$top`, and `$expand`. Company-scoped automatically,
