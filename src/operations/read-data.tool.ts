@@ -4,7 +4,9 @@ import type { ToolDefinition, Operations } from '../mcp/tool-registry.js';
 export function createToolDefinition(ops: Operations): ToolDefinition {
   return {
     name: 'bc_read_data',
-    description: `Refreshes a single section on an already-open page. Returns one Section: { sectionId, kind, caption, fields?, rows?, actions?, totalRowCount? }. Card-shape sections (header, factbox, requestPage) refresh their fields[]; list-shape sections refresh rows[]. Requires a pageContextId from a prior bc_open_page call.
+    description: `Refreshes a single section on an already-open page. Returns { section: { sectionId, kind, caption, fields?, rows?, actions?, totalRowCount? }, stateVersion }. Card-shape sections (header, factbox, requestPage) refresh their fields[]; list-shape sections refresh rows[]. The returned stateVersion can be passed as expectedStateVersion to bc_write_data / bc_execute_action to reject stale-state writes. Requires a pageContextId from a prior bc_open_page call.
+
+Do NOT use this for bulk or analytical reads over standard entities (customers, items, ledger entries, ...) -- prefer bc_query, which reads server-side via OData with no open page and no UI paging. Use bc_read_data when you need the interactive page's exact rows, factboxes, or option metadata.
 
 Pass section: "header" (default) to refresh the page's header. Pass section: "lines" to refresh document line items. Pass a factbox sectionId (e.g. "factbox:Customer Statistics", as listed in the bc_open_page response) to refresh the FactBox card.
 

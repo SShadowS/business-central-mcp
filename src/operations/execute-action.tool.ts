@@ -8,7 +8,7 @@ export function createToolDefinition(ops: Operations): ToolDefinition {
 
 For cue drill-down, also pass section pointing at the subpage that owns the cuegroup. The returned openedPages array contains the targetPageContextId of the newly-opened list page.
 
-Otherwise behaves identically to the existing action flow: validates the action is enabled, sends the InvokeAction RPC, applies the resulting events, and returns updatedFields / changedSections / dialogsOpened / openedPages.
+For a named action: validates the action is enabled, sends the InvokeAction RPC, applies the resulting events, and returns updatedFields / changedSections / dialogsOpened / openedPages.
 
 Use exactly one of "action" or "cue" -- passing both is an error.
 
