@@ -36,6 +36,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Drill-down loads document lines.** A document reached via
+  `bc_navigate(drill_down)` (or opened by an action) now exposes its `lines`
+  section and FactBoxes, not just `header`. Child-form discovery was extracted
+  into a shared `ChildFormHydrationStrategy` and is now run on the drill-down
+  and action-opened targets, not only on `bc_open_page`.
 - **Tool descriptions synced with current behavior.** Refreshed the
   bc_navigate (dropped the removed `lookup`/`field`), bc_run_report (documents
   `requestPage.pageContextId`/`formId`), bc_respond_dialog, bc_open_page,

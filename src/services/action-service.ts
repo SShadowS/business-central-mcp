@@ -12,6 +12,7 @@ import { isEffectivelyVisible } from '../protocol/visibility.js';
 import { actions as treeActions, groupVisibility as treeGroupVisibility, cues as treeCues } from '../protocol/form-views.js';
 import { classifyWizardNav } from '../protocol/wizard-classify.js';
 import type { Logger } from '../core/logger.js';
+import { ChildFormHydrationStrategy } from './strategies/child-form-hydration.js';
 
 /** System actions that target a specific row via the repeater control. */
 const ROW_TARGETING_ACTIONS: Set<number> = new Set([
@@ -36,11 +37,15 @@ export interface ActionResult {
 }
 
 export class ActionService {
+  private readonly childFormHydration: ChildFormHydrationStrategy;
+
   constructor(
     private readonly session: BCSession,
     private readonly repo: PageContextRepository,
     private readonly logger: Logger,
-  ) {}
+  ) {
+    this.childFormHydration = new ChildFormHydrationStrategy(session, repo, logger);
+  }
 
   async executeAction(pageContextId: string, actionName: string, sectionId?: string): Promise<Result<ActionResult, ProtocolError>> {
     const ctx = this.repo.get(pageContextId);
@@ -244,6 +249,10 @@ export class ActionService {
       const newPcId = `session:page:${openedPagePrefix}:${uuid().substring(0, 8)}`;
       this.repo.create(newPcId, event.formId);
       this.repo.applyToPage(newPcId, events);
+      // Discover + load the opened page's child forms (lines subpage, FactBoxes)
+      // so an action-opened document (e.g. a drilled ledger/document) exposes its
+      // 'lines' section, matching bc_open_page. Without this it had 'header' only.
+      await this.childFormHydration.hydrate(newPcId, events);
     }
 
     // Check for dialog

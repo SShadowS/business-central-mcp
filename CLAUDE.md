@@ -297,15 +297,15 @@ Source: https://platform.claude.com/docs/en/docs/agents-and-tools/tool-use/defin
 
 ## Known Limitations
 
-### Document Pages (Multi-Repeater)
-Document pages (Sales Order=42/43, Purchase Order=50/51) have both a header repeater and a lines subpage repeater. The current PageState only tracks one repeater. Drilling down from document list pages may use the wrong repeater's bookmarks. This is a known architectural limitation to be addressed.
+### Document Pages (Multi-Repeater) — RESOLVED
+Document pages (Sales Order=42/43, Purchase Order=50/51) carry a header form and a lines subpage form. `FormState.rows` is keyed per repeater controlPath and each section (header/lines/factbox) resolves to its own formId + repeaterControlPath, so header and lines rows never collide. Child-form discovery + load is a shared `ChildFormHydrationStrategy` (`src/services/strategies/child-form-hydration.ts`) run not only by `bc_open_page` but also by `bc_navigate(drill_down)` (`NavigationService.drillDown`) and action-opened pages (`ActionService.invokeAction`), so a document reached via drill-down or an action exposes its `lines` section just like a directly-opened page — earlier it had a `header` section only. Verified: `tests/integration/drilldown-lines.test.ts`, `tests/integration/multi-section.test.ts`.
 
 ### Session Recovery
 After a session-killing error, BC holds the NTLM slot for ~15 seconds. The SessionManager handles this with exponential backoff (up to 4 retries). If an invoke hangs indefinitely (confirmed BC bug), the session-level timeout (default 30s) kills the connection and triggers auto-recovery on the next request.
 
-### Report Output Capture — IMPLEMENTED (PDF via Send-To flow)
+### Report Output Capture — IMPLEMENTED (PDF / Excel / Word via Send-To flow)
 
-`bc_run_report` with `format: "pdf"` captures the rendered PDF bytes and returns them as base64 in `download.bytes`.
+`bc_run_report` with `format: "pdf" | "excel" | "word"` captures the rendered bytes and returns them as base64 in `download.bytes` (plus `contentType` and `fileName`).
 
 **Protocol mechanism (verified from decompiled source + live BC28 wire capture 2026-06-15):**
 
@@ -319,7 +319,7 @@ The full flow driven by `BCSession.runReportWithDownload()`:
 
 The `sessionid` in the URL is the BC web client's `HandlerSessionId` — embedded by `FileUrlAddressProvider.cs`. No separate session construction needed.
 
-**Known limitation:** Only PDF is currently captured. The format selector dialog defaults to PDF with no SaveValue needed. Excel/Word capture would require a SaveValue to change the format selector before confirming — not yet implemented.
+**Format selection (all three implemented):** PDF is BC's default and needs no SaveValue. For `excel` / `word`, the flow SaveValues the matching format label into the PrintDialog SelectionControl before the OK — `selectReportFormat` walks the format-dialog tree for the SelectionControl and `resolveFormatLabel` (`src/session/report-format-resolver.ts`) picks the label (`excel` prefers the "data only" variant). A report lacking the requested layout returns a clear error listing the available option texts. Verified: `tests/integration/report-capture.test.ts` (PDF + Excel).
 
 Reference: `ResponseManager.RegisterUriToShowEvents` (`Microsoft.Dynamics.Framework.UI.Web/`), `FileUrlAddressProvider.cs` (`Microsoft.Dynamics.Framework.UI.Web/`), `ReportResultSetDownloadDecorator.ShouldDownloadToClient` — `WebClient=116` passes the check (`Microsoft.Dynamics.Nav.Ncl/`).
 

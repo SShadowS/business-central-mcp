@@ -8,13 +8,18 @@ import type { SetCurrentRowInteraction, InvokeActionInteraction, LoadFormInterac
 import { SystemAction } from '../protocol/types.js';
 import { resolveSection } from '../protocol/section-resolver.js';
 import type { Logger } from '../core/logger.js';
+import { ChildFormHydrationStrategy } from './strategies/child-form-hydration.js';
 
 export class NavigationService {
+  private readonly childFormHydration: ChildFormHydrationStrategy;
+
   constructor(
     private readonly session: BCSession,
     private readonly repo: PageContextRepository,
     private readonly logger: Logger,
-  ) {}
+  ) {
+    this.childFormHydration = new ChildFormHydrationStrategy(session, repo, logger);
+  }
 
   /** Select a row by bookmark (positions cursor without opening) */
   async selectRow(pageContextId: string, bookmark: string, sectionId?: string): Promise<Result<PageContext, ProtocolError>> {
@@ -113,6 +118,12 @@ export class NavigationService {
     if (isOk(loadResult)) {
       this.repo.applyToPage(targetPageContextId, loadResult.value);
     }
+
+    // Discover and load the target's child forms (lines subpage, FactBoxes) from
+    // the drill-down FormCreated's control tree, so a drilled-into document card
+    // exposes its 'lines' section just like a page opened directly via
+    // bc_open_page. Without this, drill-down targets had a 'header' section only.
+    await this.childFormHydration.hydrate(targetPageContextId, events);
 
     const targetCtx = this.repo.get(targetPageContextId);
     if (!targetCtx) return err(new ProtocolError('Failed to create target page context'));
