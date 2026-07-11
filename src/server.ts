@@ -146,6 +146,13 @@ async function main() {
         await ensureReady();
         const body = await parseJsonBody(req) as Parameters<MCPHandler['handleRequest']>[0];
         const response = await mcpHandler!.handleRequest(body);
+        // JSON-RPC notifications have no id; per spec they must not receive a
+        // response body (stdio-server.ts suppresses these the same way).
+        if (response.id == null) {
+          res.writeHead(202);
+          res.end();
+          return;
+        }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(response));
         return;
@@ -167,8 +174,12 @@ async function main() {
 
     } catch (e) {
       logger.error(`Request error: ${e instanceof Error ? e.message : String(e)}`);
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: e instanceof Error ? e.message : 'Internal error' }));
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e instanceof Error ? e.message : 'Internal error' }));
+      } else {
+        res.destroy();
+      }
     }
   });
 

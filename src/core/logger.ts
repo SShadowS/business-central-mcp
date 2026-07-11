@@ -19,6 +19,10 @@ export function createLogger(config: LoggingConfig): Logger {
   mkdirSync(config.dir, { recursive: true });
   const serverLog = createWriteStream(join(config.dir, 'server.log'), { flags: 'a' });
   const protocolLog = createWriteStream(join(config.dir, 'protocol.log'), { flags: 'a' });
+  // A write failure after startup (ENOSPC, EACCES, deleted dir) emits 'error';
+  // without a listener that is an uncaught exception that crashes the process.
+  serverLog.on('error', (e) => { process.stderr.write(`[LOGGER] server.log write error: ${e.message}\n`); });
+  protocolLog.on('error', (e) => { process.stderr.write(`[LOGGER] protocol.log write error: ${e.message}\n`); });
 
   function writeStderr(level: LogLevel, msg: string): void {
     if (LEVELS[level] >= stderrLevel) {

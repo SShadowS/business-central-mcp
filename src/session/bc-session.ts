@@ -513,21 +513,21 @@ export class BCSession {
    * closeGracefully(), which sets `dead = true` before the form-close loop so
    * that concurrent callers fast-fail, but still needs to send CloseForm RPCs.
    */
-  private invokeRaw(
+  private async invokeRaw(
     interaction: BCInteraction,
     expect: EventPredicate,
     timeoutMs?: number,
   ): Promise<Result<BCEvent[], ProtocolError>> {
     const effectiveTimeout = timeoutMs ?? this.timeoutMs;
     try {
-      return this.enqueue(() => this.withTimeout(
+      return await this.enqueue(() => this.withTimeout(
         this.invokeUnqueued(interaction, expect, effectiveTimeout, /* bypassDeadCheck */ true),
         effectiveTimeout + 5000,
         `InvokeRaw(${interaction.type})`,
       ));
     } catch (e) {
       if (e instanceof TimeoutError) {
-        return Promise.resolve(err(new ProtocolError(e.message)));
+        return err(new ProtocolError(e.message));
       }
       throw e;
     }

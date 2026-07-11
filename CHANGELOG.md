@@ -23,6 +23,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `bc_find_page`, `bc_read_list`, `bc_edit_record`, `bc_create_document`,
   `bc_post_document`, `bc_set_dimensions`, `bc_report`, `bc_bulk_read`, and
   `bc_run_wizard`. The `prompts` capability is advertised on `initialize`.
+- **`bc_query` pagination signal.** The result now surfaces `hasMore` (and the
+  raw `@odata.nextLink`) so a caller can tell when `top` exceeded BC's server
+  page size and rows were truncated, instead of silently losing data.
+
+### Changed
+
+- **`bc_read_data` rejects an unknown `tab`** with an error listing the
+  available tabs, instead of silently returning all header fields.
+- **`bc_write_data` rejects an empty `fields` object** instead of reporting a
+  vacuous success.
 
 ### Fixed
 
@@ -31,6 +41,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `requestPage.pageContextId`/`formId`), bc_respond_dialog, bc_open_page,
   bc_read_data, bc_search_pages, and bc_query tool descriptions to match the
   shipped schema and outputs.
+- **Robustness cleanup (low-severity review findings).** Recovery re-auth picks
+  the antiforgery cookie by name (not the shared `CfDJ8` prefix); a WebSocket
+  send failure fast-fails the pending RPC instead of hanging to timeout; log
+  streams handle write errors instead of crashing; the HTTP transport returns
+  202 (no body) for JSON-RPC notifications; wizard-step transitions bump the
+  page generation; the router prefers the lines section when repeater paths
+  collide; report save filenames use the correct extension for excel/word.
+  `DataRowPropertyChange` events are now explicitly ignored (verified against
+  decompiled BC28: they carry only row-level Selected/Expanded/Draft, never a
+  cell), and MessageToShow types are normalized so a casing variant can't slip
+  a real error past classification.
 
 ## [1.3.0] - 2026-07-10
 

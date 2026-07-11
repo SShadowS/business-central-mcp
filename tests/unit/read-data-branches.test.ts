@@ -222,7 +222,7 @@ describe('ReadDataOperation — tab filtering (uncovered)', () => {
     expect(fieldNames).not.toContain('City');
   });
 
-  it('retains all fields when no tab matches (tab name not found)', async () => {
+  it('errors with available tabs when the tab name is not found', async () => {
     const repo = new PageContextRepository();
     makeCardPageContext(repo, 'pc:1', 'F1');
     const filterService = makeFilterService();
@@ -238,12 +238,11 @@ describe('ReadDataOperation — tab filtering (uncovered)', () => {
       tab: 'nonexistent-tab',
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    // All fields retained when tab not found
-    const fieldNames = (result.value.section.fields ?? []).map(f => f.name);
-    expect(fieldNames).toContain('Name');
-    expect(fieldNames).toContain('City');
+    // An unknown tab is now rejected (was silently ignored, returning all fields).
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.message).toMatch(/nonexistent-tab/);
+    expect((result.error.context as { availableTabs?: string[] })?.availableTabs).toContain('General');
   });
 
   it('is case-insensitive for tab name matching', async () => {

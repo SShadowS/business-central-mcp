@@ -13,16 +13,18 @@ import type { RepeaterRow, RepeaterColumn } from './types.js';
  */
 export function buildBinderToCaptionMap(columns: RepeaterColumn[]): Map<string, string> {
   const map = new Map<string, string>();
-  const usedCaptions = new Map<string, number>();
+  const usedCaptions = new Set<string>();
   for (const col of columns) {
     if (!col.columnBinderName) continue;
     let caption = col.caption || col.columnBinderName;
-    // Disambiguate duplicate captions with ordinal suffix
-    const count = usedCaptions.get(caption) ?? 0;
-    if (count > 0) {
-      caption = `${caption}#${count + 1}`;
+    // Disambiguate duplicate captions with an ordinal suffix, skipping any
+    // suffix that collides with a caption already assigned (e.g. a real "Qty#2").
+    if (usedCaptions.has(caption)) {
+      let n = 2;
+      while (usedCaptions.has(`${caption}#${n}`)) n++;
+      caption = `${caption}#${n}`;
     }
-    usedCaptions.set(col.caption || col.columnBinderName, count + 1);
+    usedCaptions.add(caption);
     map.set(col.columnBinderName, caption);
   }
   return map;

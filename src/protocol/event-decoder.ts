@@ -6,6 +6,23 @@ import type {
   SessionInfoEvent, FileDownloadReadyEvent,
 } from './types.js';
 
+const MESSAGE_TYPES: readonly MessageToShowEvent['messageType'][] =
+  ['None', 'Warning', 'Info', 'Error', 'Fatal', 'Confirm', 'Permission'];
+
+/**
+ * Normalize BC's MessageToShow `Type` to the canonical messageType union,
+ * tolerating casing variants (e.g. "error" → "Error"). An unrecognized or
+ * numeric-ordinal value falls back to 'None' instead of leaking a non-union
+ * value that `classifyBusinessError`'s exact `=== 'Error'` check would skip.
+ */
+function normalizeMessageType(raw: unknown): MessageToShowEvent['messageType'] {
+  if (typeof raw === 'string') {
+    const match = MESSAGE_TYPES.find(t => t.toLowerCase() === raw.toLowerCase());
+    if (match) return match;
+  }
+  return 'None';
+}
+
 export class EventDecoder {
   decode(handlers: unknown[]): BCEvent[] {
     const events: BCEvent[] = [];
@@ -79,6 +96,14 @@ export class EventDecoder {
           }
           break;
         }
+        case 'DataRowPropertyChange':
+          // Intentionally ignored. Verified from decompiled BC28
+          // (LogicalControlDataObserver.OnRowEntryPropertyChanged): this change
+          // only ever carries a row-level Selected/Expanded/Draft boolean, never
+          // a cell value (cell changes arrive as DataRowUpdated). The row model
+          // ({ bookmark, cells }) tracks none of those, so there is nothing to
+          // apply — decoding it as a cell would corrupt cells with a bogus key.
+          break;
         case 'PropertyChanges':
           events.push({ type: 'PropertyChanged', formId, controlPath, changes: (c.Changes as Record<string, unknown>) ?? {} } satisfies PropertyChangedEvent);
           break;
@@ -138,7 +163,7 @@ export class EventDecoder {
           type: 'MessageToShow',
           formId: '',
           text: (eventData.Text as string | undefined) ?? '',
-          messageType: (eventData.Type as MessageToShowEvent['messageType'] | undefined) ?? 'None',
+          messageType: normalizeMessageType(eventData.Type),
           actions: rawActions ?? ['Ok'],
           defaultAction: rawDefault ?? 'Ok',
           automationId: eventData.AutomationId as string | undefined,

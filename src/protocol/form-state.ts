@@ -142,6 +142,12 @@ export class FormProjection {
       (nodeChanges as Record<string, unknown>).optionIndex = undefined;
     }
 
+    // Nothing this reducer tracks changed (e.g. an event carrying only
+    // ValidationResults / ShowMandatory / Items). Return the same reference so
+    // the "no change → same root" contract holds and the WeakMap view caches
+    // are not needlessly invalidated.
+    if (Object.keys(nodeChanges).length === 0) return form;
+
     const newRoot = applyPropertyChange(form.root, event.controlPath, nodeChanges);
     if (newRoot === form.root) return form;
     return { ...form, root: newRoot };
@@ -159,8 +165,12 @@ export class FormProjection {
     for (const raw of rawRows) {
       if (!raw || typeof raw !== 'object') continue;
       const r = raw as Record<string, unknown>;
-      const rowData = (r['DataRowInserted'] ?? r['DataRowUpdated']) as unknown[] | undefined;
-      if (Array.isArray(rowData) && rowData.length >= 2) {
+      // BC28's /csh wire uses the long-name keys; accept the abbreviated tags
+      // (drich/druch) too in case an older tier emits them. The [1] payload is
+      // guarded so a malformed row (e.g. [index, null]) can't throw and abort
+      // the whole batch.
+      const rowData = (r['DataRowInserted'] ?? r['DataRowUpdated'] ?? r['drich'] ?? r['druch']) as unknown[] | undefined;
+      if (Array.isArray(rowData) && rowData.length >= 2 && rowData[1] && typeof rowData[1] === 'object') {
         const payload = rowData[1] as Record<string, unknown>;
         rows.push({
           bookmark: (payload['bookmark'] ?? payload['Bookmark'] ?? '') as string,

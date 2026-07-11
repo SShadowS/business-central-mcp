@@ -10,6 +10,7 @@
 // or `[{ "report": "..." }]`. BC identifies pages by AL name, not numeric id.
 
 import type { BCEvent } from '../protocol/types.js';
+import { resolveChangeType } from '../protocol/wire-types.js';
 import type { SearchResult } from './search-service.js';
 
 interface CellValue {
@@ -48,7 +49,13 @@ function parseSource(stringValue: string): { objectType: string; runTarget: stri
 export function extractTellMeRow(raw: unknown): SearchResult | null {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Record<string, unknown>;
-  const dataRow = (r.DataRowInserted ?? r.DataRowUpdated) as unknown;
+  // Row payloads may arrive under the long-name key OR the abbreviated wire
+  // tag (e.g. 'DataRowInserted' vs 'drich') -- resolve via the wire-types map.
+  const rowKey = Object.keys(r).find(k => {
+    const resolved = resolveChangeType(k);
+    return resolved === 'DataRowInserted' || resolved === 'DataRowUpdated';
+  });
+  const dataRow: unknown = rowKey !== undefined ? r[rowKey] : undefined;
   if (!Array.isArray(dataRow) || dataRow.length < 2) return null;
   const payload = dataRow[1];
   if (!payload || typeof payload !== 'object') return null;

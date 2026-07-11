@@ -95,15 +95,28 @@ export class NTLMAuthProvider implements IBCAuthProvider {
         this.cookies = Array.from(existingMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
       }
 
-      // Extract CSRF token from antiforgery cookie
+      // Extract CSRF token from antiforgery cookie. Prefer the cookie whose
+      // NAME contains "Antiforgery" — every ASP.NET Core data-protection
+      // cookie value shares the CfDJ8 prefix (auth cookie included), so a
+      // value-prefix scan alone would let cookie ordering pick the wrong one.
       const allCookieParts = this.cookies.split('; ');
       for (const part of allCookieParts) {
         const eqIdx = part.indexOf('=');
-        if (eqIdx >= 0) {
-          const value = part.substring(eqIdx + 1);
-          if (value.startsWith('CfDJ8')) {
-            this.csrfToken = value;
-            break;
+        if (eqIdx >= 0 && part.substring(0, eqIdx).toLowerCase().includes('antiforgery')) {
+          this.csrfToken = part.substring(eqIdx + 1);
+          break;
+        }
+      }
+      if (!this.csrfToken) {
+        // Fallback: first cookie whose value carries the data-protection prefix
+        for (const part of allCookieParts) {
+          const eqIdx = part.indexOf('=');
+          if (eqIdx >= 0) {
+            const value = part.substring(eqIdx + 1);
+            if (value.startsWith('CfDJ8')) {
+              this.csrfToken = value;
+              break;
+            }
           }
         }
       }

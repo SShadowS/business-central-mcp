@@ -114,6 +114,7 @@ export class PageContextRepository {
       ...page,
       forms,
       wizardState: { stepPaths: ws.stepPaths, currentStepIndex: newIndex },
+      generation: page.generation + 1,
     });
   }
 

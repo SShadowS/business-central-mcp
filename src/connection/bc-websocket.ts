@@ -265,7 +265,15 @@ export class BCWebSocket {
           { once: true },
         );
 
-        this.ws!.send(payload);
+        this.ws!.send(payload, (sendError?: Error) => {
+          if (sendError) {
+            const pending = this.pendingRequests.get(id);
+            if (pending) {
+              this.pendingRequests.delete(id);
+              pending.reject(new ConnectionError(`WebSocket send failed for ${id}: ${sendError.message}`));
+            }
+          }
+        });
         this.logger.debug('protocol', `Sent RPC: ${method} (id: ${id})`);
       });
     });

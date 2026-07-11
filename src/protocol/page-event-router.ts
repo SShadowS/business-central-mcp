@@ -238,11 +238,22 @@ function findChildFormByRepeaterPath(
   excludeFormId: string,
   controlPath: string,
 ): FormState | undefined {
+  const matches: FormState[] = [];
   for (const [fId, form] of page.forms) {
     if (fId === excludeFormId) continue;
-    if (treeRepeaters(form.root).has(controlPath)) return form;
+    if (treeRepeaters(form.root).has(controlPath)) matches.push(form);
   }
-  return undefined;
+  if (matches.length <= 1) return matches[0];
+  // All child trees are rooted at `server:`, so the same repeater path can
+  // exist in several children (e.g. a Document's lines subpage AND a ListPart
+  // factbox). Prefer the form referenced by a lines section; otherwise keep
+  // the original first-match behavior.
+  for (const section of page.sections.values()) {
+    if (section.kind !== 'lines') continue;
+    const linesForm = matches.find(f => f.formId === section.formId);
+    if (linesForm) return linesForm;
+  }
+  return matches[0];
 }
 
 /** Find a factbox form that has a field at controlPath. */

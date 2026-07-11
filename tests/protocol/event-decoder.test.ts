@@ -73,6 +73,27 @@ describe('EventDecoder', () => {
     }
   });
 
+  it('ignores DataRowPropertyChange (row-level Selected/Expanded/Draft, not a cell)', () => {
+    const handlers = [{
+      handlerType: HANDLER_TYPES.LogicalClientChange,
+      parameters: ['f1', [
+        { t: 'DataRowPropertyChange', ControlReference: { controlPath: 'server:c[1]' }, PropertyName: 'Selected', PropertyValue: true, Index: 0 },
+      ]],
+    }];
+    const events = decoder.decode(handlers);
+    expect(events.find(e => e.type === 'RowDelta')).toBeUndefined();
+    expect(events.length).toBe(0);
+  });
+
+  it('normalizes a lowercase MessageToShow Type to the canonical union', () => {
+    const handlers = [{
+      handlerType: HANDLER_TYPES.LogicalClientEventRaising,
+      parameters: ['MessageToShow', { Text: 'boom', Type: 'error' }],
+    }];
+    const msg = decoder.decode(handlers).find(e => e.type === 'MessageToShow');
+    expect(msg?.type === 'MessageToShow' && msg.messageType).toBe('Error');
+  });
+
   it('decodes PropertyChanges', () => {
     const handlers = [{
       handlerType: HANDLER_TYPES.LogicalClientChange,

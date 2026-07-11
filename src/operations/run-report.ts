@@ -98,8 +98,7 @@ export class RunReportOperation {
     const result = await this.session.runReportWithDownload(reportId, format);
     if (isErr(result)) return result;
 
-    const { events, bytes, contentType, fileName } = result.value;
-    const dialogsOpened = detectDialogs(events);
+    const { bytes, contentType, fileName } = result.value;
 
     let savedPath: string | undefined;
     const reportDir = process.env['BC_REPORT_DIR'];
@@ -108,7 +107,8 @@ export class RunReportOperation {
         if (!existsSync(reportDir)) {
           mkdirSync(reportDir, { recursive: true });
         }
-        const outName = fileName ?? `report-${reportId}-${Date.now()}.pdf`;
+        const ext = { pdf: '.pdf', excel: '.xlsx', word: '.docx' }[format];
+        const outName = fileName ?? `report-${reportId}-${Date.now()}${ext}`;
         savedPath = join(reportDir, outName);
         writeFileSync(savedPath, bytes);
       } catch {
@@ -120,7 +120,9 @@ export class RunReportOperation {
     return ok({
       success: true,
       reportId,
-      dialogsOpened,
+      // The request/format dialogs were auto-driven and closed by
+      // runReportWithDownload — don't return their stale formIds.
+      dialogsOpened: [],
       requiresDialogResponse: false,
       download: {
         bytes: bytes.toString('base64'),

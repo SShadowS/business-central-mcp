@@ -30,6 +30,11 @@ export interface ODataQueryOptions {
 export interface ODataQueryResult {
   rows: unknown[];
   count?: number;
+  /** BC's @odata.nextLink — present when the server truncated the result
+   * (e.g. top exceeds BC's max page size). Pagination is NOT auto-followed. */
+  nextLink?: string;
+  /** True when nextLink is present, i.e. more rows exist server-side. */
+  hasMore: boolean;
 }
 
 export interface ODataClientConfig {
@@ -179,11 +184,14 @@ export class ODataClient {
       ? `${this.baseApiUrl}/companies?${parts.join('&')}`
       : `${this.baseApiUrl}/companies(${companyId})/${entity}?${parts.join('&')}`;
 
-    const data = await this._fetch<{ value: unknown[]; '@odata.count'?: number }>(url);
+    const data = await this._fetch<{ value: unknown[]; '@odata.count'?: number; '@odata.nextLink'?: string }>(url);
 
+    const nextLink = data['@odata.nextLink'];
     return {
       rows: data.value ?? [],
       count: data['@odata.count'],
+      nextLink,
+      hasMore: nextLink !== undefined,
     };
   }
 

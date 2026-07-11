@@ -103,13 +103,16 @@ export class ReadDataOperation {
       const tabsResult = this.dataService.getTabs(input.pageContextId, input.section);
       if (isOk(tabsResult) && tabsResult.value) {
         const matchingTab = tabsResult.value.find(t => t.caption.toLowerCase() === input.tab!.toLowerCase());
-        if (matchingTab) {
-          const tabFieldCaptions = new Set(matchingTab.fields.map(f => f.caption.toLowerCase()));
-          materialized = {
-            ...materialized,
-            fields: materialized.fields.filter(f => tabFieldCaptions.has(f.name.toLowerCase())),
-          };
+        if (!matchingTab) {
+          return err(new ProtocolError(`Tab '${input.tab}' not found.`, {
+            availableTabs: tabsResult.value.map(t => t.caption),
+          }));
         }
+        const tabFieldCaptions = new Set(matchingTab.fields.map(f => f.caption.toLowerCase()));
+        materialized = {
+          ...materialized,
+          fields: materialized.fields.filter(f => tabFieldCaptions.has(f.name.toLowerCase())),
+        };
       }
     }
 

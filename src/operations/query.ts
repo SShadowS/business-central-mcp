@@ -23,6 +23,7 @@ export interface QueryOutput {
   rowCount: number;
   count?: number;
   cappedAt?: number; // present when top was auto-applied (not supplied by caller)
+  hasMore: boolean;  // true when BC truncated the result server-side (@odata.nextLink present)
 }
 
 export class QueryOperation {
@@ -53,6 +54,7 @@ export class QueryOperation {
         rowCount: result.rows.length,
         count: result.count,
         cappedAt: callerSuppliedTop ? undefined : this.defaultTop,
+        hasMore: result.hasMore,
       });
     } catch (e) {
       if (e instanceof ProtocolError) {

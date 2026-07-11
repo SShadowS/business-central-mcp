@@ -37,7 +37,7 @@ export const ReadDataSchema = z.object({
 
 export const WriteDataSchema = z.object({
   pageContextId: z.string().min(1).describe('Page context ID returned by bc_open_page.'),
-  fields: z.record(z.string(), z.string()).describe('Key-value pairs of field caption names and string values to write (e.g., { "Name": "Contoso", "City": "London" }).'),
+  fields: z.record(z.string(), z.string()).refine(f => Object.keys(f).length > 0, { message: 'fields must contain at least one field to write' }).describe('Key-value pairs of field caption names and string values to write (e.g., { "Name": "Contoso", "City": "London" }).'),
   section: z.string().optional().describe('Section to write to (e.g., "lines" for document line items). Omit for header fields.'),
   rowIndex: z.number().int().min(0).optional().describe('0-based row position in the repeater to write to. Use for line items. Prefer bookmark for stability.'),
   bookmark: z.string().optional().describe('Stable row identifier from bc_read_data results. Preferred over rowIndex when rows may be reordered.'),
