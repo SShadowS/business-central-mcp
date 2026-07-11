@@ -14,7 +14,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsc",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "npm run clean && tsc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:unit": "vitest run tests/unit",
@@ -24,7 +25,7 @@
     "start": "tsx src/server.ts",
     "start:stdio": "tsx src/stdio-adapter.ts",
     "start:stdio-direct": "tsx src/stdio-server.ts",
-    "prepublishOnly": "tsc --noEmit && tsc",
+    "prepublishOnly": "tsc --noEmit && npm run clean && tsc",
     "validate:dxt": "npx -y @anthropic-ai/dxt validate manifest.json",
     "build:dxt": "tsx scripts/build-dxt.ts"
   },
