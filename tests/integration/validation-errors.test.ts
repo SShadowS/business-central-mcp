@@ -37,6 +37,7 @@ import type { BCEvent, PropertyChangedEvent, SaveValueInteraction, MessageToShow
 import { SystemAction } from '../../src/protocol/types.js';
 import { isOk, isErr, unwrap } from '../../src/core/result.js';
 import { integrationPool, type PooledLease } from './helpers/session-pool.js';
+import { stubDownloadService } from './helpers/download-service.js';
 import { RespondDialogOperation } from '../../src/operations/respond-dialog.js';
 import { WriteDataOperation } from '../../src/operations/write-data.js';
 import type { BusinessValidationError } from '../../src/core/errors.js';
@@ -128,7 +129,7 @@ describe('Validation errors (integration)', () => {
     pageService = new PageService(session, repo, logger);
     dataService = new DataService(session, repo, logger);
     actionService = new ActionService(session, repo, logger);
-    respondDialog = new RespondDialogOperation(session, repo);
+    respondDialog = new RespondDialogOperation(session, repo, stubDownloadService(logger));
   }, 30_000);
 
   afterAll(async () => {

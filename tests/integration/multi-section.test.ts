@@ -10,6 +10,7 @@ import { RespondDialogOperation } from '../../src/operations/respond-dialog.js';
 import { repeaters as treeRepeaters } from '../../src/protocol/form-views.js';
 import type { PageContext } from '../../src/protocol/page-context.js';
 import { integrationPool, type PooledLease } from './helpers/session-pool.js';
+import { stubDownloadService } from './helpers/download-service.js';
 
 describe.sequential('Multi-Section: Sales Order (page 42)', () => {
   let lease: PooledLease;
@@ -31,7 +32,7 @@ describe.sequential('Multi-Section: Sales Order (page 42)', () => {
     pageService = new PageService(session, repo, logger);
     dataService = new DataService(session, repo, logger);
     actionService = new ActionService(session, repo, logger);
-    respondDialog = new RespondDialogOperation(session, repo);
+    respondDialog = new RespondDialogOperation(session, repo, stubDownloadService(logger));
   });
 
   afterAll(async () => {
