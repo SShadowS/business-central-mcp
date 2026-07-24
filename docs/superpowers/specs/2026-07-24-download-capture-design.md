@@ -28,15 +28,18 @@ to completion, see `success: true`, and get nothing back.
 | Parameters are `[uri, style]`, style serialized as a decimal ordinal | `ResponseManager.AddUriToShowEventResponseParameters` (`:516-522`) writes `FormattedUri ?? Address` then `Style.ToString("D")` | Verified |
 | **The URI is a generic address, not necessarily a file URL** | Same line — `FormattedUri ?? Address`. AL `HYPERLINK` to an external site travels the same event | Verified. Drives the security design below |
 | One particular provider builds a relative `DynamicFileHandler.axd?form=&sessionid=&type=&fid=` URL | `FileUrlAddressProvider.cs:11-23` | Verified — but it is one producer among several, and it does **not** emit `fname` |
-| Style mapping `0=View, 1=Download, 2=Print` | **NOT** established by `ResponseManager`, which only proves an ordinal is serialized. Currently an assumption in `event-decoder.ts:176-177` sourced from the 2026-06-15 live capture | **Unverified — see Gate 1** |
+| Style mapping `View=0, Download=1, Print=2, Preview=3, PreviewWithoutDownload=4, Mailto=5` | `Microsoft.Dynamics.Framework.UI/UriToShowStyle.cs:3-11` | **Verified — Gate 1 closed.** Note `Mailto=5` is a mail link, not a file |
 | Multiple `UriToShow` events can arrive in one batch | `RegisterUriToShowEvents` iterates all logical changes (`:248-267`) | Verified |
 | Auth is a session **cookie** from the BC SignIn form flow, not NTLM | `src/connection/auth/ntlm-provider.ts:129-131` returns only a `Cookie` header; the class name is a misnomer and CLAUDE.md documents the environment as NavUserPassword | Verified — spec wording corrected throughout |
 
-### Gate 1 — style enum (close before writing the collector)
+### Gate 1 — style enum — CLOSED (2026-07-24)
 
-Locate the `UriToShowStyle` enum in the decompiled tree, or capture one `view`-style and one
-`print`-style event live. Until then the collector must **not** silently coerce unknown styles to
-`download` — an unknown style is surfaced as-is and never auto-fetched.
+`Microsoft.Dynamics.Framework.UI/UriToShowStyle.cs`:
+`View=0, Download=1, Print=2, Preview=3, PreviewWithoutDownload=4, Mailto=5`.
+
+The collector maps all six by ordinal and preserves an out-of-range ordinal verbatim as
+`unknown:<n>` (never coerced to `download`). `Mailto` is a mail link, not a file — the same-origin
+rule routes it to `externalUris` and it is never fetched.
 
 ## Design
 
