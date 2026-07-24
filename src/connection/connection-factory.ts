@@ -1,7 +1,7 @@
 import { ok, err, isErr, type Result } from '../core/result.js';
 import { ConnectionError } from '../core/errors.js';
 import { BCWebSocket } from './bc-websocket.js';
-import { ReportDownloader } from '../session/report-downloader.js';
+import { BCHttpClient } from './bc-http.js';
 import type { IBCAuthProvider } from './auth/auth-provider.js';
 import type { BCConfig } from '../core/config.js';
 import type { Logger } from '../core/logger.js';
@@ -51,8 +51,8 @@ export class ConnectionFactory {
     return ok(ws);
   }
 
-  createReportDownloader(): ReportDownloader {
-    return new ReportDownloader(
+  createHttpClient(): BCHttpClient {
+    return new BCHttpClient(
       this.bcConfig.baseUrl,
       () => this.authProvider.getWebSocketHeaders(),
       this.logger,
