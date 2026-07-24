@@ -102,6 +102,11 @@ Every session starts with an `OpenSession` RPC that returns `ServerSessionId`, `
 
 Reference: `BCSessionManager.ts` (v1), `NsServiceJsonRpcHostFactory.cs` (decompiled)
 
+### WebSocket `/csh` Upgrade Requires an `Origin` Header (BC 28.3+)
+The `/csh` upgrade MUST carry an `Origin` header of the form `<scheme>://<host>[:port]` (no path). BC 28.3's web server (`Prod.Client.WebCoreApp`) runs `RequestOriginValidationMiddleware`, which 403s any WebSocket upgrade whose Origin is empty or cross-origin (`DisableWebSocketOriginValidation` defaults to false). The `ws` npm client sends no Origin unless told to, so `ConnectionFactory.create()` sets `headers['Origin'] = new URL(baseUrl).origin`. Same-origin is always allowed; the header is a no-op on BC 28.0, which does not gate on origin. Do NOT put Origin in `getWebSocketHeaders()` — the HTTP report-download path reuses those headers and must not send it.
+
+Reference: decompiled `RequestOriginValidationMiddleware.IsSameOrigin` / `IsOriginAllowedForWebSocket` (28.3 `Prod.Client.WebCoreApp.dll`); `docs/investigations/2026-07-24-bc283-csh-403.md`; live cronus28 (403 without Origin -> 101 with it).
+
 ### Parameter Case Sensitivity
 BC uses case-INSENSITIVE parameter matching. Verified from decompiled `InteractionParameterHelper.TryGetValueIgnoreCase` which uses `StringComparison.OrdinalIgnoreCase`. Both camelCase and PascalCase work.
 
