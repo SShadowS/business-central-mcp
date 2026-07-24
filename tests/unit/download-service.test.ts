@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
-import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { describe, it, expect, vi } from 'vitest';
+import { existsSync, readFileSync, rmSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DownloadService } from '../../src/services/download-service.js';
@@ -73,33 +73,34 @@ describe('DownloadService.capture', () => {
   });
 
   it('writes to disk and returns both savedPath and inline bytes on success', async () => {
-    const testDir = join(tmpdir(), `dl-test-${Date.now()}`);
-    afterEach(() => {
-      if (existsSync(testDir)) rmSync(testDir, { recursive: true });
-    });
-    const payload = Buffer.from('PDFcontent');
-    const svc = new DownloadService(fakeHttp(async () => ({ bytes: payload, contentType: 'application/pdf', fileName: 'report.pdf' })), BASE, { ...LIMITS, dir: testDir }, logger);
-    const r = await svc.capture([dl('report.pdf')]);
-    expect(r.downloads[0]!.savedPath).toBe(join(testDir, 'report.pdf'));
-    expect(readFileSync(r.downloads[0]!.savedPath!)).toEqual(payload);
-    expect(r.downloads[0]!.bytes).toBeTruthy();
-    expect(Buffer.from(r.downloads[0]!.bytes!, 'base64')).toEqual(payload);
+    const testDir = mkdtempSync(join(tmpdir(), 'dl-test-'));
+    try {
+      const payload = Buffer.from('PDFcontent');
+      const svc = new DownloadService(fakeHttp(async () => ({ bytes: payload, contentType: 'application/pdf', fileName: 'report.pdf' })), BASE, { ...LIMITS, dir: testDir }, logger);
+      const r = await svc.capture([dl('report.pdf')]);
+      expect(r.downloads[0]!.savedPath).toBe(join(testDir, 'report.pdf'));
+      expect(readFileSync(r.downloads[0]!.savedPath!)).toEqual(payload);
+      expect(r.downloads[0]!.bytes).toBeTruthy();
+      expect(Buffer.from(r.downloads[0]!.bytes!, 'base64')).toEqual(payload);
+    } finally {
+      rmSync(testDir, { recursive: true, force: true });
+    }
   });
 
   it('handles disk write failure gracefully, still returns inline bytes', async () => {
     const unwritableDir = join(tmpdir(), `dl-unwritable-${Date.now()}.txt`);
-    const fs = await import('node:fs');
-    fs.writeFileSync(unwritableDir, 'x');
-    afterEach(() => {
-      if (existsSync(unwritableDir)) rmSync(unwritableDir);
-    });
-    const payload = Buffer.from('x');
-    const svc = new DownloadService(fakeHttp(async () => ({ bytes: payload, contentType: 'text/plain', fileName: 'test.txt' })), BASE, { ...LIMITS, dir: unwritableDir }, logger);
-    const r = await svc.capture([dl('test.txt')]);
-    expect(r.downloads[0]!.savedPath).toBeUndefined();
-    expect(r.downloads[0]!.bytes).toBeTruthy();
-    expect(Buffer.from(r.downloads[0]!.bytes!, 'base64')).toEqual(payload);
-    expect(logger.warn).toHaveBeenCalled();
+    writeFileSync(unwritableDir, 'x');
+    try {
+      const payload = Buffer.from('x');
+      const svc = new DownloadService(fakeHttp(async () => ({ bytes: payload, contentType: 'text/plain', fileName: 'test.txt' })), BASE, { ...LIMITS, dir: unwritableDir }, logger);
+      const r = await svc.capture([dl('test.txt')]);
+      expect(r.downloads[0]!.savedPath).toBeUndefined();
+      expect(r.downloads[0]!.bytes).toBeTruthy();
+      expect(Buffer.from(r.downloads[0]!.bytes!, 'base64')).toEqual(payload);
+      expect(logger.warn).toHaveBeenCalled();
+    } finally {
+      rmSync(unwritableDir, { force: true });
+    }
   });
 
   it('enforces aggregate cap and reports drop on 2nd file', async () => {
