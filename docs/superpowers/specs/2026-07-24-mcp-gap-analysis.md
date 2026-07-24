@@ -23,7 +23,7 @@ Seven capability gaps remain. Each gets its own spec, plan, branch, and merge ga
 | 2 | [multi-row-selection](2026-07-24-multi-row-selection-design.md) | M | The row-select encoder hardcodes a single bookmark, so no bulk action can be driven. |
 | 3 | [assist-edit](2026-07-24-assist-edit-design.md) | M | `isLookup` conflates `AssistEditAction` with `LookupAction`, but only `SystemAction.Lookup=110` is ever sent, so AssistEdit fields are advertised and then unreachable. |
 | 4 | [filter-pane](2026-07-24-filter-pane-design.md) | M | Flowfilter columns are serialized by BC and never surfaced; quick filter and filter expressions are unreachable. |
-| 5 | [long-running-ops](2026-07-24-long-running-ops-design.md) | M-L | The invoke timeout is absolute, so any post or report exceeding `BC_INVOKE_TIMEOUT` kills a healthy session that is still working. **Blocked on Gates A and B.** |
+| 5 | [long-running-ops](2026-07-24-long-running-ops-design.md) | M | The invoke timeout is absolute, so any post or report exceeding `BC_INVOKE_TIMEOUT` kills a healthy session that is still working. **Gate A passed — IsExecuting polling selected.** |
 | 6 | [file-upload](2026-07-24-file-upload-design.md) | L | No upload path: attachments, incoming documents, config packages, and pictures are unreachable. **Path A only** — Path B was cut. |
 | 7 | [odata-writes](2026-07-24-odata-writes-design.md) | L | `bc_query` is GET-only, so bulk create/update and API bound actions must crawl through UI pages. |
 
@@ -55,7 +55,7 @@ No implementation proceeds past its gate.
 |---|---|---|
 | 1 | Style enum (`0/1/2`) located or captured | The mapping is asserted by our decoder but not proven by `ResponseManager`; unknown styles must not be coerced to "download" |
 | 4 | Empty-line no-op; Reset semantics; expression grammar | `AddFilterLine` can silently succeed without filtering; `clearFilters` behaviour per filter kind is unknown; `filterExpression` ships only if its grammar is established, otherwise it is cut |
-| 5 | **A**: can `/csh` answer a concurrent `IsExecuting`? **B**: what is the maximum inter-frame gap during a silent long operation? | A selects the design branch; B decides whether an idle deadline solves the problem at all |
+| 5 | ~~A: can `/csh` answer a concurrent `IsExecuting`? B: max inter-frame gap during a silent long op?~~ | **CLOSED 2026-07-24.** Gate A passed: `/csh` answers a concurrent IsExecuting in 1-4 ms with a real `true`/`false` that tracks server processing state, no sequence corruption (probe: `scripts/gate-a-isexecuting.ts`, fixture: `src/protocol/captures/isexecuting-concurrent-2026-07-24.json`). Spec 5 takes IsExecuting polling; Gate B is moot because we poll rather than wait for volunteered frames |
 | 6 | One live capture: transport, session/tenant id sourcing, antiforgery, the `InvokeFileUploadAction` payload (`TEMP\` prefix?), `AllowedFileExtensions` grammar | Five unknowns the first draft treated as settled |
 | 7 | Bound-action namespace from live `$metadata` | The `Microsoft.NAV` claim was retracted; the qualified name is read from metadata, not guessed |
 
@@ -89,11 +89,14 @@ the web-client host whose request model is `CallbackRequestData` in
 `HasEnteredProcessing` *before* `EnterProcessing` (`:97-104`), i.e. while another interaction is
 blocked. No `.cs` file in the decompiled tree mentions `/csh` at all.
 
-So IsExecuting is plausibly available to us, and the real constraint is our own send serialisation
-(`bc-websocket.ts:210-274`). Spec 5's Gate A settles it live.
+So IsExecuting is available to us, and the only real constraint was our own send serialisation
+(`bc-websocket.ts:210-274`). **Gate A (2026-07-24) confirmed it live**: an out-of-band `IsExecuting`
+frame sent on the `/csh` socket while an invoke is outstanding is answered in 1-4 ms with a real
+`DN.IsExecutingHandler` carrying `true`/`false` that tracks server processing state, and it does not
+corrupt sequence numbers. Spec 5 therefore polls IsExecuting rather than guessing from traffic.
 
 Recorded here at length because the wrong version of this claim was already written into a commit
-message, and the next person to grep for it should find the retraction.
+message, and the next person to grep for it should find the retraction and the live confirmation.
 
 ## What the review changed, by spec
 

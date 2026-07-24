@@ -1,0 +1,162 @@
+[
+  {
+    "id": "caa89763",
+    "keys": [
+      "jsonrpc",
+      "compressedResult",
+      "id"
+    ],
+    "result": [
+      {
+        "handlerType": "DN.IsExecutingHandler",
+        "parameters": [
+          "true"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "3a38dab9",
+    "keys": [
+      "jsonrpc",
+      "compressedResult",
+      "id"
+    ],
+    "result": [
+      {
+        "handlerType": "DN.IsExecutingHandler",
+        "parameters": [
+          "true"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "3e0abdde",
+    "keys": [
+      "jsonrpc",
+      "compressedResult",
+      "id"
+    ],
+    "result": [
+      {
+        "handlerType": "DN.IsExecutingHandler",
+        "parameters": [
+          "false"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "cb4b09c6",
+    "keys": [
+      "jsonrpc",
+      "compressedResult",
+      "id"
+    ],
+    "result": [
+      {
+        "handlerType": "DN.IsExecutingHandler",
+        "parameters": [
+          "true"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "132607f0",
+    "keys": [
+      "jsonrpc",
+      "compressedResult",
+      "id"
+    ],
+    "result": [
+      {
+        "handlerType": "DN.IsExecutingHandler",
+        "parameters": [
+          "false"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "95e09c13",
+    "keys": [
+      "jsonrpc",
+      "compressedResult",
+      "id"
+    ],
+    "result": [
+      {
+        "handlerType": "DN.IsExecutingHandler",
+        "parameters": [
+          "false"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "a6faf6ba",
+    "keys": [
+      "jsonrpc",
+      "compressedResult",
+      "id"
+    ],
+    "result": [
+      {
+        "handlerType": "DN.IsExecutingHandler",
+        "parameters": [
+          "false"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "b9d24474",
+    "keys": [
+      "jsonrpc",
+      "compressedResult",
+      "id"
+    ],
+    "result": [
+      {
+        "handlerType": "DN.IsExecutingHandler",
+        "parameters": [
+          "false"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "33b8d38a",
+    "keys": [
+      "jsonrpc",
+      "compressedResult",
+      "id"
+    ],
+    "result": [
+      {
+        "handlerType": "DN.IsExecutingHandler",
+        "parameters": [
+          "false"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "2b614bba",
+    "keys": [
+      "jsonrpc",
+      "compressedResult",
+      "id"
+    ],
+    "result": [
+      {
+        "handlerType": "DN.IsExecutingHandler",
+        "parameters": [
+          "false"
+        ]
+      }
+    ]
+  }
+]
