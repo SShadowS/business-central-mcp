@@ -1,42 +1,67 @@
 # Generic Download Capture — Design
 
 **Date:** 2026-07-24
-**Size:** S
+**Revised:** 2026-07-24 after two-model adversarial review (see `.panel/01-download-*.md`)
+**Size:** M (was S — the security and streaming work is real)
 **Build order:** 1 of 7 (see [gap analysis](2026-07-24-mcp-gap-analysis.md))
 **Branch:** `feat/download-capture`
 
 ## Problem
 
-BC delivers every client-bound file the same way: an inline
-`DN.LogicalClientEventRaisingHandler` event named `UriToShow`, carrying a relative
-`DynamicFileHandler.axd` URL. The decoder already turns that into a `FileDownloadReady`
-event (`src/protocol/event-decoder.ts:173-188`).
+BC delivers client-bound files as an inline `DN.LogicalClientEventRaisingHandler` event named
+`UriToShow`. The decoder already turns it into a `FileDownloadReady` event
+(`src/protocol/event-decoder.ts:173-192`).
 
-Only one caller consumes it. `BCSession.runReportWithDownload` looks for the event
-(`src/session/bc-session.ts:644`) and fetches the bytes through `ReportDownloader`.
-Every other path throws it away:
+Only one caller consumes it: `BCSession.runReportWithDownload` (`src/session/bc-session.ts:644-659`).
+Every other path discards it — `ExecuteActionOutput` (`src/operations/execute-action.ts:29-37`),
+`RespondDialogOutput` (`src/operations/respond-dialog.ts:14-20`), and `WizardNavigateOutput`
+(`src/operations/wizard-navigate.ts:18-34`) have no download field.
 
-- `bc_execute_action` — "Open in Excel" / "Send to Excel" on any list, "Print" on a
-  document, "Export" on a config package, downloading an attachment from the Attachments
-  factbox. `ExecuteActionOutput` (`src/operations/execute-action.ts:29-37`) has no download field.
-- `bc_respond_dialog` — the OK on a format or export dialog is exactly where BC emits the URI.
-- `bc_wizard_navigate` — export wizards finish on a download.
-
-So the LLM can drive the flow to completion, sees `success: true`, and gets nothing back.
-The bytes existed and were discarded.
+So the LLM can drive "Open in Excel", "Print", an attachment download, or a config-package export
+to completion, see `success: true`, and get nothing back.
 
 ## Evidence
 
-| Claim | Source |
-|---|---|
-| Downloads arrive inline as `UriToShow` on the invoke callback for `/csh` sessions | `Microsoft.Dynamics.Framework.UI.Web/ResponseManager.cs` — `RegisterUriToShowEvents`; live wire capture 2026-06-15 |
-| Style parameter: `0`=View, `1`=Download, `2`=Print | `src/protocol/event-decoder.ts:176-177`, confirmed against `ResponseManager` |
-| URL is served by `DynamicFileHandler.axd` keyed on the web client `HandlerSessionId` | `Microsoft.Dynamics.Framework.UI.Web/FileUrlAddressProvider.cs` |
-| The existing NTLM/cookie headers suffice — no separate auth token | `src/session/report-downloader.ts:14-22`, verified live (Trial Balance PDF) |
+| Claim | Source | Status |
+|---|---|---|
+| `UriToShow` is registered as `DN.LogicalClientEventRaisingHandler` | `ResponseManager.RegisterUriToShowEvents` (`Microsoft.Dynamics.Framework.UI.Web/ResponseManager.cs:205-219`, loop at `:248-267`) | Verified |
+| Parameters are `[uri, style]`, style serialized as a decimal ordinal | `ResponseManager.AddUriToShowEventResponseParameters` (`:516-522`) writes `FormattedUri ?? Address` then `Style.ToString("D")` | Verified |
+| **The URI is a generic address, not necessarily a file URL** | Same line — `FormattedUri ?? Address`. AL `HYPERLINK` to an external site travels the same event | Verified. Drives the security design below |
+| One particular provider builds a relative `DynamicFileHandler.axd?form=&sessionid=&type=&fid=` URL | `FileUrlAddressProvider.cs:11-23` | Verified — but it is one producer among several, and it does **not** emit `fname` |
+| Style mapping `0=View, 1=Download, 2=Print` | **NOT** established by `ResponseManager`, which only proves an ordinal is serialized. Currently an assumption in `event-decoder.ts:176-177` sourced from the 2026-06-15 live capture | **Unverified — see Gate 1** |
+| Multiple `UriToShow` events can arrive in one batch | `RegisterUriToShowEvents` iterates all logical changes (`:248-267`) | Verified |
+| Auth is a session **cookie** from the BC SignIn form flow, not NTLM | `src/connection/auth/ntlm-provider.ts:129-131` returns only a `Cookie` header; the class name is a misnomer and CLAUDE.md documents the environment as NavUserPassword | Verified — spec wording corrected throughout |
 
-Nothing new needs to be discovered. This spec is plumbing, not protocol archaeology.
+### Gate 1 — style enum (close before writing the collector)
+
+Locate the `UriToShowStyle` enum in the decompiled tree, or capture one `view`-style and one
+`print`-style event live. Until then the collector must **not** silently coerce unknown styles to
+`download` — an unknown style is surfaced as-is and never auto-fetched.
 
 ## Design
+
+### Security model (new — this is the part the first draft got wrong)
+
+`UriToShow` carries arbitrary URIs. Fetching every one of them with the session cookie attached is
+an SSRF and credential-leak vector, and it mis-handles ordinary `HYPERLINK` actions.
+
+Rules, enforced in the collector before any network call:
+
+1. **Same-origin only.** The URI must resolve, against `baseUrl`, to the same scheme + host + port.
+   A relative URI qualifies by construction. An absolute URI to any other origin does not.
+2. **Path allowlist.** The resolved path must sit under BC's known file-serving paths
+   (`DynamicFileHandler.axd`, and the `client/uploadDownload/download` route). Anything else is
+   classified as external.
+3. **External URIs are returned, never fetched.** They surface as
+   `externalUris: Array<{ uri, style }>` on the same outputs — the caller still learns the action
+   produced a link, without the server dereferencing it.
+4. **No automatic redirect following.** `fetch` is called with `redirect: 'manual'`. A 3xx is an
+   error naming the location; it is not followed, because a stale dynamic URL redirects to SignIn
+   and a hostile one redirects off-origin.
+5. **Style `view` is not auto-fetched** unless it also passes rules 1-2. A same-origin
+   `DynamicFileHandler.axd` view URL is a file; anything else is a link.
+6. **URLs are redacted in logs and error messages** — `sessionid` and `fid` query values are
+   replaced before any log line or error string is built.
 
 ### New unit: `DownloadCollector` (pure)
 
@@ -45,41 +70,43 @@ Nothing new needs to be discovered. This spec is plumbing, not protocol archaeol
 ```ts
 export interface DownloadRef {
   relativeUrl: string;
-  style: 'view' | 'download' | 'print';
+  style: 'view' | 'download' | 'print' | `unknown:${string}`;
   suggestedFileName?: string;
 }
+export interface ExternalUri { uri: string; style: string; }
 
-export function collectDownloads(events: readonly BCEvent[]): DownloadRef[];
+export function collectDownloads(
+  events: readonly BCEvent[],
+  origin: { baseUrl: string },
+): { refs: DownloadRef[]; external: ExternalUri[] };
 ```
 
-Pure function over an event array. No I/O, no session. Filters `FileDownloadReady`,
-normalises the numeric style to a union, and pulls `fname` from the query string as the
-suggested name. Unit-testable in isolation; this is the piece that currently does not exist
-and is the reason the logic could not be shared.
+Pure, no I/O. Applies the same-origin + path rules, normalises known styles, preserves unknown
+styles verbatim, and extracts `fname` when present — `fname` is **optional**, since
+`FileUrlAddressProvider` does not emit it.
 
 ### New unit: `BCHttpClient` (transport)
 
-`src/connection/bc-http.ts`
-
-`ReportDownloader` is a general BC-side-channel HTTP client wearing a report-specific name.
-Extract the transport, keep the filename parsing:
+`src/connection/bc-http.ts` — extracted from `ReportDownloader`, which is a general side-channel
+HTTP client wearing a report-specific name.
 
 ```ts
 export class BCHttpClient {
   constructor(baseUrl: string, getAuthHeaders: () => Record<string, string>, logger: Logger);
-  get(relativeOrAbsoluteUrl: string, timeoutMs?: number): Promise<HttpPayload>;
-  postMultipart(relativeUrl: string, parts: MultipartPart[], extraHeaders?, timeoutMs?): Promise<HttpPayload>;
+  get(relativeUrl: string, opts: { maxBytes: number; timeoutMs?: number }): Promise<HttpPayload>;
 }
 ```
 
-`postMultipart` is not used by this spec — it is declared here because
-[file-upload](2026-07-24-file-upload-design.md) needs the identical auth and base-URL joining,
-and building a second HTTP client there would duplicate the auth story. Implement `get` now,
-`postMultipart` in spec 6. (Alternative considered: leave the extraction to spec 6. Rejected —
-spec 6 then either duplicates or does a drive-by refactor of code it does not own.)
+`get` streams the response body and **aborts at `maxBytes + 1`** rather than calling
+`arrayBuffer()` — a `Content-Length` check alone is not a cap, because the header can be absent,
+wrong, or smaller than the body. It keeps the caller-supplied timeout (the report path currently
+uses `max(timeoutMs, 120000)`; that must not regress).
 
-`src/session/report-downloader.ts` is deleted. Its filename-extraction helpers move to
-`src/connection/http-filename.ts` (pure, already unit-tested behaviour preserved).
+`postMultipart` is **not** declared here. The file-upload spec adds it when it implements it —
+declaring an unimplemented method now violates the project's no-stubs rule.
+
+`src/session/report-downloader.ts` is deleted; its filename parsing moves to
+`src/connection/http-filename.ts` with its existing tests ported verbatim.
 
 ### New unit: `DownloadService`
 
@@ -87,59 +114,75 @@ spec 6 then either duplicates or does a drive-by refactor of code it does not ow
 
 ```ts
 export class DownloadService {
-  constructor(private http: BCHttpClient, private maxBytes: number, private logger: Logger) {}
-  async fetchAll(refs: readonly DownloadRef[]): Promise<Download[]>;
+  constructor(private http: BCHttpClient, private limits: DownloadLimits, private logger: Logger) {}
+  async capture(events: readonly BCEvent[], opts?: { timeoutMs?: number }): Promise<CaptureResult>;
 }
 ```
 
-Single responsibility: turn refs into payloads, enforce the size cap, map HTTP failures into
-`ProtocolError`. Injected into `ActionService`, `DialogService`-equivalent (`respond-dialog`'s
-service), and the wizard path via their constructors — dependency inversion, no service reaches
-for a global.
-
-`BCSession.runReportWithDownload` drops its bespoke fetch and calls the same service, so there is
-exactly one code path from `FileDownloadReady` to bytes.
+The public boundary takes **events**, not refs — collection and fetching must not be two things
+every caller has to remember, or the omission this feature exists to fix comes straight back.
+`collectDownloads` stays exported for unit testing.
 
 ### Output DTO
-
-Uniform across all four tools. `bc_run_report`'s existing singular `download` field is replaced
-(the project takes breaking changes freely):
 
 ```ts
 export interface Download {
   fileName: string;
   contentType: string;
   sizeBytes: number;
-  style: 'view' | 'download' | 'print';
-  bytes: string;      // base64
+  style: string;
+  bytes?: string;              // base64; omitted when error is set
+  savedPath?: string;          // when BC_DOWNLOAD_DIR is configured
+  error?: { code: 'TOO_LARGE' | 'FETCH_FAILED'; message: string };
 }
 ```
 
-Added as `downloads: Download[]` (empty array, never undefined) to:
+Added as `downloads: Download[]` and `externalUris: ExternalUri[]` (both always present, possibly
+empty) to `ExecuteActionOutput`, `RespondDialogOutput`, `WizardNavigateOutput`, and
+`RunReportOutput`.
 
-- `ExecuteActionOutput`
-- `RespondDialogOutput`
-- `WizardNavigateOutput`
-- `RunReportOutput` (replacing `download`)
+**A failed or oversized download is a per-entry `error`, never a whole-operation failure.** The
+action already committed server-side; discarding `openedPages` and `changedSections` because a
+fetch failed would leave the caller worse off than today. Only a genuine protocol error fails the
+operation.
 
-Empty-array-not-optional so callers never branch on presence vs emptiness.
+`fileName` precedence, deterministic: `Content-Disposition` filename → `fname` query value →
+`download-{index}{ext}` where `ext` is inferred from `contentType` and defaults to `.bin`. Header
+filenames are sanitised (path separators and control characters stripped).
 
-### Size cap
+### Disk output — preserved, not dropped
 
-`BC_MAX_DOWNLOAD_BYTES`, default 10 MB. A payload above the cap is not base64-encoded into the
-response. Instead the operation returns a `ProtocolError` with code `DOWNLOAD_TOO_LARGE`, the
-actual `sizeBytes`, and the filename, so the caller knows the export succeeded server-side and
-only the transfer was refused. Rationale: a 200 MB Excel export inlined as base64 would blow the
-context window, and silently truncating bytes is worse than failing loudly.
+`RunReportOperation` already writes bytes to disk when `BC_REPORT_DIR` is set and returns
+`savedPath` (`src/operations/run-report.ts:35-36,103-131`). The first draft silently removed this.
+Instead it is **generalised**: `DownloadService` writes every captured download when
+`BC_DOWNLOAD_DIR` is set, falling back to `BC_REPORT_DIR` for compatibility, and sets `savedPath`.
+This also gives large files a route that does not go through the context window.
 
-### Error handling
+### Limits
 
-| Condition | Behaviour |
-|---|---|
-| Action succeeds, no `UriToShow` | `downloads: []`, `success: true`. Not an error — most actions do not download. |
-| `UriToShow` present, HTTP fetch fails | `ProtocolError` code `DOWNLOAD_FAILED`, message includes the HTTP status and URL. The action already committed server-side; the message must say so. |
-| Payload over cap | `DOWNLOAD_TOO_LARGE` as above. |
-| Multiple `UriToShow` in one batch | All fetched, all returned, order preserved. |
+| Env var | Default | Meaning |
+|---|---|---|
+| `BC_MAX_DOWNLOAD_BYTES` | 5 MB | Per-file inline cap. Above it: `savedPath` if a directory is configured, plus a per-entry `TOO_LARGE` error and no `bytes`. |
+| `BC_MAX_DOWNLOAD_TOTAL_BYTES` | 10 MB | Aggregate per operation. |
+| `BC_MAX_DOWNLOADS` | 5 | Count cap per operation; extras are reported as skipped. |
+
+5 MB inline is already ~6.7 MB of base64 after encoding and pretty-printing in
+`src/mcp/handler.ts:153-165`. Anything larger belongs on disk.
+
+### Ordering against business errors
+
+`ExecuteActionOperation` and `WizardNavigateOperation` classify business errors from the event
+batch **before** capture runs. A batch carrying a BC error does not trigger network I/O. Stated
+explicitly because the alternative (fetch first, classify later) causes an authenticated GET on
+behalf of a failed action.
+
+### Known limitation, documented not fixed
+
+Nested invokes performed by hydration strategies (`ChildFormHydrationStrategy` calls
+`session.invoke` internally, `src/services/strategies/child-form-hydration.ts:103-156`) apply their
+events internally and do not propagate them to the originating operation. A `UriToShow` emitted
+during hydration is therefore still lost. Out of scope here; recorded so the claim of "generic
+capture" is not overstated.
 
 ## Files touched
 
@@ -149,50 +192,71 @@ new     src/connection/bc-http.ts
 new     src/connection/http-filename.ts
 new     src/services/download-service.ts
 delete  src/session/report-downloader.ts
-edit    src/connection/connection-factory.ts     (createReportDownloader -> createHttpClient)
-edit    src/session/bc-session.ts                (runReportWithDownload uses DownloadService)
-edit    src/services/action-service.ts           (inject DownloadService, populate downloads)
-edit    src/operations/execute-action.ts         (+ downloads)
-edit    src/operations/respond-dialog.ts         (+ downloads)
-edit    src/operations/wizard-navigate.ts        (+ downloads)
-edit    src/operations/run-report.ts             (download -> downloads)
-edit    src/operations/*.tool.ts                 (describe downloads in the 4 tool definitions)
-edit    src/core/config.ts                       (BC_MAX_DOWNLOAD_BYTES)
+edit    src/connection/connection-factory.ts    (createReportDownloader -> createHttpClient)
+edit    src/session/session-factory.ts          (constructs/injects the client today, :22-41)
+edit    src/server.ts                           (composition root, :65-111)
+edit    src/stdio-server.ts                     (duplicate composition root, :65-108)
+edit    src/session/bc-session.ts               (runReportWithDownload uses DownloadService)
+edit    src/services/action-service.ts          (inject DownloadService)
+edit    src/operations/execute-action.ts        (+ downloads, externalUris)
+edit    src/operations/respond-dialog.ts        (+ downloads; invokes BCSession directly, so
+                                                 capture is wired here, not in a dialog service)
+edit    src/operations/wizard-navigate.ts       (+ downloads)
+edit    src/operations/run-report.ts            (download -> downloads; savedPath preserved)
+edit    src/operations/*.tool.ts                (describe the new output fields)
+edit    src/core/config.ts                      (three limits + BC_DOWNLOAD_DIR)
 ```
 
 ## Test plan (TDD order)
 
-**Unit — write first, all failing:**
+**Unit — security first, they are the reason this spec grew:**
 
-1. `collectDownloads` returns `[]` for an event array with no `FileDownloadReady`.
-2. `collectDownloads` maps style `"0"/"1"/"2"` to `view/download/print`; unknown style defaults to `download`.
-3. `collectDownloads` extracts `fname` from the query string, and returns `undefined` when absent.
-4. `collectDownloads` preserves order for two `FileDownloadReady` events in one batch.
-5. `http-filename`: existing `filename*=UTF-8''`, plain `filename=`, and literal-`%` cases (port the current tests verbatim — behaviour must not regress).
-6. `DownloadService.fetchAll` rejects with `DOWNLOAD_TOO_LARGE` when `content-length` or the body exceeds the cap.
-7. `DownloadService.fetchAll` maps a 404 to `DOWNLOAD_FAILED` carrying status and URL.
+1. Relative URI under `DynamicFileHandler.axd` → ref.
+2. Absolute same-origin URI under an allowed path → ref.
+3. Absolute **off-origin** URI → `external`, and no fetch is attempted (spy asserts zero calls).
+4. Same-origin URI on a non-allowlisted path → `external`.
+5. `style: view` off-origin → `external`; `style: view` same-origin file path → ref.
+6. Unknown style ordinal → preserved as `unknown:<n>`, not coerced to download.
+7. 3xx response with `redirect: 'manual'` → `FETCH_FAILED` naming the location, body not read.
+8. Log/error strings redact `sessionid` and `fid`.
+9. Streaming abort: a body exceeding the cap aborts after `maxBytes + 1` and never buffers the
+   whole payload (assert the read count, not just the error).
+10. Missing / malformed / lying `Content-Length` all still capped by the streaming check.
+11. Aggregate cap and count cap produce reported skips, not silent truncation.
+12. Filename precedence chain, including the `download-0.pdf` fallback and header sanitisation.
+13. Existing `http-filename` cases ported verbatim (RFC 5987, plain, literal `%`).
+14. Multiple downloads preserve order; one failing entry does not remove the others.
+15. Business error in the batch → capture skipped, no fetch.
+16. `BC_DOWNLOAD_DIR` set → `savedPath` written; unset → omitted. `BC_REPORT_DIR` still honoured.
+17. Config rejects zero/negative/malformed limit values (current `optionalEnvInt` accepts partial
+    `parseInt` results, `src/core/config.ts:47-52`).
+18. All four operations return `downloads: []` and `externalUris: []` when nothing was emitted.
 
-**Integration — Cronus28, destructive allowed but none of these mutate:**
+**Integration — Cronus28:**
 
-8. Customer List (page 22) -> "Open in Excel" / "Send to Excel" -> assert one download, `contentType`
-   is an Excel type, bytes start with `PK` (zip magic).
-9. Sales Order (page 42) -> "Print" -> request-page dialog -> `bc_respond_dialog` OK -> assert PDF
-   bytes starting `%PDF`.
-10. Existing `tests/integration/report-capture.test.ts` migrated to `downloads[0]` and still passes
-    for PDF and Excel — proves the refactor did not break the working path.
-11. An action with no download (e.g. Refresh) returns `downloads: []`.
+19. Customer List (22) → "Open in Excel" → one download, `PK` magic bytes. If the ribbon exposes
+    "Edit in Excel" instead, that is the add-in path and does **not** emit `UriToShow` — the plan
+    must pin the exact action caption from a live read first.
+20. Sales Order (42) → Print → request dialog → `bc_respond_dialog` OK → `%PDF` bytes.
+21. Wizard path: an export wizard finishing on a download (the wizard output is a deliverable and
+    had zero coverage in the first draft).
+22. An action invoking `HYPERLINK` to an external site → `externalUris` populated, `downloads` empty,
+    and no outbound request to that host.
+23. Existing `tests/integration/report-capture.test.ts` migrated to `downloads[0]`, retaining its
+    PDF **and** Excel **and** Word cases.
+24. Refresh → both arrays empty.
 
 ## Definition of done
 
-- All unit tests green, integration tests 8-11 green against Cronus28.
+- Unit + integration green, including the security tests.
 - `npx tsc --noEmit` clean.
-- One and only one code path from `FileDownloadReady` to bytes (grep: `DynamicFileHandler` and
-  `fetch(` appear once each outside tests).
-- CLAUDE.md "Report Output Capture" section rewritten as "File Download Capture", covering the
-  generic path.
+- Gate 1 closed (style enum located or captured).
+- One code path from `FileDownloadReady` to bytes.
+- CLAUDE.md "Report Output Capture" rewritten as "File Download Capture", covering the generic
+  path, the same-origin rule, and the disk-output behaviour.
 
 ## Out of scope
 
-- Writing downloads to disk. Bytes are returned; the caller decides.
-- A fetch-token / deferred-download mode. Inline with a cap was the chosen trade-off.
-- `style: 'view'` special handling (opening a preview). Treated as a normal download.
+- A fetch-token / deferred-download mode. `savedPath` covers the large-file case.
+- Propagating downloads out of nested hydration invokes (documented above).
+- `postMultipart` — belongs to the file-upload spec.

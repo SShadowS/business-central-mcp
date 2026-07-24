@@ -1,6 +1,8 @@
-# File Upload — Design
+# File Upload (Path A — page upload controls) — Design
 
 **Date:** 2026-07-24
+**Revised:** 2026-07-24 after two-model adversarial review (see `.panel/06-upload-*.md`).
+Path B (AL `File.UploadIntoStream` dialogs) is **cut from this spec** — see below.
 **Size:** L
 **Build order:** 6 of 7 (see [gap analysis](2026-07-24-mcp-gap-analysis.md))
 **Branch:** `feat/file-upload`
@@ -8,201 +10,170 @@
 
 ## Problem
 
-There is no upload path of any kind. `src/protocol/interaction-encoder.ts:165-193` encodes ten
-interaction types; none of them moves bytes to the server, and nothing in `src/` touches BC's
-upload endpoints.
+There is no upload path. `src/protocol/interaction-encoder.ts:163-193` encodes exactly ten
+interaction types (`src/protocol/types.ts:181-193` has the matching union) and none moves bytes.
 
-Blocked flows, all common: attaching a document to a Sales Order or Customer, Incoming Documents
-(the whole OCR/e-invoice on-ramp), importing a Configuration Package, importing a bank statement,
-setting an Item picture, importing a data-exchange definition.
+Blocked: attachments on documents and cards, Incoming Documents, Configuration Package import,
+bank statement import, item pictures.
 
-This is the largest single class of unreachable functionality in the server.
+## Scope decision: Path A only
+
+BC has two upload mechanisms:
+
+- **Path A** — a `FileUploadActionControl` embedded in a page (Attachments, Incoming Documents,
+  pictures). Two steps: POST a temp file, then invoke an interaction with the returned token.
+- **Path B** — AL `File.UploadIntoStream`, served by `POST uploadDownload/upload` against a pending
+  `Session.UploadAction`.
+
+Both reviewers independently said Path B is not designed far enough to ship, and they were right.
+Unknowns: what event signals that `UploadAction` is pending; whether the originating Invoke is
+still in flight while the POST must happen; what the detection rule on our side would even be; and
+the first draft got its response channel wrong — `Upload()` returns `Task` with no HTTP body, the
+`UploadResponse` goes back via `ServiceCallStack.SetClientReturnValue`
+(`UploadDownloadController.cs:45-75`), i.e. over the socket to the waiting AL call.
+
+Worse, posting to that route without a pending `UploadAction` does **not** error: the controller
+takes the other branch, buffers the file, and scans it (`:61-74`). A wrong guess silently uploads
+into nothing.
+
+Path A alone unlocks attachments, incoming documents, and pictures. Path B gets its own spec with
+its own capture.
 
 ## Evidence
 
-The mechanism is fully mapped in the decompiled source — no protocol spike is required for the
-core path, only a live confirmation of which host serves it (see the gate below).
+| Claim | Source | Status |
+|---|---|---|
+| Step 1: `POST {clientBase}/uploadDownload/uploadTemp`, multipart field `file`, returns `"TEMP\<guid>"` | `UploadDownloadController.cs:92-128`; `WriteTempFile` `:207-216`; routes in `HttpConstants.cs:19-40` (`BaseRoute = "client"`) | Verified |
+| Server checks the extension **and** malware-scans before returning a token | `:102-105` (`FileTypeFilter.IsFileTypeAllowedByConfiguration`), `:110` (`MalwareScanner.ScanFileForMalware`) | Verified |
+| Step 2: interaction `InvokeFileUploadAction` | `FileUploadActionInteraction.cs:7-10` | Verified |
+| Parameter `files` deserialised as `IList<UploadedTempFile>`; all files in one interaction | `FileUploadInteractionExecutionStrategy.cs:20-28`; `FileUploadActionInteraction.cs:13-21` | Verified |
+| `UploadedTempFile` has exactly `FileName` + `FileToken` | `UploadedTempFile.cs:13-38` | Verified |
+| **The interaction calls `VerifyFormModality()` first** | `FileUploadActionInteraction.cs:13-14` | Verified — a stacked modal invalidates an otherwise valid upload |
+| Auth: `server-tenant-id` + `server-session-id` headers, matched against `NavSession.ExternalId` | `SessionIdAttribute.cs:15-39` | Verified |
+| Control metadata: `AllowedFileExtensions`, `AllowMultipleFiles`, `ScopeType`, `DefinitionId` | `FileUploadActionControlSerializer.cs:18-33` | Verified |
+| **Wire type alias is `fla`** | `ClientFileUploadActionControl.cs:3` — `[TypeAlias("fla", BrowserType = "DN.FileUploadActionControl")]`; property names confirmed at `:6-8` | Verified — this was Gate 2 in the first draft; it is answered |
+| Server-side extension preflight endpoint exists | `POST uploadDownload/validate` (`UploadDownloadController.cs:130-148`) | Verified — the first draft ignored it |
+| Cleanup: `DELETE uploadDownload/deleteTemp`, JSON body of names, `TEMP\` stripped case-insensitively, per-item `{FileName, Result}` | `:150-200` | Verified |
+| An empty/absent file returns `string.Empty`, not an error | `:98-101` | Verified |
 
-### Two distinct upload paths
+## Gate 1 (rewritten — the only remaining gate, and it is bigger than the first draft's)
 
-**Path A — `FileUploadActionControl` (page-embedded upload area).** Used by Attachments,
-Incoming Documents, Item pictures. Two steps:
+One live capture of a real attachment upload against Cronus28, recording **all** of:
 
-1. `POST {clientBase}/uploadDownload/uploadTemp`, `multipart/form-data`, form field named `file`.
-   Returns the string `"TEMP\<guid>"` — the file token.
-   - `Microsoft.Dynamics.Nav.Service.ClientService/UploadDownloadController.cs:92-128`
-   - Route constants: `Microsoft.Dynamics.Nav.Types/Constants/HttpConstants.cs:20-40`
-     (`BaseRoute = "client"`, `UploadDownloadRoute = "uploadDownload"`, `UploadTempRoute = "uploadTemp"`)
-   - Extension check happens server-side first: `FileTypeFilter.IsFileTypeAllowedByConfiguration`
-     (line 102), then a malware scan (line 110) which deletes the temp file and throws on detection.
-2. Send interaction `InvokeFileUploadAction` against the control, with
-   `namedParameters.files = [{ FileName, FileToken }]`.
-   - `Microsoft.Dynamics.Framework.UI/FileUploadActionInteraction.cs:10` — the interaction name
-   - `FileUploadInteractionExecutionStrategy.cs:24-27` — reads the `files` parameter as
-     `IList<UploadedTempFile>` off a resolved `FileUploadActionControl`
-   - `Microsoft.Dynamics.Nav.Types/UploadedTempFile.cs` — exactly two members, `FileName` and `FileToken`
-
-**Path B — `Session.UploadAction` (AL `File.UploadIntoStream` modal dialog).** One step:
-`POST {clientBase}/uploadDownload/upload` with the same multipart shape. The server hands the
-stream straight to the pending `UploadAction` and returns an `UploadResponse`
-(`UploadDownloadController.cs:39-67`). Note this route is declared `SessionUsage.None` (line 38) —
-it attaches to the session's pending upload action rather than opening a session scope.
-
-### Auth
-
-`UploadDownloadController` is decorated `[SessionId]`
-(`UploadDownloadController.cs:19`), whose filter requires two headers and rejects with 401
-otherwise:
-
-- `server-tenant-id`
-- `server-session-id`, matched against `NavSession.ExternalId`
-
-Source: `Microsoft.Dynamics.Nav.Service.AspNetCore/Filters/SessionIdAttribute.cs:15-39`.
-
-### Control metadata available to us
-
-`FileUploadActionControlSerializer.cs:18-33` writes `DefinitionId`, `ScopeType`,
-`AllowedFileExtensions`, `AllowMultipleFiles`, `ShortcutKeys`. The web client maps the control as
-`BrowserFileUploadActionControl`
-(`Microsoft.Dynamics.Framework.UI.Web/BrowserLogicalControlSerializerMappingRules.cs:30`) and
-publishes a size cap as `MaxFileUploadSize` in the session init payload
-(`BrowserPageSessionInitializationSerializer.cs:218`).
-
-## Verification gates (close before writing the service)
-
-Two unknowns, both cheap to settle, both capable of changing the transport code:
-
-**Gate 1 — endpoint reachability and session id.** Our socket is `/csh`
-(`src/connection/connection-factory.ts:61`), served by the web-client stack, while
-`UploadDownloadController` lives in `Microsoft.Dynamics.Nav.Service.ClientService`. On BC28 both
-are hosted by the same NST process, so `http://cronus28/BC/client/uploadDownload/uploadTemp`
-should serve our session — but "should" is not verification, and the earlier report-download work
-found the web client using an entirely different handler (`DynamicFileHandler.axd`) for downloads.
-
-Settle it by capturing a real upload from the browser against Cronus28 (attach a small file to a
-Sales Order) and recording: the exact URL, the request headers, the multipart field name, and the
-response body. Then confirm whether `server-session-id` equals the `ServerSessionId` we already
-capture at `src/session/bc-session.ts:131`, or something else.
-
-If the web client turns out to use a different endpoint, the design below is unchanged apart from
-the URL and header assembly inside `UploadService` — the interaction half is settled either way.
-
-**Gate 2 — wire type of the upload control.** `src/protocol/wire-types.ts:38-46` lists only four
-control-type aliases; the rest are discovered live. Capture a page with an upload area (Incoming
-Documents, or the Attachments factbox on a Sales Order) and record the `Type` value BC actually
-emits for `FileUploadActionControl`, plus the spelling of `AllowedFileExtensions` /
-`AllowMultipleFiles` (long name or alias). Feeds the tree-builder work directly.
+1. **Transport** — exact URL including the `/client` prefix (the controller attribute carries no
+   prefix; the mount point is inferred from `HttpConstants` and must be confirmed), request headers,
+   multipart boundary and field name, filename encoding, and the raw response body. An ASP.NET
+   `Task<string>` may serialise as a quoted JSON string with an escaped backslash, so
+   `postMultipart` needs a stated parsing rule.
+2. **Session identity** — which value goes in `server-session-id`. Our `BCSession` captures a field
+   named `ServerSessionId` (`src/session/bc-session.ts:125-141`), but the browser initialisation
+   payload also writes a `ServerSessionId` sourced from `ClientSession.HandlerSessionId`
+   (`BrowserPageSessionInitializationSerializer.cs:90-96`), and exposes both `TenantId` and
+   `RuntimeTenantId` (`:103-109`). Same name, possibly different values. Record both.
+3. **Antiforgery** — whether the POST/DELETE need a CSRF token. Our provider holds one but exposes
+   it only as a WebSocket query parameter, never as an HTTP header
+   (`src/connection/auth/ntlm-provider.ts:123-137`).
+4. **The interaction payload** — the `InvokeFileUploadAction` JSON the browser sends, specifically
+   whether `FileToken` keeps the `TEMP\` prefix or is the bare GUID, and the casing inside
+   `namedParameters`. The first draft treated this as settled; nothing in the decompiled source
+   settles it. (`deleteTemp` tolerantly strips the prefix, which hints at the prefixed form.)
+5. **`AllowedFileExtensions` format** — the delimiter, wildcard behaviour, case sensitivity, and
+   what an empty string means. The property name is settled; its grammar is not.
 
 ## Design
 
 ### Transport
 
-`BCHttpClient.postMultipart` (declared in the download-capture spec, implemented here):
+`BCHttpClient` (from the download spec) gains, implemented here:
 
 ```ts
-postMultipart(
-  relativeUrl: string,
-  parts: Array<{ name: string; fileName: string; contentType: string; body: Buffer }>,
-  extraHeaders?: Record<string, string>,
-  timeoutMs?: number,
-): Promise<HttpPayload>;
+postMultipart(relativeUrl, parts, extraHeaders?, timeoutMs?): Promise<HttpPayload>;
+deleteJson(relativeUrl, body, extraHeaders?, timeoutMs?): Promise<HttpPayload>;
 ```
 
-Same auth headers, same base-URL joining, same error mapping as `get`. One HTTP client for the
-whole server.
+Session headers are assembled by a session-bound wrapper, because `BCSession.sessionId` is
+**private with no getter** today — the composition must expose it deliberately rather than the
+service reaching in.
 
 ### Source resolution
 
-`src/services/file-source.ts` — pure-ish, one job: turn caller input into bytes.
+`src/services/file-source.ts`
 
 ```ts
 export type FileSource =
-  | { fileName: string; filePath: string }
+  | { fileName?: string; filePath: string }
   | { fileName: string; contentBase64: string };
-
-export async function readFileSource(src: FileSource, maxBytes: number): Promise<FileBytes>;
 ```
 
 Rules:
 
-- `filePath` is read from the machine running the MCP server, with the server's own permissions.
-  It is resolved to an absolute path and read directly — no sandbox root, because the server
-  already runs as the user and the user is asking for their own file. The tool description says
-  this plainly so a remote-server deployment knows to use `contentBase64` instead.
-- Exactly one of `filePath` / `contentBase64` per file; both or neither is an error.
-- `fileName` is always caller-supplied (it is what BC stores and what the extension check runs
-  against), defaulting to the basename of `filePath`.
-- Size is checked against `BC_MAX_UPLOAD_BYTES` (default 50 MB) before any network call, and
-  against the session's `MaxFileUploadSize` when we have captured it.
+- Exactly one of `filePath` / `contentBase64`; both or neither is an error.
+- `fileName` defaults to the basename of `filePath`; it is **required** with `contentBase64`.
+- Base64 is decoded **strictly** — Node's decoder is lenient and silently drops invalid characters.
+- Size is measured on the **decoded/read bytes**, not on stat metadata, checked against
+  `BC_MAX_UPLOAD_BYTES` (default 50 MB) and against the session's `MaxFileUploadSize` when Gate 1
+  establishes its units (file bytes or whole request). Until then the local cap is the only cap we
+  claim to enforce.
+- Zero-byte files are rejected client-side: BC returns an empty token for them, which would poison
+  step 2.
+- Filenames are validated against path separators, CR/LF, NUL, and quotes before they reach a
+  multipart header.
+- **All sources are resolved and validated before any network I/O**, so a bad third file cannot
+  leave the first two uploaded.
+
+`filePath` reads from the machine running the server with its own permissions, and no sandbox root.
+That is a deliberate product decision for a local stdio server, recorded as such — not waved away.
+Remote deployments should use `contentBase64`, and the tool description says so.
 
 ### Control discovery
 
-`FileUploadNode` becomes a first-class `FormNode` variant (like `StackGroupNode` / `CueFieldNode`),
-carrying `allowedFileExtensions: string[]` and `allowMultipleFiles: boolean`. A memoised view
-`uploadTargets(root)` in `form-views.ts` lists them, and `Section` gains
-`uploadTargets?: Array<{ id, caption, allowedExtensions, allowMultiple }>` so the LLM can see that
-a page accepts files at all — discovery is half the feature.
+`FileUploadNode` becomes a `FormNode` variant built from a `t === 'fla'` branch in
+`form-tree-builder.ts` (the builder dispatches on raw `t` values at `:78-91`; adding `fla` to
+`wire-types.ts` alone does nothing). It carries `allowedFileExtensions`, `allowMultipleFiles`,
+`definitionId`, plus `visible` / `enabled`.
+
+A memoised `uploadTargets(root)` view feeds `Section.uploadTargets`:
+
+```ts
+Array<{ controlPath: string; caption: string; allowedExtensions: string[]; allowMultiple: boolean }>
+```
+
+`controlPath` is the identifier — not `DefinitionId`, not `ControlIdentifier` — so the caller's
+`control` input can be either the caption or the path. Duplicate captions produce an ambiguity
+error listing the paths.
 
 ### `UploadService`
 
-`src/services/upload-service.ts`
+1. Resolve the target: by `control` if given; if the section has exactly one visible, enabled
+   target, use it; otherwise error listing candidates.
+2. Validate client-side against `allowedFileExtensions` / `allowMultipleFiles`.
+3. Call `POST uploadDownload/validate` with the filenames for the **server-config** filter. This is
+   a different check from the control's own list and is the one that produces
+   `FileTypeNotAllowedUpload` after bytes are sent. Free preflight; the first draft ignored it.
+4. `postMultipart` each file, collecting tokens.
+5. One `InvokeFileUploadAction` carrying all tokens.
+6. Classify business errors, detect changed sections and dialogs as every other mutating operation
+   does.
 
-```ts
-class UploadService {
-  uploadToControl(pcId, files: FileSource[], opts: { section?, control? }): Promise<Result<UploadResult, BCError>>;
-  uploadToDialog(pcId, file: FileSource): Promise<Result<UploadResult, BCError>>;   // path B
-}
-```
+Steps 4-5 are not atomic and `VerifyFormModality()` can reject at step 5. So:
 
-`uploadToControl`:
-
-1. Resolve the target upload control (by caption/id if `control` given; if the section has exactly
-   one, use it; if several and none named, error listing them).
-2. Validate client-side against `allowedFileExtensions` and `allowMultipleFiles`, with a clear
-   message — BC's own rejection is a generic `FileTypeNotAllowedUpload` and arrives after the bytes
-   have been sent.
-3. `postMultipart` each file, collect `{FileName, FileToken}`.
-4. One `InvokeFileUploadAction` carrying all tokens (BC's parameter is a list; multiple files are
-   one interaction, not N).
-5. Return the resulting events through the normal machinery — changed sections, dialogs opened,
-   validation errors classified by `classifyBusinessError`.
-
-Temp-file hygiene: if step 3 succeeds for some files and step 4 never runs (validation failure,
-session death), the tokens are orphaned server-side. `DELETE {clientBase}/uploadDownload/deleteTemp`
-with the token list cleans up (`UploadDownloadController.cs:150-200`); the service calls it on any
-failure path after a successful upload. Without this a retry loop litters the AL temp directory.
+- `expectedStateVersion` is checked **before** step 4 and **re-checked** before step 5.
+- On any failure after step 4, `deleteTemp` is called with the collected tokens. Caveats recorded:
+  cleanup needs the same session headers (impossible on a dead session), a 2xx response can still
+  carry `Result: false` per item, and a cleanup failure must never replace the original error.
+- If step 5 times out, the outcome is **unknown** — the error says so explicitly rather than
+  implying failure, because the attachment may exist.
 
 ### Tool
 
 ```
 bc_upload_file {
-  pageContextId: string,
-  files: Array<{ fileName?: string, filePath?: string, contentBase64?: string }>,
-  section?: string,
-  control?: string,
-  expectedStateVersion?: number,
+  pageContextId, files: [{ fileName?, filePath?, contentBase64? }],
+  section?, control?, expectedStateVersion?
 }
 ```
 
 Returns `{ uploaded: [{fileName, sizeBytes}], changedSections, dialogsOpened, requiresDialogResponse }`.
-
-Path B (`uploadToDialog`) is reached through the same tool: when the page context's active form is
-a file-upload dialog rather than a page with an upload control, the service takes the one-step
-route. The caller does not choose the path — it is a property of what BC has open, and making the
-LLM guess would be a design error. Detection rule is pinned during gate 1's capture.
-
-### Error handling
-
-| Condition | Result |
-|---|---|
-| Both / neither of `filePath` and `contentBase64` | `ProtocolError`, per-file, before any I/O |
-| File missing or unreadable | `ProtocolError` with the resolved absolute path |
-| Over `BC_MAX_UPLOAD_BYTES` or session cap | `ProtocolError` naming both the size and the cap |
-| Extension not in `allowedFileExtensions` | `ProtocolError` listing the allowed set |
-| Multiple files, `allowMultipleFiles: false` | `ProtocolError` |
-| HTTP 401 from the upload endpoint | `ProtocolError` code `UPLOAD_AUTH` — means the session-id header contract broke; points at gate 1 |
-| Malware scanner rejection (BC throws) | Surfaced verbatim; do not soften or retry |
-| Upload succeeded, interaction failed | Temp tokens deleted, error returned, message states the file reached the server but was not attached |
 
 ## Files touched
 
@@ -215,52 +186,72 @@ edit  src/connection/bc-http.ts            (postMultipart, deleteJson)
 edit  src/protocol/types.ts                (FileUploadInteraction)
 edit  src/protocol/interaction-encoder.ts  (InvokeFileUploadAction)
 edit  src/protocol/form-node.ts            (FileUploadNode)
-edit  src/protocol/form-tree-builder.ts    (build it, per gate 2)
-edit  src/protocol/form-views.ts           (uploadTargets view)
+edit  src/protocol/form-tree-builder.ts    (t === 'fla' branch)
+edit  src/protocol/form-views.ts           (uploadTargets)
 edit  src/protocol/section-dto.ts          (expose uploadTargets)
-edit  src/protocol/wire-types.ts           (alias from gate 2)
-edit  src/mcp/tool-registry.ts             (register bc_upload_file)
+edit  src/session/bc-session.ts            (expose session id / upload-size metadata)
+edit  src/session/session-factory.ts       (:22-41 constructs the HTTP client)
+edit  src/server.ts / src/stdio-server.ts  (both composition roots, :65-111 / :65-108)
+edit  src/mcp/schemas.ts                   (UploadFileSchema)
+edit  src/mcp/tool-registry.ts             (Operations interface + registration)
 edit  src/core/config.ts                   (BC_MAX_UPLOAD_BYTES)
 ```
 
+REST exposure (`src/api/routes.ts`) is a deliberate decision during planning, not an accident.
+
 ## Test plan (TDD order)
 
-**Unit — write first:**
+**Unit:**
 
-1. `readFileSource` rejects both-supplied and neither-supplied.
-2. `readFileSource` derives `fileName` from `filePath` basename when omitted.
-3. `readFileSource` rejects over-cap files without touching the network (spy: no fetch).
-4. `readFileSource` decodes base64 to identical bytes (round-trip a fixture).
-5. Encoder emits `InvokeFileUploadAction` with `files: [{FileName, FileToken}]` and the control path.
-6. Encoder puts multiple tokens in a single interaction, not several.
-7. Tree builder produces a `FileUploadNode` with parsed `allowedFileExtensions` (from the gate-2 fixture).
-8. `uploadTargets` view is memoised (same root -> same reference).
-9. Service rejects a disallowed extension before any HTTP call.
-10. Service rejects 2 files when `allowMultipleFiles: false`.
-11. Service calls `deleteTemp` with the collected tokens when the interaction step fails (mocked HTTP).
-12. Service errors, listing candidates, when a section has two upload controls and `control` is omitted.
+1. Both / neither of `filePath` and `contentBase64` rejected per file.
+2. `fileName` from basename; required with base64.
+3. Strict base64: malformed input rejected, valid input round-trips byte-identically.
+4. Over-cap rejected with zero fetch calls (spy).
+5. Zero-byte file rejected client-side.
+6. Filename with a path separator / CR / quote rejected before multipart assembly.
+7. All sources validated before the first upload (a bad third file → zero uploads).
+8. Multipart body: field name `file`, boundary, filename encoding, binary preserved.
+9. Token response parsed from both a bare string and a quoted JSON string.
+10. Encoder emits `InvokeFileUploadAction` with `files: [{FileName, FileToken}]`.
+11. Multiple tokens go in **one** interaction, not several.
+12. Tree builder produces a `FileUploadNode` from an `fla` fixture with parsed extensions.
+13. `uploadTargets` memoised (same root → same reference).
+14. Disallowed extension → rejected before any HTTP call.
+15. Two files with `allowMultipleFiles: false` → rejected.
+16. `/validate` rejection surfaces before bytes are sent.
+17. Interaction failure → `deleteTemp` called with the collected tokens; a cleanup failure does not
+    replace the original error.
+18. Interaction timeout → error explicitly states the outcome is unknown.
+19. Two upload controls, no `control` → error listing both control paths.
+20. Stale `expectedStateVersion` rejected before upload **and** re-checked before invoke.
+21. HTTP 401 / 413 / 5xx / malformed body mapped distinctly (401 means auth, session, or tenant —
+    not only "the header contract broke").
 
 **Integration — Cronus28, destructive:**
 
-13. Attach a small text file to a Sales Order via the Attachments factbox; re-read the attachment
-    list and assert the filename appears; then delete the attachment and assert it is gone.
-14. Upload a PDF and assert BC accepts it (different extension class, exercises the type filter).
-15. Upload a file with a disallowed extension (e.g. `.exe`) and assert a clear client-side rejection
-    with no HTTP call made.
-16. Round trip against spec 1: upload a file, then download it back through the attachment's
-    download action, and assert byte equality. This is the strongest single proof that both halves
-    of the file story work.
+22. Attach a small text file to a Sales Order; read the attachment list back; delete it.
+23. Attach a PDF (different extension class, exercises the type filter).
+24. Multi-file upload against a control with `AllowMultipleFiles: true`.
+25. Live `deleteTemp` for an orphaned token.
+26. Upload attempted while a modal dialog is stacked → the `VerifyFormModality` error path.
+27. Server-side oversize rejection (a file above the session cap but below the local cap).
+28. **Round trip with spec 1**: upload a file, download it back via the attachment's download
+    action, assert byte equality. Strongest single proof both halves work.
+
+Test 15 in the first draft asserted "no HTTP call made" for a `.exe`; that assertion belongs in the
+unit tier (test 14 here), because the integration tier cannot observe it without instrumentation —
+and the control's own extension list may permit an extension the *server* config rejects.
 
 ## Definition of done
 
-- Both gates closed and their answers recorded in the plan and in CLAUDE.md.
+- Gate 1 closed, all five items recorded in the plan and CLAUDE.md.
 - Unit + integration green.
 - `npx tsc --noEmit` clean.
-- CLAUDE.md gains a "File Upload Protocol" section with both paths, the header contract, and the
-  temp-token lifecycle.
+- CLAUDE.md gains a "File Upload Protocol" section: Path A flow, header contract, token format as
+  captured, the modality precondition, the two extension filters, and the temp-token lifecycle.
 
 ## Out of scope
 
-- Drag-and-drop / clipboard semantics. Irrelevant to a programmatic client.
-- Chunked or resumable upload. BC's endpoint takes one multipart body.
-- Uploading by URL (server fetches the file itself). No BC mechanism for it.
+- **Path B** (`File.UploadIntoStream`) — its own spec, with its own capture gate.
+- Chunked or resumable upload; BC takes one multipart body.
+- Uploading by URL.

@@ -1,145 +1,177 @@
 # OData Writes — Design
 
 **Date:** 2026-07-24
+**Revised:** 2026-07-24 after two-model adversarial review (see `.panel/07-odata-*.md`)
 **Size:** L
 **Build order:** 7 of 7 (see [gap analysis](2026-07-24-mcp-gap-analysis.md))
 **Branch:** `feat/odata-writes`
 
 ## Problem
 
-`ODataClient` exposes exactly one verb: `query`, implemented over a private `_fetch` that only
-does GET (`src/odata/odata-client.ts:145`, `:220`). `bc_query` is therefore read-only
-(`src/operations/query.ts`).
+`ODataClient` exposes one entity verb: `query` (`src/odata/odata-client.ts:145`) over a GET-only
+`_fetch` (`:220`). `bc_query` is read-only.
 
-Every mutation has to go through the page protocol: open a page, select a row, write fields one
-SaveValue at a time, wait for validation echoes, close. That is correct and fully validated, and
-it is the right path for anything a human would do through the UI. It is the wrong path for
-"create 200 customers from this list" or "post these 40 invoices" — dozens of round trips per
-record, each carrying full form state.
+Every mutation therefore goes through the page protocol — correct for anything a human would review,
+wrong for "create 200 customers" or "update 300 item prices", which cost dozens of stateful round
+trips per record.
 
 ## Evidence
 
-| Claim | Source |
-|---|---|
-| Bound actions are a first-class OData feature in BC | `Microsoft.Dynamics.Nav.Service.OData.V4/GenericODataController.cs:380` — `InvokeBoundAction`; supporting path work at `:641`, `:698`, `:720` |
-| Entities can refuse bound actions | `CompanyTableDataProvider.cs:176` throws `BoundActionNotSupported` |
-| Missing action parameters are a specific 400 | `CodeunitInvocationHelper.cs:86` — `ExpectedParameterBoundAction` |
-| ETags are modelled per entity with BC-specific exclusions | `Modeling/NavEdmModelAddEntitiesStrategy.cs:80-86` — `ETagExcludesNonEditableFlowFields`, `ETagExcludesFieldsOutsideRepeater` |
-| API namespace for bound actions is `Microsoft.NAV` | `VocabularyAnnotationFactory.cs:14` — `ApiNamespace = "Microsoft.NAV"` (the `/odata/v4` endpoint uses the plain `NAV` namespace, `NavODataV4V1CachedModelBuilder.cs:21`) |
+| Claim | Source | Status |
+|---|---|---|
+| Bound actions are dispatched by the generic controller | `GenericODataController.cs:379-423`; response construction `:609-720` | Verified |
+| Some entities reject bound actions | `CompanyTableDataProvider.cs:171-181` — `BoundActionNotSupported` | Verified |
+| Missing action parameters are a specific 400 | `CodeunitInvocationHelper.cs:76-88` | Verified |
+| ETag exclusions are real page metadata | `NavEdmModelAddEntitiesStrategy.cs:80-86`; `NavODataV4EntityTypeAnnotation.cs:14-31` | Verified |
+| **PATCH always requires a concurrency token** | `PageDataProvider.ModifyAsync` calls `EnsureConcurrenyTokenSpecified` unconditionally (`:646-675`); a missing/malformed token is a 400 `BadRequest_InvalidToken` (`:1068-1091`) | Verified |
+| DELETE and bound actions check the ETag **only when supplied** | `PageDataProvider` (delete / action paths) | Verified — requiring one is our stricter policy, not BC's rule |
+| `If-Match: *` is accepted | `ETag.IsAny` | Verified |
+| **A stale ETag is 409, not 412** | `NavODataConflictException` → BC code `Request_EntityChanged` (`ExceptionExtensions.cs:103-104`) → `HttpStatusCode.Conflict` (`:186-187`) | Verified. Corrects the first draft |
+| Not every 409 is staleness | `BaseExceptionFilter.cs:53-77` also maps duplicate keys, admin changes, and transient DB errors to 409 | Verified |
+| Errors serialise as `{error:{code,message}}` | `HttpRequestExtensions.CreateErrorActionResult` `:33-67`, `:367-376` | Verified |
+| Status codes vary by operation | Create `201` (or `204` with `Prefer: return-no-content`) `GenericODataController.cs:345-376`; PATCH `200` `:449-466`; DELETE `204` `:118-132`; actions `204` / primitive `200` / status + `Location` `:379-423`, `:609-720` | Verified |
+| `Prefer: return=representation` is not explicitly handled | `HttpRequestExtensions.cs:207-218` detects only `return-no-content`; representation is simply the default | Verified — do not depend on the header |
+| ~~`Microsoft.NAV` is the bound-action namespace, per `VocabularyAnnotationFactory.cs:14`~~ | **RETRACTED.** That constant is for vocabulary *terms* (`AllowEdit`, `ETagExcludes...`). The action namespace comes from `navEdmModel.NamespaceName` (`NavEdmModelAddEntitiesStrategy.cs:111-132`); the plain V4 model uses `NAV` (`NavODataV4V1CachedModelBuilder.cs:19-21,76`) | Corrected — see Gate 1 |
 
-### Verification gate
+### Gate 1 — bound-action namespace
 
-Confirm the bound-action URL shape against the live Cronus28 `$metadata` for
-`/api/v2.0`: fetch `{odataUrl}/api/v2.0/$metadata`, find an `<Action>` element with
-`IsBound="true"` (e.g. on `salesInvoice`), and record its namespace-qualified name. The design
-assumes `POST {entitySet}({id})/Microsoft.NAV.{action}`; the gate either confirms it or supplies
-the real shape. Cheap, decisive, and it also tells us which entities in this environment actually
-expose actions.
+Fetch `{odataUrl}/api/v2.0/$metadata`, find an `<Action IsBound="true">`, record its
+namespace-qualified name, and record which entities in this environment expose actions at all. The
+implementation reads the qualified name from metadata rather than hard-coding a guess.
 
 ## Design
 
 ### One request pipeline
 
-`ODataClient` currently has a GET-only `_fetch`. Replace it with a single `_request` that all
-verbs share — method, headers, body, and error mapping in one place, so a fix to error handling
-cannot apply to three verbs and miss the fourth:
+Replace the GET-only `_fetch` with a shared `_request`:
 
 ```ts
 private async _request<T>(
   method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
   url: string,
-  opts?: { body?: unknown; etag?: string; preferRepresentation?: boolean },
-): Promise<{ status: number; body: T | undefined; etag?: string }>;
+  opts?: { body?: unknown; etag?: string },
+): Promise<{ status: number; body: T | undefined; etag?: string; location?: string }>;
 ```
 
-`query` is refactored onto it with no behaviour change (its tests are the regression lock).
+It must **not** call `response.json()` on an empty 2xx, must preserve `status`, the response `ETag`
+header, the body's `@odata.etag`, and `Location`. `query` is refactored onto it; its tests are the
+regression lock — though "existing tests unchanged" is not a goal, since the current mocks model
+only `ok` / `status` / `json` (`tests/unit/odata-client.test.ts`) and now need headers and empty
+bodies.
 
-New public methods, thin wrappers around `_request`:
+Public methods:
 
 ```ts
-create(entity, body, opts?): Promise<ODataEntity>;
-update(entity, key, body, etag, opts?): Promise<ODataEntity>;
-remove(entity, key, etag, opts?): Promise<void>;
-invokeBoundAction(entity, key, action, parameters?, opts?): Promise<unknown>;
+create(entity, body, opts?): Promise<WriteResult>;
+update(entity, key, body, etag, opts?): Promise<WriteResult>;
+remove(entity, key, etag, opts?): Promise<WriteResult>;
+invokeBoundAction(entity, key, action, parameters?, opts?): Promise<WriteResult>;
 ```
 
-### ETag policy
+`WriteResult` is a union over the real response shapes, not a forced entity:
 
-BC computes ETags per entity with configurable field exclusions
-(`NavEdmModelAddEntitiesStrategy.cs:80-86`), so an ETag is genuinely the concurrency token and not
-a formality.
+```ts
+type WriteResult =
+  | { kind: 'entity'; status: number; row: Record<string, unknown>; etag?: string; location?: string }
+  | { kind: 'empty';  status: number }
+  | { kind: 'value';  status: number; value: unknown };   // primitive action results
+```
 
-- `update` and `remove` **require** an `etag` argument. There is no default.
-- `etag: '*'` is accepted as an explicit "I know, overwrite anyway" and is logged at `warn`.
-  Refusing `*` outright would push callers into read-then-write races anyway; making it explicit
-  and noisy is the honest trade.
-- `bc_query` output gains the per-row `@odata.etag` value as `etag`, so the read that precedes a
-  write hands over the token naturally.
-- A 412 maps to a dedicated `StaleETagError` (code `STALE_ETAG`) whose message tells the caller to
-  re-read and retry — mirroring the existing `STALE_CONTEXT` guard on the page path, so the LLM
-  meets one concurrency concept, not two.
+### Keys — GUID-only, enforced
+
+`key: string` interpolated into `entity(${key})` is unsafe: OData keys are typed, string keys need
+quoting and doubled apostrophes (`O''Brien`), and composite keys need named components
+(`Key1='A',Key2=42`). BC's model supports multiple keys
+(`NavEdmModelAddEntitiesStrategy.cs:66-76`, `DataProvider.cs:65-111`).
+
+This spec takes the honest narrow scope: **Standard API v2.0, `systemId` GUID keys only.** `key` is
+validated as a UUID and anything else is rejected with a message saying so. Typed and composite
+keys are a follow-up that must be metadata-driven, not string interpolation. `entity` and `action`
+are validated as path identifiers to block segment injection.
+
+### Company — explicit for writes
+
+The read client caches a default company and silently falls back to the **first** company when none
+is configured (`odata-client.ts:121-128`), while a per-call `company` deliberately bypasses the
+cache and re-resolves (`:157-161`, `:195-213`).
+
+For writes that fallback is unacceptable. A write requires **one** of: a configured default company,
+an explicit `company` argument, or exactly one accessible company. Otherwise it errors before
+sending. Writes never mutate the read cache.
+
+Mutations against the top-level `companies` set are rejected outright.
+
+### Error mapping — status **and** BC code
+
+`src/odata/odata-error-mapper.ts`, a pure function over `(status, body, headers)`:
+
+| Condition | Result |
+|---|---|
+| 409 + `Request_EntityChanged` | `StaleETagError` (`STALE_ETAG`), message says re-read and retry |
+| 409, other codes (duplicate key, transient) | `ODATA_CONFLICT`, code preserved |
+| 412 | `StaleETagError` — kept as a cross-version / proxy fallback, not the primary trigger |
+| 400 + a validation code family (`Application_FieldValidationException`, …) | `BusinessValidationError`, BC text verbatim |
+| 400, other codes (invalid token, malformed body, unsupported op) | `ODATA_BAD_REQUEST` |
+| 401 | `ODATA_UNAUTHORIZED` |
+| 403 | `ODATA_FORBIDDEN` (permissions, entitlement, licence) |
+| 404 | `ODATA_NOT_FOUND`, names entity + key |
+| 405 / 501 | `ODATA_UNSUPPORTED` — the entity does not support this write or action |
+| 408 / 429 / 503 | `ODATA_RETRYABLE`, surfacing `Retry-After` |
+| 5xx | `ODATA_SERVER_ERROR` |
+| Non-JSON body (proxy / SignIn HTML) | `ODATA_UNEXPECTED_RESPONSE` |
+
+"All 400 = validation" was materially over-broad; BC uses 400 for invalid ETags, malformed models,
+and bad filters too (`ExceptionExtensions.cs:18-158`, `:160-230`).
+
+### Indeterminate outcomes
+
+The client aborts at 30 s (`odata-client.ts:70`, `:228`). A create or bound action can commit and
+then time out before the response arrives. So:
+
+- A separate, longer `BC_ODATA_WRITE_TIMEOUT` (default 120 s).
+- **No automatic retry** of POST / PATCH / DELETE / action, ever.
+- Timeout or connection loss produces `ODATA_OUTCOME_UNKNOWN`, stating the write may have committed
+  and must be verified before retrying.
+- Every write logs entity, operation, key, and a correlation id **before** the request and again on
+  completion — logging only the attempt is not auditing when the outcome is unknown.
+
+### Bound actions and ETags
+
+BC compares an action's ETag when one is supplied. A posting action can otherwise act on a record
+that changed since the caller read it. `operation: 'action'` therefore **requires** `etag` (or an
+explicit `'*'`, logged at warn), same as update and delete.
 
 ### Tool surface
 
-One tool, not four. The LLM picks a verb via a discriminant rather than choosing between four
-similarly-named tools:
+One tool, but a genuine discriminated union so the model sees per-operation required fields in the
+JSON Schema rather than a flat bag of optionals:
+
+```ts
+z.discriminatedUnion('operation', [CreateSchema, UpdateSchema, DeleteSchema, ActionSchema])
+```
 
 ```
 bc_odata_write {
-  entity: string,
   operation: 'create' | 'update' | 'delete' | 'action',
-  key?: string,                  // required for update | delete | action
-  body?: Record<string, unknown>,// required for create | update
-  etag?: string,                 // required for update | delete
-  action?: string,               // required for operation='action'
-  parameters?: Record<string, unknown>,
-  company?: string,
+  entity, company?,
+  body?      // create, update
+  key?       // update, delete, action  (UUID)
+  etag?      // update, delete, action
+  action?, parameters?   // action
 }
 ```
 
-Zod validation enforces the per-operation requirements before anything leaves the process, and
-each error names the missing field and the operation that needs it.
-
-Output: `{ operation, entity, key?, row?, etag? }`. `create` and `update` send
-`Prefer: return=representation` so the caller gets the server's version (BC fills computed fields,
-No. Series values, and the new ETag) without a follow-up GET.
-
-### Deliberate limits
-
-- **No filter-based bulk delete.** Delete takes a single key. A `filter` parameter on a destructive
-  verb is a foot-gun that an LLM will eventually pull; a caller that wants ten deletes issues ten
-  calls and sees ten results.
-- **No batch endpoint.** `$batch` would help throughput but doubles the error-mapping surface
-  (per-item failures inside a 200 response). Revisit only if measured throughput demands it.
-- **No upsert.** BC's PATCH-on-missing-key behaviour varies by entity; explicit create-or-update
-  belongs to the caller.
-
-### Error mapping
-
-BC returns a structured `error: { code, message }` body. Map by status, and keep the BC code:
-
-| Status | Error | Note |
-|---|---|---|
-| 400 | `BusinessValidationError` | The BC code and message pass through verbatim — these are AL validation failures and the text is the useful part |
-| 401 / 403 | `ODataError` code `ODATA_FORBIDDEN` | Distinguish auth failure from permission failure by the BC code |
-| 404 | `ODataError` code `ODATA_NOT_FOUND` | Message names entity and key |
-| 409 | `ODataError` code `ODATA_CONFLICT` | |
-| 412 | `StaleETagError` | Re-read guidance in the message |
-| 5xx | `ODataError` code `ODATA_SERVER_ERROR` | |
-
-The existing `classifyBusinessError` handles the page protocol's event-shaped errors; this is its
-HTTP-shaped sibling and lives in `src/odata/odata-error-mapper.ts` as a pure function over
-`(status, body)` so every case is unit-testable without a network.
+`bc_query` output gains a per-row `etag` extracted from `@odata.etag`, as an explicit DTO
+(`{ row, etag? }`) rather than a sibling field that could collide with a real `etag` property —
+and the spec no longer claims query output is unchanged, because it is not.
 
 ### Safety posture
 
-These calls commit immediately with no dialog and no undo. Three mitigations, all of which are
-cheap and none of which are a confirmation prompt (the MCP layer has no user to prompt):
-
-1. `operation` is explicit — there is no way to delete by omitting a parameter.
-2. Every write is logged at `info` with entity, operation, and key before the request is sent.
-3. The tool description states plainly that writes bypass the UI's dialogs and confirmations, and
-   that page-protocol tools remain the right choice for anything a human would review.
+Writes commit immediately, with no dialog and no undo, and the MCP layer has no user to prompt. So:
+explicit `operation`, mandatory company selection, mandatory ETag on every record-scoped mutation,
+correlation-id logging on both sides of the request, and a tool description that says plainly these
+calls bypass the UI's validation dialogs and that page-protocol tools remain correct for anything a
+human would review.
 
 ## Files touched
 
@@ -147,53 +179,70 @@ cheap and none of which are a confirmation prompt (the MCP layer has no user to 
 new   src/odata/odata-error-mapper.ts
 new   src/operations/odata-write.ts
 new   src/operations/odata-write.tool.ts
-edit  src/odata/odata-client.ts        (_request pipeline; create/update/remove/invokeBoundAction)
-edit  src/operations/query.ts          (surface etag per row)
-edit  src/core/errors.ts               (StaleETagError)
-edit  src/mcp/tool-registry.ts         (register bc_odata_write)
+edit  src/odata/odata-client.ts        (_request; create/update/remove/invokeBoundAction; write
+                                        company policy; write timeout)
+edit  src/operations/query.ts          (per-row { row, etag } DTO)
+edit  src/core/errors.ts               (StaleETagError, OutcomeUnknownError)
+edit  src/mcp/schemas.ts               (discriminated union schema)
+edit  src/mcp/tool-registry.ts         (Operations interface + registration)
+edit  src/core/config.ts               (BC_ODATA_WRITE_TIMEOUT)
 ```
 
 ## Test plan (TDD order)
 
-**Unit — mocked fetch, write first:**
+**Unit (mocked fetch):**
 
-1. `create` POSTs to `{base}/companies({id})/{entity}` with a JSON body and
-   `Prefer: return=representation`.
-2. `update` PATCHes to `{entity}({key})` with `If-Match: <etag>`.
-3. `remove` DELETEs with `If-Match` and returns void on 204.
-4. `invokeBoundAction` POSTs to `{entity}({key})/Microsoft.NAV.{action}` with the parameters body.
-5. `update` without an etag is rejected before any fetch (spy: fetch not called).
-6. `etag: '*'` is allowed and emits a warn-level log.
-7. Error mapper: 412 -> `StaleETagError`; 400 with a BC code -> `BusinessValidationError` carrying
-   that code; 404 -> message naming entity and key; 500 -> `ODATA_SERVER_ERROR`.
-8. Zod: `operation: 'update'` without `key` / without `body` / without `etag` each produce a
-   distinct message naming the field.
-9. `query` behaviour is byte-identical after the `_request` refactor (existing tests unchanged).
-10. `query` output exposes `etag` per row when BC returns `@odata.etag`.
+1. `create` POSTs to `{base}/companies({id})/{entity}` with JSON body and auth/tenant headers.
+2. `update` PATCHes `{entity}({key})` with `If-Match`.
+3. `remove` DELETEs with `If-Match`, returns `kind: 'empty'` on 204.
+4. `invokeBoundAction` POSTs the metadata-derived qualified action name.
+5. `update` / `remove` / `action` without an etag rejected before any fetch.
+6. `etag: '*'` allowed, emits a warn log.
+7. Non-UUID `key` rejected with a message naming the limitation.
+8. Injection attempts in `entity` / `action` rejected.
+9. Mutation against `companies` rejected.
+10. No configured company + multiple companies → rejected before sending; explicit `company` uses
+    the override path and does not corrupt the read cache.
+11. `201` with body → `kind: 'entity'`; `204` → `kind: 'empty'`; primitive JSON → `kind: 'value'`;
+    `Location` and response-header ETag preserved; weak ETags (`W/"..."`) passed through verbatim.
+12. Error mapper: 409 + `Request_EntityChanged` → `STALE_ETAG`; 409 duplicate key → `ODATA_CONFLICT`;
+    412 → `STALE_ETAG`; 400 invalid token vs 400 validation → different codes; 403; 404; 405; 429
+    with `Retry-After`; 500; HTML body → `ODATA_UNEXPECTED_RESPONSE`.
+13. Timeout → `ODATA_OUTCOME_UNKNOWN`, and no retry is attempted for any write verb.
+14. Schema: each operation's missing required field produces a distinct message.
+15. `query` exposes `etag` per row; rows without `@odata.etag` omit it.
 
-**Integration — Cronus28, destructive:**
+**Integration — Cronus28, destructive, one test with `try/finally`:**
 
-11. Create a customer with a minimal body; assert an id and etag come back.
-12. Patch that customer's name with the returned etag; assert the response reflects it.
-13. Patch again with the **stale** etag; assert `STALE_ETAG`.
-14. Bound action against the entity found by the verification gate; assert a non-error result.
-15. Delete the customer with its current etag; assert a follow-up `bc_query` cannot find it.
-16. Create with an invalid body (bad enum value) -> `BusinessValidationError` carrying BC's text.
+The lifecycle runs as a **single** test around a unique marker string generated before creation, so
+a mid-way failure cannot cascade into the next test and cleanup can find leftovers by querying the
+marker and deleting with `*` if necessary. Cleanup must work even when create's response was lost.
 
-Tests 11-15 form one ordered lifecycle over a single throwaway record and must clean up after
-themselves even on failure.
+16. Create a customer carrying the marker → id + etag returned, status recorded.
+17. PATCH the name with that etag → response reflects it; record the actual status.
+18. PATCH again with the **stale** etag → assert `STALE_ETAG` **and** record the live status/code
+    (expected 409 / `Request_EntityChanged`).
+19. Bound action against the entity found by Gate 1 — on a record created for the test, not a shared
+    CRONUS document.
+20. DELETE with the current etag; a follow-up query cannot find the marker.
+21. Create with an invalid enum value → `BusinessValidationError` carrying BC's text.
+22. A write against an entity that does not support it → `ODATA_UNSUPPORTED`.
+23. Confirm live whether `Prefer: return=representation` changes anything on this endpoint.
 
 ## Definition of done
 
-- Verification gate closed, bound-action shape recorded.
-- Unit + integration green; existing `bc_query` tests untouched and passing.
+- Gate 1 closed; the qualified action name is read from metadata, not hard-coded.
+- Unit + integration green; `bc_query` tests updated for the new row DTO.
 - `npx tsc --noEmit` clean.
-- CLAUDE.md gains an "OData Write Protocol" section: verbs, ETag rules, when to prefer the page
-  protocol instead.
+- CLAUDE.md gains an "OData Write Protocol" section: verbs, GUID-key limitation, 409/`Request_EntityChanged`
+  staleness, the company policy, and when to prefer the page protocol.
 
 ## Out of scope
 
-- `$batch`, filter-based bulk operations, upsert (see Deliberate limits).
-- Unbound actions / codeunit web services (`/ODataV4/{codeunit}_{method}`).
-- Custom API pages beyond Standard API v2.0. The client takes an entity name; a custom API just
-  needs a different base URL, which is configuration, not code.
+- `$batch`. Deferred — but the throughput claim is tempered accordingly: without it, 200 creates
+  are still 200 calls. This is a latency improvement per record, not a bulk endpoint.
+- Filter-based bulk delete, upsert, unbound / codeunit actions.
+- Typed and composite keys (see the key decision above).
+- **Custom APIs.** The first draft called these "configuration, not code" — wrong: `baseApiUrl`
+  hard-codes `/api/v2.0` at `odata-client.ts:68`, and custom APIs use publisher/group/version
+  segments. Supporting them needs a configurable API root, which is its own change.

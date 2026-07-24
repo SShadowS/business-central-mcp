@@ -1,172 +1,237 @@
 # Long-Running Operations — Design
 
 **Date:** 2026-07-24
-**Size:** M
+**Revised:** 2026-07-24 — substantially rewritten after two-model adversarial review
+(see `.panel/05-longops-*.md`). Both panelists independently found the previous version's central
+argument invalid.
+**Size:** M-L (depends on which branch the gates select)
 **Build order:** 5 of 7 (see [gap analysis](2026-07-24-mcp-gap-analysis.md))
 **Branch:** `feat/long-running-ops`
+**Status:** Blocked on Gate A and Gate B. Do not implement past the gates.
 
 ## Problem
 
-Every invoke is bounded by an absolute wall-clock timeout. `BCSession.invoke` wraps the call in
-`withTimeout(..., effectiveTimeout + 5000)` (`src/session/bc-session.ts:157-161`), and on expiry
-`withTimeout` **kills the session**: `markDead()` + `closeWs()` (`bc-session.ts:173-176`).
+Every invoke is bounded by an absolute wall-clock timeout: `BCSession.invoke` wraps the queued task
+in `withTimeout(..., effectiveTimeout + 5000)` (`src/session/bc-session.ts:145-161`), and on expiry
+`withTimeout` **kills the session** — `markDead()` + `closeWs()` (`:169-176`). Default
+`BC_INVOKE_TIMEOUT` is 30 s (`src/core/config.ts:73-75`).
 
-Default `BC_INVOKE_TIMEOUT` is 30 s. A month-end posting run, a large report, a config-package
-import, or a batch job on a real dataset routinely exceeds that. BC is healthy and working; we
-kill the connection, the caller gets "BC did not respond within 35s", and BC holds the NTLM slot
-for ~15 s afterwards. The operation may well have committed server-side, so the caller is left
-guessing.
+A month-end posting run, a large report, or a config-package import exceeds that routinely. BC is
+healthy and working; we kill the connection, the caller gets a timeout, BC holds the auth slot for
+~15 s, and the operation may well have committed server-side.
 
-Raising `BC_INVOKE_TIMEOUT` globally is not a fix: it delays detection of genuinely hung invokes
-(a confirmed BC bug, per CLAUDE.md) by the same amount for every call.
+Raising the global timeout is not a fix: it delays detection of genuinely hung invokes (a confirmed
+BC bug) by the same amount for every call.
 
-## Correction to the original plan
+## Retraction: the previous version's argument was wrong
 
-The initial gap list proposed polling `DN.IsExecutingHandler`. That handler belongs to BC's HTTP
-long-poll client, not our WebSocket:
+The earlier draft asserted that `DN.IsExecutingHandler` belongs only to BC's HTTP long-poll client
+and is unavailable on our transport, based on finding no matches for `IsExecuting` in
+`Microsoft.Dynamics.Nav.Service.ClientService`.
 
-- `Microsoft.Dynamics.Framework.UI.Web/CallbackHandler.cs:231` — `IsIsExecutingRequest` matches a
-  request whose single interaction is literally named `IsExecuting`.
-- `CallbackHandler.cs:267` — `GenerateIsExecutingResponse` emits the `DN.IsExecutingHandler` envelope.
-- Grepping `IsExecuting` across `Microsoft.Dynamics.Nav.Service.ClientService` (the assembly serving
-  our `/csh` socket) returns **no matches**.
+**That grep was against the wrong assembly.**
 
-There is no busy-poll to send. The mechanism available to us is different and simpler: BC keeps
-talking while it works.
+- This client connects to `${base}/csh` (`src/connection/connection-factory.ts:53-62`).
+- `ClientService`'s WebSocket endpoint is `[Route("ws")]` + `[Route("connect")]`, i.e.
+  `/ws/connect`, and it runs StreamJsonRpc (`WebSocketController.cs:13-31`,
+  `NsServiceJsonRpcHostFactory.cs:15-34`). It is **not** `/csh`.
+- No `.cs` file in the decompiled tree contains the string `/csh` at all — the endpoint is part of
+  the web-client host, whose request model is `CallbackRequestData` in
+  `Microsoft.Dynamics.Framework.UI.Web`.
+- Our encoder already sends exactly that model — `interactionsToInvoke`, `sequenceNo`,
+  `lastClientAckSequenceNumber`, `navigationContext` (`src/protocol/interaction-encoder.ts:48-73`)
+  — and our responses are `ResponseManager` products, per the verified report-download work.
 
-## Evidence for the chosen mechanism
+`IsExecuting` is matched **by interaction name** inside transport-agnostic `CallbackHandler`
+(`CallbackHandler.cs:231-247`), and answered from `HasEnteredProcessing` **before** `EnterProcessing`
+(`:97-104`) — it is expressly designed to be answerable while another interaction is blocked. The
+same pre-processing treatment applies to `CancelAction` (`:137-157`).
 
-| Claim | Source |
-|---|---|
-| BC pushes async `Message` notifications during an invoke | `src/session/bc-session.ts:215-229` already subscribes to them and merges them into the result |
-| Every inbound frame passes one chokepoint | `src/connection/bc-websocket.ts:104-107` -> `routeMessage`, which forwards to all handlers before routing (`bc-websocket.ts:128-140`) |
-| Long AL operations emit progress notifications | `Microsoft.Dynamics.Framework.UI/ProgressNotificationBlock.cs`, `ProgressNotificationOptions.cs`; cancellation exists at `UISession.cs:969-978` (`CancelProgressDialog`) |
-| The server has its own cap, so an idle client deadline is not the last line of defence | `Microsoft.Dynamics.Nav.Service.ClientService/ClientHostStartup.cs:70` — `UseCancellationMiddleware("ClientActivityId", ServerUserSettings.Instance.ClientServicesOperationTimeout.Value)` |
-| Exactly one invoke is in flight at a time | The serialized invoke queue in `BCSession` (CLAUDE.md, "Invoke Queue") |
+So IsExecuting is plausibly available to us. The real unknown is whether a second JSON-RPC request
+can be dispatched on our socket while an invoke is outstanding — and that is a client-side
+constraint we impose ourselves: `BCWebSocket.enqueueSend` serialises an RPC *through its response*
+(`src/connection/bc-websocket.ts:210-274`).
 
-That last fact is what makes correlation tractable: we do not need to know which pending request a
-frame belongs to, because there is only ever one.
+## Gates — both mandatory, both cheap
 
-## Design
+### Gate A — can `/csh` answer IsExecuting concurrently?
 
-### New unit: `InvokeDeadline` (pure timer policy)
+1. Open a session, start a long invoke (a report or a deliberate delay).
+2. On the same socket, send a second `Invoke` whose sole interaction is named `IsExecuting`,
+   bypassing our own send queue.
+3. Record: does a `DN.IsExecutingHandler` response arrive? Does it arrive *before* the first invoke
+   completes? Does sending it corrupt `sequenceNo` or the first response?
+
+**If Gate A passes**, take Branch 1 below and most of this spec's risk disappears — correlated
+progress polling replaces heuristics, and `bc_cancel_operation` becomes cheap (same server-side
+pre-processing path).
+
+**If Gate A fails**, take Branch 2 and accept its documented limits.
+
+### Gate B — does BC emit frames during a silent long operation?
+
+Branch 2 is worthless if the socket goes quiet. `ProgressNotificationBlock` is **event-driven, not
+a heartbeat** (`ProgressNotificationBlock.cs:91-145`): it emits only when AL explicitly drives a
+dialog. A long `CALCFIELDS`, a slow query, a lock wait, or report dataset generation can be silent
+for minutes. `CallbackHandler.HandleRequestCore` awaits `InvokeInteractions` before generating the
+response (`:184-211`), so the *response* certainly cannot arrive early.
+
+Capture raw `/csh` frames with monotonic timestamps during:
+
+- an operation that drives a progress dialog (batch journal post);
+- one that does not (a large report, or a long `MODIFYALL`);
+- a long SQL / lock-wait phase.
+
+Report the **maximum inter-frame gap**, not pass/fail. A single chatty report proves nothing about
+posting.
+
+## Branch 1 — correlated IsExecuting polling (preferred, if Gate A passes)
+
+- `BCWebSocket` gains a narrowly scoped `sendOutOfBand(method, params)` that bypasses
+  `enqueueSend`, used **only** for IsExecuting and (later) CancelAction.
+- While an invoke is outstanding and no response has arrived for `pollIntervalMs` (default 10 s),
+  send an IsExecuting probe. A `true` answer resets the deadline; a `false` answer means BC is not
+  processing and the invoke really is wedged; a transport error fails fast.
+- The deadline then measures *what it claims to measure* — server-side execution state — instead of
+  inferring liveness from unrelated traffic.
+
+## Branch 2 — idle deadline (fallback, only if Gate A fails and Gate B shows frequent frames)
+
+### `InvokeDeadline` (pure timer policy)
 
 `src/session/invoke-deadline.ts`
 
 ```ts
-export interface InvokeDeadlineOptions {
-  idleMs: number;      // no inbound traffic for this long -> expire
-  ceilingMs: number;   // total elapsed cap regardless of traffic
-  onExpire: (reason: 'idle' | 'ceiling', elapsedMs: number) => void;
-  now?: () => number;  // injected for tests
-  setTimer?: ...;      // injected for tests
-}
-
 export class InvokeDeadline {
-  start(): void;
-  touch(): void;   // called on any inbound frame
-  stop(): void;    // called on settle
+  constructor(opts: {
+    idleMs: number; ceilingMs: number;
+    onExpire: (reason: 'idle' | 'ceiling', elapsedMs: number) => void;
+    now?: () => number; setTimer?: ...;   // injected for tests
+  });
+  start(): void; touch(source: string): void; stop(): void;
 }
 ```
 
-One responsibility: decide when a call has stopped making progress. No knowledge of WebSockets,
-BC, or sessions. Fully unit-testable with fake timers, which the current inline `setTimeout` logic
-is not.
+No knowledge of WebSockets, BC, or sessions. Fully testable with fake timers.
 
-### Wiring
+### Wiring, with the corrections the review forced
 
-- `BCWebSocket` exposes `onAnyFrame(cb)` — invoked from `routeMessage` **before** any parsing or
-  routing decision, so malformed or unrecognised frames still count as liveness. This is a new
-  hook rather than reusing `onMessage`, because `onMessage` handlers are semantic consumers and
-  one of them filtering on `method === 'Message'` (as `invokeUnqueued` does) would miss responses.
-- `invokeUnqueued` creates an `InvokeDeadline`, subscribes it to `onAnyFrame`, and unsubscribes in
-  its existing `finally`.
-- `withTimeout`'s fixed timer is replaced by the deadline. `markDead()` + `closeWs()` still happen
-  on expiry — a call that has been silent for the idle window is genuinely wedged, and the existing
-  recovery path (SessionManager exponential backoff) is correct for it.
-- `ws.sendRpc`'s own `timeoutMs` is raised to the ceiling, so the RPC layer never fires first. The
-  deadline becomes the single authority on "too long".
+- The liveness hook must live in the **raw `ws.on('message')` callback**, before `JSON.parse`
+  (`src/connection/bc-websocket.ts:104-113`) — not in `routeMessage`, which never sees malformed
+  frames and returns early for non-object JSON (`:127-140`). The previous draft's placement
+  contradicted its own test 7.
+- WebSocket ping/pong is handled below the `message` event by the `ws` library and therefore
+  correctly does **not** feed the timer. Asserted by a test so it cannot silently change.
+- `sendRpc`'s own timeout is set to `ceilingMs + 5 s`, **not** equal to the ceiling — two timers
+  with the same nominal expiry race, and the previous draft's "so the deadline never fires first"
+  claim was unfounded.
+- The deadline belongs to the **outer queued task**, not to each `invokeUnqueued` attempt. Modal
+  reconciliation calls `invokeUnqueued` recursively; nested calls `touch()` the existing deadline
+  rather than creating their own.
+- Expiry closes the socket, which rejects the pending `sendRpc`. Exactly one settlement path must
+  win, listeners must be removed, and no unhandled rejection may escape.
+
+### Honest failure modes (documented in the spec, not discovered later)
+
+1. **Uncorrelated traffic.** Any inbound frame resets the timer, including notifications for other
+   open forms, trailing messages from the previous invoke, and server-initiated requests. A wedged
+   invoke on a chatty session survives to the ceiling — hang detection regresses from ~35 s to up to
+   600 s. Mitigation: every `touch()` logs its frame type at debug so an operator can see what kept
+   it alive; nothing stronger is possible without Gate A.
+2. **A silent healthy operation still dies** at `idleMs`. If Gate B shows gaps above the idle
+   window, Branch 2 does not solve the stated problem and the ceiling must simply be raised
+   instead — which is a smaller, honest change.
+3. **Late traffic attribution.** The 150 ms quiescence window means a message can arrive after
+   settlement and touch the *next* operation's deadline.
 
 ### Configuration
 
 | Env var | Default | Meaning |
 |---|---|---|
-| `BC_INVOKE_IDLE_TIMEOUT` | 30 s | Silence tolerated before declaring the invoke wedged. |
-| `BC_INVOKE_MAX_DURATION` | 600 s | Absolute cap. Protects against a chatty-but-stuck server. |
+| `BC_INVOKE_IDLE_TIMEOUT` | 30 s | Falls back to `BC_INVOKE_TIMEOUT` when unset. |
+| `BC_INVOKE_MAX_DURATION` | 600 s | Absolute cap. |
+| `BC_ISEXECUTING_POLL_INTERVAL` | 10 s | Branch 1 only. |
 
-`BC_INVOKE_TIMEOUT` is retained as the fallback default for `BC_INVOKE_IDLE_TIMEOUT` so existing
-deployments keep their tuning without edits.
+Existing per-call `timeoutMs` overrides must be preserved: the report flow passes a larger explicit
+timeout (`src/session/bc-session.ts:515-557`), and a global idle deadline that ignores it is a
+silent regression. An explicit per-call timeout now sets that call's **ceiling**.
 
-Error messages must distinguish the two, because the operator response differs:
+Distinct error messages, because the operator response differs:
 
-- idle: "BC sent nothing for 30s. Session killed and will reconnect. The operation may have
-  committed server-side — verify before retrying."
-- ceiling: "Operation exceeded the 600s cap while still responding. Session killed. Raise
-  `BC_INVOKE_MAX_DURATION` if this operation is legitimately this slow."
+- idle: "BC sent nothing for Ns. Session killed. The operation may have committed server-side —
+  verify before retrying."
+- ceiling: "Operation exceeded the Ns cap while still responding. Raise `BC_INVOKE_MAX_DURATION` if
+  this operation is legitimately this slow."
 
-### Progress surfacing
+## Progress surfacing
 
-Progress notifications are already decoded into events and merged. This spec adds only:
-
-1. A `Progress` event variant in the decoder when a `Message` batch carries progress-notification
-   properties (heading / body text), instead of falling through as unknown.
-2. `logger.info` on each progress update, so a long run is observable in the log rather than
-   looking like a hang.
-
-It deliberately does **not** add a progress field to tool outputs. The invoke is synchronous from
-the caller's perspective; by the time a tool result is produced the operation has finished and
-intermediate progress is noise. If a future async-handle mode lands, that is where progress
-belongs.
+Both branches: decode progress notifications into a `Progress` event and log at info, so a long run
+is observable instead of looking like a hang. The wire shape is **not yet known** — the decompiled
+`IProgressNotificationMonitor` implementation has not been traced to a handler array. Gate B's
+capture supplies it. No progress field is added to tool outputs.
 
 ## Files touched
 
 ```
-new   src/session/invoke-deadline.ts
-edit  src/connection/bc-websocket.ts   (onAnyFrame hook; sendRpc timeout -> ceiling)
-edit  src/session/bc-session.ts        (withTimeout -> InvokeDeadline; error messages)
-edit  src/protocol/event-decoder.ts    (Progress event)
-edit  src/protocol/types.ts            (ProgressEvent)
-edit  src/core/config.ts               (two new env vars, BC_INVOKE_TIMEOUT fallback)
+new   src/session/invoke-deadline.ts          (Branch 2)
+edit  src/connection/bc-websocket.ts          (raw-frame hook; sendOutOfBand for Branch 1;
+                                               sendRpc timeout = ceiling + 5s)
+edit  src/session/bc-session.ts               (deadline ownership on the outer task; poll loop
+                                               for Branch 1; per-call ceiling)
+edit  src/protocol/event-decoder.ts           (Progress event, shape from Gate B)
+edit  src/protocol/types.ts                   (ProgressEvent)
+edit  src/core/config.ts                      (new env vars)
 ```
 
 ## Test plan (TDD order)
 
-**Unit — fake timers throughout, write first:**
+**Gates first — no implementation before both are recorded.**
 
-1. No `touch()` -> expires at `idleMs` with reason `idle`.
-2. `touch()` at 0.9x idle, repeatedly, past `idleMs * 3` -> does not expire.
-3. Continuous `touch()` past `ceilingMs` -> expires with reason `ceiling`.
-4. `stop()` before expiry -> `onExpire` never fires, no dangling timer (assert timer count zero).
-5. `touch()` after `stop()` is a no-op.
-6. Idle expiry message names the idle window; ceiling expiry message names the cap.
-7. `BCWebSocket.onAnyFrame` fires for a malformed frame that `routeMessage` cannot parse further.
-8. `onAnyFrame` fires for responses, `Message` notifications, and inbound requests alike.
-9. Config: `BC_INVOKE_IDLE_TIMEOUT` unset falls back to `BC_INVOKE_TIMEOUT`; both unset -> 30 s.
+**Unit (fake timers):**
 
-**Integration — Cronus28, destructive allowed:**
+1. No `touch()` → expires at `idleMs`, reason `idle`.
+2. Repeated `touch()` below the idle window past 3x `idleMs` → no expiry.
+3. Continuous `touch()` past `ceilingMs` → expires, reason `ceiling`.
+4. `stop()` before expiry → `onExpire` never fires, zero dangling timers.
+5. `touch()` after `stop()` is a no-op; `start()` twice is safe; `idleMs >= ceilingMs` rejected.
+6. Distinct messages for idle vs ceiling.
+7. Raw hook fires for a frame that fails `JSON.parse` (proves placement before parsing).
+8. Raw hook fires for responses, `Message` notifications, and inbound requests.
+9. WS ping/pong does **not** touch the deadline.
+10. Nested `invokeUnqueued` touches the outer deadline; it does not create a second one.
+11. Expiry + socket close settles exactly once, removes listeners, no unhandled rejection.
+12. Explicit per-call `timeoutMs` sets that call's ceiling and is not overridden by the global.
+13. Config: idle falls back to `BC_INVOKE_TIMEOUT`; both unset → 30 s; invalid values rejected.
+14. Branch 1: a `false` IsExecuting answer while an invoke is outstanding fails it fast rather than
+    waiting for the ceiling.
 
-10. Drive an operation that takes longer than 30 s and assert it completes rather than killing the
-    session. Candidate: `bc_run_report` on a wide report (e.g. Detail Trial Balance over a full
-    year, all accounts) or a batch post of several journal lines. The plan pins the concrete
-    operation after measuring one against Cronus28; if nothing on the demo dataset reliably exceeds
-    30 s, set `BC_INVOKE_IDLE_TIMEOUT=2000` for that test and use any normal report — the
-    mechanism, not the wall-clock, is what is under test.
-11. A genuinely dead socket (kill the connection mid-invoke) still fails fast and marks the session
-    dead — the fast-fail behaviour must not regress.
-12. Existing session-recovery integration tests unchanged and green.
+**Integration — Cronus28:**
+
+15. **Gate A live test**, kept as a permanent regression test whichever branch ships.
+16. **Gate B measurement**, asserting the recorded maximum inter-frame gap for the chosen fixture
+    stays under the configured idle window. This is the test that would catch BC changing.
+17. A genuinely long operation (>60 s) completes instead of killing the session.
+18. A half-open socket — connection kept open, all inbound data dropped — expires on idle. (Killing
+    the connection outright only tests the existing immediate-rejection path at
+    `bc-websocket.ts:111-117`.)
+19. Branch 2 only: an unrelated notification arriving while an invoke is hung — assert the
+    documented regression (survives to the ceiling) so the behaviour is recorded, not accidental.
+20. Existing session-recovery integration tests unchanged and green.
 
 ## Definition of done
 
+- Gates A and B closed, recorded in the plan **and** in CLAUDE.md.
+- The chosen branch implemented; the rejected branch's rationale written down.
 - Unit + integration green; existing timeout/recovery tests unaffected.
 - `npx tsc --noEmit` clean.
-- No raw `setTimeout` left in `BCSession` for invoke timing (grep).
-- CLAUDE.md "Session Recovery" and "Async Message Timing" sections updated with the idle/ceiling
-  model and the IsExecuting correction.
+- CLAUDE.md "Session Recovery" and "Async Message Timing" updated, including the retraction above
+  so the wrong IsExecuting claim does not get re-derived from the old note.
 
 ## Out of scope
 
-- `bc_cancel_operation` wired to `UISession.CancelProgressDialog`. Considered and deferred: it
-  needs a second channel into a session whose queue is blocked by the very invoke being cancelled.
+- `bc_cancel_operation`. Deferred — but the rationale is corrected: the blocker is our own
+  `enqueueSend` serialisation plus the need for `sendOutOfBand`, **not** a server limitation. BC
+  exposes `CancelAction` on the same pre-processing path as IsExecuting
+  (`CallbackHandler.cs:137-157` → `UISession.CancelProgressDialog`, `UISession.cs:969-980`). If
+  Gate A passes, cancellation becomes a small follow-up rather than a redesign.
 - Async operation handles (`operationId` + poll tool).
-- Per-call `timeoutMs` overrides on individual tools. The idle model makes them mostly unnecessary;
-  revisit if a real flow needs a tighter bound than the global.
