@@ -5,8 +5,7 @@ import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { ControlField } from '../protocol/types.js';
 import { detectDialogs } from '../protocol/mutation-result.js';
-import { existsSync, mkdirSync, writeFileSync } from 'fs';
-import { join } from 'path';
+import type { Download, DownloadService } from '../services/download-service.js';
 
 export interface RunReportInput {
   reportId: string;
@@ -26,21 +25,15 @@ export interface RunReportOutput {
   };
   dialogsOpened: Array<{ formId: string; message?: string; fields?: ControlField[] }>;
   requiresDialogResponse: boolean;
-  /** Present when format was specified and the report file was captured. */
-  download?: {
-    /** Base64-encoded file bytes. */
-    bytes: string;
-    contentType: string;
-    fileName?: string;
-    /** Absolute path where the file was saved, if BC_REPORT_DIR is set. */
-    savedPath?: string;
-  };
+  /** Captured report output(s) when format was specified; empty otherwise. */
+  downloads: Download[];
 }
 
 export class RunReportOperation {
   constructor(
     private readonly session: BCSession,
     private readonly repo: PageContextRepository,
+    private readonly downloadService: DownloadService,
   ) {}
 
   async execute(input: RunReportInput): Promise<Result<RunReportOutput, ProtocolError>> {
@@ -88,6 +81,7 @@ export class RunReportOperation {
       requestPage,
       dialogsOpened,
       requiresDialogResponse: dialogsOpened.length > 0,
+      downloads: [],
     });
   }
 
@@ -98,24 +92,7 @@ export class RunReportOperation {
     const result = await this.session.runReportWithDownload(reportId, format);
     if (isErr(result)) return result;
 
-    const { bytes, contentType, fileName } = result.value;
-
-    let savedPath: string | undefined;
-    const reportDir = process.env['BC_REPORT_DIR'];
-    if (reportDir) {
-      try {
-        if (!existsSync(reportDir)) {
-          mkdirSync(reportDir, { recursive: true });
-        }
-        const ext = { pdf: '.pdf', excel: '.xlsx', word: '.docx' }[format];
-        const outName = fileName ?? `report-${reportId}-${Date.now()}${ext}`;
-        savedPath = join(reportDir, outName);
-        writeFileSync(savedPath, bytes);
-      } catch {
-        // Non-fatal: still return bytes even if save fails
-        savedPath = undefined;
-      }
-    }
+    const captured = await this.downloadService.capture(result.value.events, { timeoutMs: 120_000 });
 
     return ok({
       success: true,
@@ -124,12 +101,7 @@ export class RunReportOperation {
       // runReportWithDownload — don't return their stale formIds.
       dialogsOpened: [],
       requiresDialogResponse: false,
-      download: {
-        bytes: bytes.toString('base64'),
-        contentType,
-        fileName,
-        savedPath,
-      },
+      downloads: captured.downloads,
     });
   }
 }

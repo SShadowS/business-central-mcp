@@ -8,7 +8,7 @@
  *   - closeGracefully(): already-dead early return, save-changes dialog dismissal
  *     during the form-close loop, the 20-iteration safety cap, and the
  *     try/finally teardown when CloseForm throws.
- *   - runReportWithDownload(): no-format-dialog error and download-failure catch.
+ *   - runReportWithDownload(): no-format-dialog error and dead-session fast-fail.
  *   - close(): unconditional teardown idempotency.
  *
  * All imports use .js extensions (ESM project). No 2>nul. No emojis.
@@ -18,7 +18,6 @@ import { describe, it, expect, vi } from 'vitest';
 import { BCSession } from '../../src/session/bc-session.js';
 import { EventDecoder } from '../../src/protocol/event-decoder.js';
 import { InteractionEncoder } from '../../src/protocol/interaction-encoder.js';
-import type { ReportDownloader } from '../../src/session/report-downloader.js';
 import { ok } from '../../src/core/result.js';
 import { isOk, isErr } from '../../src/core/result.js';
 import type { BCEvent, BCInteraction } from '../../src/protocol/types.js';
@@ -301,7 +300,7 @@ describe('BCSession.closeGracefully', () => {
 });
 
 // ---------------------------------------------------------------------------
-// runReportWithDownload(): no-format-dialog + download-failure catch
+// runReportWithDownload(): no-format-dialog + dead-session fast-fail
 // ---------------------------------------------------------------------------
 
 function dialogHandlers(formId: string) {
@@ -315,22 +314,6 @@ function invokeCompletedHandlers() {
     { handlerType: 'DN.CallbackResponseProperties', parameters: [{ SequenceNumber: 1, CompletedInteractions: [] }] },
   ];
 }
-function fileDownloadHandlers(relativeUrl: string) {
-  return [
-    { handlerType: 'DN.CallbackResponseProperties', parameters: [{ SequenceNumber: 1, CompletedInteractions: [] }] },
-    { handlerType: 'DN.LogicalClientEventRaisingHandler', parameters: ['UriToShow', relativeUrl, '1'] },
-  ];
-}
-
-function createMockDownloader(overrides?: Partial<ReportDownloader>): ReportDownloader {
-  return {
-    baseUrl: 'http://cronus28/BC',
-    downloadFromUrl: vi.fn().mockResolvedValue({
-      bytes: Buffer.from('%PDF'), contentType: 'application/pdf', fileName: 'r.pdf',
-    }),
-    ...overrides,
-  } as unknown as ReportDownloader;
-}
 
 describe('BCSession.runReportWithDownload (additional branches)', () => {
   it('returns error when SendTo (410) opens no format dialog', async () => {
@@ -340,7 +323,7 @@ describe('BCSession.runReportWithDownload (additional branches)', () => {
     const ws = createMockWs(sendRpc);
     const session = new BCSession(
       ws as any, new EventDecoder(), createMockEncoder(),
-      createMockLogger() as any, 'default', 5000, '', createMockDownloader(),
+      createMockLogger() as any, 'default', 5000,
     );
 
     const result = await session.runReportWithDownload(6);
@@ -348,33 +331,11 @@ describe('BCSession.runReportWithDownload (additional branches)', () => {
     if (isErr(result)) expect(result.error.message).toMatch(/no format dialog/i);
   });
 
-  it('returns error when the downloader throws while fetching the file', async () => {
-    const sendRpc = vi.fn()
-      .mockResolvedValueOnce({ ok: true, value: dialogHandlers('req-1') })
-      .mockResolvedValueOnce({ ok: true, value: dialogHandlers('fmt-1') })
-      .mockResolvedValueOnce({ ok: true, value: fileDownloadHandlers('DynamicFileHandler.axd?fname=x.pdf') });
-    const ws = createMockWs(sendRpc);
-    const downloader = createMockDownloader({
-      downloadFromUrl: vi.fn().mockRejectedValue(new Error('HTTP 500 from DynamicFileHandler')),
-    });
-    const session = new BCSession(
-      ws as any, new EventDecoder(), createMockEncoder(),
-      createMockLogger() as any, 'default', 5000, '', downloader,
-    );
-
-    const result = await session.runReportWithDownload(6);
-    expect(isErr(result)).toBe(true);
-    if (isErr(result)) {
-      expect(result.error.message).toMatch(/Download from DynamicFileHandler failed/i);
-      expect(result.error.message).toMatch(/HTTP 500/);
-    }
-  });
-
   it('fast-fails when the session is already dead', async () => {
     const ws = createMockWs(vi.fn(async () => ok([])));
     const session = new BCSession(
       ws as any, new EventDecoder(), createMockEncoder(),
-      createMockLogger() as any, 'default', 5000, '', createMockDownloader(),
+      createMockLogger() as any, 'default', 5000,
     );
     session.markDead();
 

@@ -24,7 +24,6 @@ import { describe, it, expect, vi } from 'vitest';
 import { BCSession } from '../../src/session/bc-session.js';
 import { EventDecoder } from '../../src/protocol/event-decoder.js';
 import { InteractionEncoder } from '../../src/protocol/interaction-encoder.js';
-import type { ReportDownloader } from '../../src/session/report-downloader.js';
 import type { BCInteraction } from '../../src/protocol/types.js';
 import { isOk, isErr } from '../../src/core/result.js';
 
@@ -59,17 +58,6 @@ function createMockWs() {
     close: vi.fn(),
     setRequestHandler: vi.fn(),
   };
-}
-
-function createMockDownloader(): ReportDownloader {
-  return {
-    baseUrl: 'http://cronus28/BC',
-    downloadFromUrl: vi.fn().mockResolvedValue({
-      bytes: Buffer.from('PK\x03\x04-bytes'),
-      contentType: 'application/octet-stream',
-      fileName: 'r.bin',
-    }),
-  } as unknown as ReportDownloader;
 }
 
 /** Request-page dialog: bare lf with no SelectionControl. */
@@ -133,7 +121,6 @@ function buildSession(opts: {
   const ws = createMockWs();
   const decoder = new EventDecoder();
   const { encoder, interactions } = createRecordingEncoder();
-  const downloader = createMockDownloader();
 
   // Sequence: OpenForm -> req page, SendTo(410) -> format dialog,
   //           [SaveValue], OK(300) -> file download.
@@ -146,7 +133,7 @@ function buildSession(opts: {
 
   const session = new BCSession(
     ws as any, decoder, encoder,
-    createMockLogger() as any, 'default', 30000, '', downloader,
+    createMockLogger() as any, 'default', 30000, '',
   );
 
   return { session, ws, interactions };
