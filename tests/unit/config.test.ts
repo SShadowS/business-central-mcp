@@ -40,7 +40,7 @@ describe('loadConfig', () => {
   it('uses defaults for optional values', () => {
     const config = loadConfig();
     expect(config.bc.tenantId).toBe('default');
-    expect(config.bc.clientVersionString).toBe('27.0.0.0');
+    expect(config.bc.clientVersionString).toBe('28.0.0.0');
     expect(config.port).toBe(3000);
     expect(config.logging.level).toBe('info');
   });

@@ -36,7 +36,7 @@ const BC_SUPPORTED_EXTENSIONS = JSON.stringify([
 
 export class InteractionEncoder {
   /**
-   * @param clientVersion  BC client version string (e.g. "27.0.0.0").
+   * @param clientVersion  BC client version string (e.g. "28.0.0.0").
    * @param applicationId  navigationContext.applicationId sent in OpenSession/Invoke.
    *   Must match what the NST expects for the target BC build. The web client on
    *   the SaaS/cronus images sends "FIN" (the default). On some on-prem BC 27
