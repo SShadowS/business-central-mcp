@@ -11,6 +11,7 @@ export interface Download {
   contentType: string;
   sizeBytes: number;
   style: string;
+  /** base64 file bytes; present on every successful capture (also written to disk when BC_DOWNLOAD_DIR is set); omitted only on error entries. */
   bytes?: string;
   savedPath?: string;
   error?: { code: 'TOO_LARGE' | 'FETCH_FAILED'; message: string };
@@ -70,12 +71,13 @@ export class DownloadService {
 
   /** Encode inline and/or write to disk per BC_DOWNLOAD_DIR. */
   private finish(base: Omit<Download, 'bytes' | 'savedPath' | 'error'>, bytes: Buffer): Download {
-    const d: Download = { ...base };
+    // Compute final filename with extension once; use for both disk and reported fileName.
+    const finalFileName = extname(base.fileName) ? base.fileName : `${base.fileName}${EXT_BY_TYPE[base.contentType] ?? '.bin'}`;
+    const d: Download = { ...base, fileName: finalFileName };
     if (this.limits.dir) {
       try {
         if (!existsSync(this.limits.dir)) mkdirSync(this.limits.dir, { recursive: true });
-        const name = extname(base.fileName) ? base.fileName : `${base.fileName}.bin`;
-        d.savedPath = join(this.limits.dir, name);
+        d.savedPath = join(this.limits.dir, finalFileName);
         writeFileSync(d.savedPath, bytes);
       } catch (e) {
         this.logger.warn(`download disk write failed: ${e instanceof Error ? e.message : String(e)}`);
