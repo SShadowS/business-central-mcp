@@ -26,7 +26,9 @@ Examples:
 - Delete a row: { "pageContextId": "list1", "action": "Delete", "bookmark": "..." }
 - Create new record: { "pageContextId": "abc", "action": "New" }
 - Delete a document line: { "pageContextId": "abc", "action": "Delete", "section": "lines", "rowIndex": 2 }
-- Execute with staleness guard: { "pageContextId": "abc", "action": "Post", "expectedStateVersion": 5 }`,
+- Execute with staleness guard: { "pageContextId": "abc", "action": "Post", "expectedStateVersion": 5 }
+
+If the action produces a file (Open in Excel, Print, export), its bytes appear in \`downloads[]\`; links BC would open externally appear in \`externalUris[]\` and are never fetched by the server.`,
     inputSchema: toMcpJsonSchema(ExecuteActionSchema),
     zodSchema: ExecuteActionSchema,
     execute: (input) => ops.executeAction.execute(input as Parameters<typeof ops.executeAction.execute>[0]),

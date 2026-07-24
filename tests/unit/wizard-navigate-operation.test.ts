@@ -23,6 +23,11 @@ function makeActionService(overrides?: Record<string, unknown>) {
   } as any;
 }
 
+// Minimal stub for DownloadService — captures nothing.
+function makeDownloadService() {
+  return { capture: vi.fn(async () => ({ downloads: [], externalUris: [] })) } as any;
+}
+
 function makeRepo(withContext = true) {
   const repo = new PageContextRepository();
   if (withContext) {
@@ -50,7 +55,7 @@ describe('WizardNavigateOperation — error propagation', () => {
       executeWizardNav: vi.fn(async () => err(new ProtocolError('Page context not found: pc:wizard:1'))),
     });
     const repo = makeRepo();
-    const op = new WizardNavigateOperation(actionService, repo);
+    const op = new WizardNavigateOperation(actionService, repo, makeDownloadService());
 
     const result = await op.execute({ pageContextId: 'pc:wizard:1', action: 'next' });
 
@@ -66,7 +71,7 @@ describe('WizardNavigateOperation — error propagation', () => {
       executeWizardNav: vi.fn(async () => err(navErr)),
     });
     const repo = makeRepo();
-    const op = new WizardNavigateOperation(actionService, repo);
+    const op = new WizardNavigateOperation(actionService, repo, makeDownloadService());
 
     const result = await op.execute({ pageContextId: 'pc:wizard:1', action: 'back' });
 
@@ -79,7 +84,7 @@ describe('WizardNavigateOperation — service call routing', () => {
   it('passes pageContextId and action to executeWizardNav', async () => {
     const actionService = makeActionService();
     const repo = makeRepo();
-    const op = new WizardNavigateOperation(actionService, repo);
+    const op = new WizardNavigateOperation(actionService, repo, makeDownloadService());
 
     await op.execute({ pageContextId: 'pc:wizard:1', action: 'next' });
 
@@ -89,7 +94,7 @@ describe('WizardNavigateOperation — service call routing', () => {
   it('passes "back" action correctly', async () => {
     const actionService = makeActionService();
     const repo = makeRepo();
-    const op = new WizardNavigateOperation(actionService, repo);
+    const op = new WizardNavigateOperation(actionService, repo, makeDownloadService());
 
     await op.execute({ pageContextId: 'pc:wizard:1', action: 'back' });
 
@@ -99,7 +104,7 @@ describe('WizardNavigateOperation — service call routing', () => {
   it('passes "finish" action correctly', async () => {
     const actionService = makeActionService();
     const repo = makeRepo();
-    const op = new WizardNavigateOperation(actionService, repo);
+    const op = new WizardNavigateOperation(actionService, repo, makeDownloadService());
 
     await op.execute({ pageContextId: 'pc:wizard:1', action: 'finish' });
 
@@ -109,7 +114,7 @@ describe('WizardNavigateOperation — service call routing', () => {
   it('passes "cancel" action correctly', async () => {
     const actionService = makeActionService();
     const repo = makeRepo();
-    const op = new WizardNavigateOperation(actionService, repo);
+    const op = new WizardNavigateOperation(actionService, repo, makeDownloadService());
 
     await op.execute({ pageContextId: 'pc:wizard:1', action: 'cancel' });
 
@@ -123,7 +128,7 @@ describe('WizardNavigateOperation — output shape (successful actions)', () => 
       executeWizardNav: vi.fn(async () => ok({ success: true, events: [] as BCEvent[] })),
     });
     const repo = makeRepo();
-    const op = new WizardNavigateOperation(actionService, repo);
+    const op = new WizardNavigateOperation(actionService, repo, makeDownloadService());
 
     const result = await op.execute({ pageContextId: 'pc:wizard:1', action: 'next' });
 
@@ -135,7 +140,7 @@ describe('WizardNavigateOperation — output shape (successful actions)', () => 
   it('returns empty changedSections and dialogsOpened when events array is empty', async () => {
     const actionService = makeActionService();
     const repo = makeRepo();
-    const op = new WizardNavigateOperation(actionService, repo);
+    const op = new WizardNavigateOperation(actionService, repo, makeDownloadService());
 
     const result = await op.execute({ pageContextId: 'pc:wizard:1', action: 'next' });
 
@@ -148,7 +153,7 @@ describe('WizardNavigateOperation — output shape (successful actions)', () => 
   it('returns caption from page context', async () => {
     const actionService = makeActionService();
     const repo = makeRepo();
-    const op = new WizardNavigateOperation(actionService, repo);
+    const op = new WizardNavigateOperation(actionService, repo, makeDownloadService());
 
     const result = await op.execute({ pageContextId: 'pc:wizard:1', action: 'next' });
 
@@ -161,7 +166,7 @@ describe('WizardNavigateOperation — output shape (successful actions)', () => 
   it('returns closed=false for "next" action when page context still exists', async () => {
     const actionService = makeActionService();
     const repo = makeRepo();
-    const op = new WizardNavigateOperation(actionService, repo);
+    const op = new WizardNavigateOperation(actionService, repo, makeDownloadService());
 
     const result = await op.execute({ pageContextId: 'pc:wizard:1', action: 'next' });
 
@@ -178,7 +183,7 @@ describe('WizardNavigateOperation — output shape (successful actions)', () => 
     // WizardNavigateOperation sets closed = (action==='finish'|'cancel') && availableNav.length===0
     const actionService = makeActionService();
     const repo = makeRepo(); // empty tree -> no wizard nav actions -> availableNav=[]
-    const op = new WizardNavigateOperation(actionService, repo);
+    const op = new WizardNavigateOperation(actionService, repo, makeDownloadService());
 
     const result = await op.execute({ pageContextId: 'pc:wizard:1', action: 'finish' });
 
@@ -190,7 +195,7 @@ describe('WizardNavigateOperation — output shape (successful actions)', () => 
   it('returns closed=true when action is "cancel" and no wizard nav actions remain', async () => {
     const actionService = makeActionService();
     const repo = makeRepo();
-    const op = new WizardNavigateOperation(actionService, repo);
+    const op = new WizardNavigateOperation(actionService, repo, makeDownloadService());
 
     const result = await op.execute({ pageContextId: 'pc:wizard:1', action: 'cancel' });
 
@@ -203,7 +208,7 @@ describe('WizardNavigateOperation — output shape (successful actions)', () => 
     // If the page context disappeared (e.g., server closed it), closed should be true
     const actionService = makeActionService();
     const repo = makeRepo(false); // no context in repo at all
-    const op = new WizardNavigateOperation(actionService, repo);
+    const op = new WizardNavigateOperation(actionService, repo, makeDownloadService());
 
     const result = await op.execute({ pageContextId: 'pc:wizard:missing', action: 'next' });
 
@@ -225,7 +230,7 @@ describe('WizardNavigateOperation — output shape (successful actions)', () => 
       executeWizardNav: vi.fn(async () => ok({ success: true, events: [dialogEvent] })),
     });
     const repo = makeRepo();
-    const op = new WizardNavigateOperation(actionService, repo);
+    const op = new WizardNavigateOperation(actionService, repo, makeDownloadService());
 
     const result = await op.execute({ pageContextId: 'pc:wizard:1', action: 'next' });
 

@@ -12,7 +12,9 @@ After responding, check the changedSections array in the result to see which pag
 
 Do NOT call this without a preceding dialog -- there is no dialog to respond to unless dialogsOpened was returned by bc_execute_action / bc_write_data, or a requestPage was returned by bc_run_report. Do NOT guess the dialogFormId -- always use the exact value from the dialogsOpened array (or requestPage.formId).
 
-Example: { "pageContextId": "abc", "dialogFormId": "dialog-123", "response": "yes" }`,
+Example: { "pageContextId": "abc", "dialogFormId": "dialog-123", "response": "yes" }
+
+If the action produces a file (Open in Excel, Print, export), its bytes appear in \`downloads[]\`; links BC would open externally appear in \`externalUris[]\` and are never fetched by the server.`,
     inputSchema: toMcpJsonSchema(RespondDialogSchema),
     zodSchema: RespondDialogSchema,
     execute: (input) => ops.respondDialog.execute(input as Parameters<typeof ops.respondDialog.execute>[0]),
