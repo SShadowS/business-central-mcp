@@ -303,25 +303,21 @@ Document pages (Sales Order=42/43, Purchase Order=50/51) carry a header form and
 ### Session Recovery
 After a session-killing error, BC holds the NTLM slot for ~15 seconds. The SessionManager handles this with exponential backoff (up to 4 retries). If an invoke hangs indefinitely (confirmed BC bug), the session-level timeout (default 30s) kills the connection and triggers auto-recovery on the next request.
 
-### Report Output Capture — IMPLEMENTED (PDF / Excel / Word via Send-To flow)
+### File Download Capture — IMPLEMENTED
 
-`bc_run_report` with `format: "pdf" | "excel" | "word"` captures the rendered bytes and returns them as base64 in `download.bytes` (plus `contentType` and `fileName`).
+Downloads are captured generically on `bc_execute_action`, `bc_respond_dialog`, `bc_wizard_navigate`, and `bc_run_report` via a shared `DownloadService` (`src/services/download-service.ts`), which uses the same-origin `collectDownloads` guard (`src/protocol/download-collector.ts`) and the streaming `BCHttpClient` (`src/connection/bc-http.ts`). All four tools return a `downloads: Download[]` field (always present, may be empty) where `Download = { fileName, contentType, sizeBytes, style, bytes? (base64), savedPath?, error? {code, message} }`, plus `externalUris: Array<{uri, style}>`. `bc_run_report`'s old singular `download` field is replaced by `downloads[]`.
 
-**Protocol mechanism (verified from decompiled source + live BC28 wire capture 2026-06-15):**
+**Security model:** ONLY same-origin URLs under an allowlisted BC file path (`DynamicFileHandler.axd` or `client/uploadDownload/download`) are fetched, with `redirect: 'manual'`. External and `mailto:` URIs are returned in `externalUris[]` and NEVER dereferenced (SSRF/credential-leak guard). `sessionid` and `fid` parameters are redacted in logs and error messages.
 
-For `/csh` (web client WebSocket) sessions, BC delivers the download URL INLINE in the format-dialog OK invoke callback response — NOT via a `FileActionDialog` inbound JSON-RPC call (that path is `/ws/connect` / StreamJsonRpc only). The inline event is a `DN.LogicalClientEventRaisingHandler` with event name `"UriToShow"` and parameters `[relativeUrl, style]` where style `"1"` = Download.
+**Limits (configurable via env vars):** `BC_MAX_DOWNLOAD_BYTES` (per-file, default 5 MB), `BC_MAX_DOWNLOAD_TOTAL_BYTES` (aggregate, default 10 MB), `BC_MAX_DOWNLOADS` (count, default 5). `BC_DOWNLOAD_DIR` (falls back to `BC_REPORT_DIR` if unset) writes bytes to disk and sets `savedPath`, IN ADDITION to returning `bytes` inline. An oversized or failed fetch is a per-entry `error` object, never a whole-operation failure.
 
-The full flow driven by `BCSession.runReportWithDownload()`:
-1. `OpenForm(report=<id>)` → request page as `DialogOpened`
-2. `InvokeAction(410=SendTo)` on request page → format dialog as `DialogOpened`
-3. `InvokeAction(300=OK)` on format dialog → inline `UriToShow` event with `DynamicFileHandler.axd?form=<id>&sessionid=<handlerSessionId>&type=File&fid=<random>&fname=<filename.pdf>`
-4. `GET ${baseUrl}/${relativeUrl}` with NTLM auth headers → PDF bytes
+**UriToShowStyle ordinals** (from decompiled `UriToShowStyle.cs`): `View=0, Download=1, Print=2, Preview=3, PreviewWithoutDownload=4, Mailto=5`.
 
-The `sessionid` in the URL is the BC web client's `HandlerSessionId` — embedded by `FileUrlAddressProvider.cs`. No separate session construction needed.
+**CRITICAL protocol finding (verified live 2026-07-24):** The `DynamicFileHandler.axd` download URL is bound to the EXACT authenticated server session that generated it — fetching it from a different session (e.g. a fresh NTLM re-login for the same user) returns HTTP 404. The download MUST be fetched using the same session's auth headers and cookies. This is why the integration session pool now returns the leased session's auth provider to callers.
 
-**Format selection (all three implemented):** PDF is BC's default and needs no SaveValue. For `excel` / `word`, the flow SaveValues the matching format label into the PrintDialog SelectionControl before the OK — `selectReportFormat` walks the format-dialog tree for the SelectionControl and `resolveFormatLabel` (`src/session/report-format-resolver.ts`) picks the label (`excel` prefers the "data only" variant). A report lacking the requested layout returns a clear error listing the available option texts. Verified: `tests/integration/report-capture.test.ts` (PDF + Excel).
+**Live-verified example:** "Open in Excel" on Customer List (page 22) uses `SystemAction 165` (SendToExcelServer) and emits a `UriToShow` with style `Download=1` containing xlsx bytes fetched from `DynamicFileHandler.axd`.
 
-Reference: `ResponseManager.RegisterUriToShowEvents` (`Microsoft.Dynamics.Framework.UI.Web/`), `FileUrlAddressProvider.cs` (`Microsoft.Dynamics.Framework.UI.Web/`), `ReportResultSetDownloadDecorator.ShouldDownloadToClient` — `WebClient=116` passes the check (`Microsoft.Dynamics.Nav.Ncl/`).
+Reference: `ResponseManager.RegisterUriToShowEvents` (`Microsoft.Dynamics.Framework.UI.Web/`), `FileUrlAddressProvider.cs` (`Microsoft.Dynamics.Framework.UI.Web/`), `UriToShowStyle.cs` (decompiled).
 
 ### Async Message Timing
 The invoke quiescence window (150ms) is a best-effort wait for trailing async `Message` notifications. In rare cases, late-arriving messages may be missed.
