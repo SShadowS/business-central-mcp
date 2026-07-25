@@ -133,6 +133,18 @@ export class StaleContextError extends BCError {
   }
 }
 
+export class InvalidBookmarkError extends BCError {
+  public readonly bookmark: string;
+  constructor(bookmark: string, context?: Record<string, unknown>) {
+    super(
+      `Bookmark "${bookmark}" is no longer in BC's loaded rows. Re-read the section with bc_read_data to get current bookmarks, then retry.`,
+      'INVALID_BOOKMARK',
+      context,
+    );
+    this.bookmark = bookmark;
+  }
+}
+
 const ERROR_HINTS: Record<string, string> = {
   VALIDATION_ERROR: 'Correct the field value(s) and retry with bc_write_data.',
   BUSINESS_ERROR: 'BC rejected the operation. Read the message, adjust inputs, and retry.',
@@ -141,6 +153,7 @@ const ERROR_HINTS: Record<string, string> = {
   TIMEOUT_ERROR: 'BC did not respond in time. Retry; if it persists the operation may be too heavy.',
   CARDPART_STUB: 'This page is a CardPart stub when opened standalone. See the hostHint in this error and open that host page instead.',
   STALE_CONTEXT: 'The page changed since you last read it (stateVersion mismatch). Re-read with bc_read_data to get the current stateVersion, then retry.',
+  INVALID_BOOKMARK: 'The anchor bookmark is no longer loaded in BC. Re-read the section with bc_read_data and retry with a current bookmark.',
 };
 
 /**
