@@ -128,6 +128,16 @@ Do NOT use action button paths from `state.actions` -- they are structurally fra
 
 Reference: `InvokeActionInteraction.GetContextActionToExecute` uses `DefaultAction` on the resolved control, which traverses up to find the row action. `RepeaterControl.ResolvePathName("cr")` returns `CurrentRowViewport`.
 
+#### Multi-Row Selection (`bc_execute_action { bookmarks: [...] }`)
+
+`bookmarks: string[]` selects N rows before invoking the action: it sends `SetCurrentRowAndRowsSelection` with the full set (anchor = `bookmarks[0]`, which MUST be a member so selection-consuming actions like Delete see the current row in `SelectedRows`), then the action, atomically via `BCSession.invokeSequence` (one queue entry). Only selection-consuming actions (Delete) act on all rows; Edit/View/DrillDown/New use the anchor only and are rejected with `bookmarks[]` (`isCurrentRowOnlyAction`). A stale anchor (not in BC's loaded rows) returns `INVALID_BOOKMARK`; non-anchor bookmarks not loaded are silently skipped by BC. `BC_MAX_SELECTION` (default 100) caps the set. `selectAll` is not supported.
+
+**Multi-row action availability is page-specific and detected, not assumed.** BC computes action enablement server-side (decompiled `ActionControl.Enabled` = `Action.CanInvoke`; `DeleteAction.CanInvoke` requires `bindingManager.Deletable` and `ActionContext.CanInvokeOnRepeaterMultipleItems`) and pushes an `Enabled=false` PropertyChanged once `SelectedRows.Count > 1` on pages that forbid the multi-record action. Invoking a server-DISABLED action is a silent no-op (`CanInvoke=false` -> `DeleteAction.InvokeCore` never runs), which previously returned success with nothing deleted. `ActionService` now reads the target action's post-selection `Enabled` (the `SetCurrentRow` echo rides in on the same `invokeSequence` response) and returns `MultiRowActionUnavailableError` (code `MULTI_ROW_ACTION_UNAVAILABLE`) instead. Where the action stays enabled, `DeleteAction.InvokeCore` loops `SelectedRows` and the same frames delete all selected rows for real.
+
+Verified live (`scripts/probe-action-enabled.ts`, cronus28): the Customer list (page 22) keeps Delete enabled for a single row but flips it to `Enabled=false` at 2+ rows, so a 3-row Delete returns `MULTI_ROW_ACTION_UNAVAILABLE`; setup lists Payment Terms (4) and Countries/Regions (10) keep Delete enabled under a 3-row selection. The encoder needed no change — its `key:null`/`repeaterControlTarget:null` match the live web-client Delete frame exactly (captured via Playwright `page.on('websocket')`); the web client's optional `expectedForm` cache-key and selection `force:false` are not required.
+
+Reference: decompiled `ActionControl.cs` (`Enabled` getter), `DeleteAction.cs` (`CanInvoke` + `InvokeCore` loops `SelectedRows`), `RowEntrySelectionHandler.cs` (`AllowMultipleSelection`), `SetCurrentRowAndRowsSelectionInteraction.cs`. Tests: `tests/unit/execute-action-branches.test.ts` (gate cases), `tests/integration/multi-row-selection.test.ts` (MRS1 disabled + MRS4 enabled, live).
+
 ### Tell Me Search
 Uses `InvokeSessionAction` with `SystemAction: 220` (PageSearch). NOT `sessionAction: "InvokeTellMe"`.
 
