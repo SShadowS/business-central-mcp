@@ -27,6 +27,7 @@ export interface RunReportOutput {
   requiresDialogResponse: boolean;
   /** Captured report output(s) when format was specified; empty otherwise. */
   downloads: Download[];
+  externalUris: Array<{ uri: string; style: string }>;
 }
 
 export class RunReportOperation {
@@ -82,6 +83,7 @@ export class RunReportOperation {
       dialogsOpened,
       requiresDialogResponse: dialogsOpened.length > 0,
       downloads: [],
+      externalUris: [],
     });
   }
 
@@ -102,6 +104,7 @@ export class RunReportOperation {
       dialogsOpened: [],
       requiresDialogResponse: false,
       downloads: captured.downloads,
+      externalUris: captured.externalUris,
     });
   }
 }

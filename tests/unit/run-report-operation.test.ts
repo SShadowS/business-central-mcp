@@ -60,6 +60,7 @@ describe('RunReportOperation format handling', () => {
     expect(Buffer.from(result.value.downloads[0]!.bytes!, 'base64').toString()).toBe('%PDF-data');
     expect(result.value.downloads[0]!.contentType).toBe('application/pdf');
     expect(result.value.downloads[0]!.fileName).toBe('Report 6.pdf');
+    expect(result.value.externalUris).toEqual([]);
   });
 
   it('drives the download flow for format "excel" (passes format through to session)', async () => {
@@ -84,6 +85,7 @@ describe('RunReportOperation format handling', () => {
     expect(result.value.downloads).toHaveLength(1);
     expect(result.value.downloads[0]!.contentType).toContain('spreadsheet');
     expect(result.value.downloads[0]!.fileName).toBe('Report 6.xlsx');
+    expect(result.value.externalUris).toEqual([]);
   });
 
   it('drives the download flow for format "word" (passes format through to session)', async () => {
@@ -107,6 +109,7 @@ describe('RunReportOperation format handling', () => {
     expect(result.value.downloads).toHaveLength(1);
     expect(result.value.downloads[0]!.contentType).toContain('word');
     expect(result.value.downloads[0]!.fileName).toBe('Report 6.docx');
+    expect(result.value.externalUris).toEqual([]);
   });
 
   it('propagates ProtocolError from session when format is unavailable', async () => {
@@ -140,6 +143,7 @@ describe('RunReportOperation format handling', () => {
     expect(runReport).toHaveBeenCalledWith(6);
     expect(session.runReportWithDownload).not.toHaveBeenCalled();
     expect(result.value.downloads).toEqual([]);
+    expect(result.value.externalUris).toEqual([]);
     expect(capture).not.toHaveBeenCalled();
   });
 });
