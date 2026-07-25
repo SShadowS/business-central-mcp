@@ -1,5 +1,5 @@
 import { err, ok, isOk, isErr, type Result } from '../core/result.js';
-import { ProtocolError, StaleContextError, type BCError } from '../core/errors.js';
+import { ProtocolError, StaleContextError, InvalidBookmarkError, type BCError } from '../core/errors.js';
 import { classifyBusinessError } from '../protocol/error-classifier.js';
 import type { ActionService, ActionResult } from '../services/action-service.js';
 import type { NavigationService } from '../services/navigation-service.js';
@@ -10,6 +10,7 @@ import { resolveSection } from '../protocol/section-resolver.js';
 import { detectChangedSections, detectDialogs } from '../protocol/mutation-result.js';
 import { isEffectivelyVisible } from '../protocol/visibility.js';
 import { fields as treeFields, groupVisibility as treeGroupVisibility } from '../protocol/form-views.js';
+import { isInvalidBookmarkError } from '../session/rpc-error-classifier.js';
 
 export interface ExecuteActionInput {
   pageContextId: string;
@@ -18,6 +19,15 @@ export interface ExecuteActionInput {
   section?: string;
   rowIndex?: number;
   bookmark?: string;
+  /**
+   * Stable row identifiers for a MULTI-ROW action (e.g. batch Delete). The
+   * first bookmark is the anchor/current row -- BC requires the current row
+   * to be a member of the selection set for selection-consuming actions.
+   * Mutually exclusive with `bookmark`, `rowIndex`, and `cue`. Rejected for
+   * current-row-only actions (Edit/View/DrillDown/New) since those never
+   * consume a selection.
+   */
+  bookmarks?: string[];
   /**
    * Opt-in staleness guard. When provided, the operation checks the page
    * context's current generation before sending anything to BC. If the
@@ -47,6 +57,7 @@ export class ExecuteActionOperation {
     private readonly repo: PageContextRepository,
     private readonly navigationService: NavigationService,
     private readonly downloadService: DownloadService,
+    private readonly maxSelection: number,
   ) {}
 
   async execute(input: ExecuteActionInput): Promise<Result<ExecuteActionOutput, BCError>> {
@@ -55,6 +66,58 @@ export class ExecuteActionOperation {
       if (ctx && ctx.generation !== input.expectedStateVersion) {
         return err(new StaleContextError(input.expectedStateVersion, ctx.generation, { pageContextId: input.pageContextId }));
       }
+    }
+
+    if (input.bookmarks !== undefined) {
+      if (input.bookmark !== undefined || input.rowIndex !== undefined || input.cue !== undefined) {
+        return err(new ProtocolError('bookmarks is mutually exclusive with bookmark, rowIndex, and cue.'));
+      }
+      if (!input.action) {
+        return err(new ProtocolError('bookmarks requires an action (not a cue).'));
+      }
+      if (input.bookmarks.length === 0 || input.bookmarks.some(b => b === '')) {
+        return err(new ProtocolError('bookmarks must be a non-empty array of non-empty bookmark strings.'));
+      }
+      // Order-preserving de-dupe: a repeated bookmark is one row, not two, so the
+      // maxSelection cap below is enforced against the de-duplicated set.
+      const deduped = Array.from(new Set(input.bookmarks));
+      if (deduped.length > this.maxSelection) {
+        return err(new ProtocolError(
+          `bookmarks selects ${deduped.length} rows, exceeding the maximum selection size of ${this.maxSelection} (BC_MAX_SELECTION).`,
+        ));
+      }
+      if (this.actionService.isCurrentRowOnlyAction(input.action)) {
+        return err(new ProtocolError(
+          `Action '${input.action}' operates on the current row only and does not consume a bookmarks[] selection. Use bookmark/rowIndex instead.`,
+        ));
+      }
+
+      const ctx = this.repo.get(input.pageContextId);
+      if (!ctx) return err(new ProtocolError(`Page context not found: ${input.pageContextId}`));
+      const resolved = resolveSection(ctx, input.section);
+      if ('error' in resolved) {
+        return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
+      }
+      if (!resolved.repeater) {
+        return err(new ProtocolError('bookmarks supplied but the target section has no repeater.'));
+      }
+
+      const result = await this.actionService.executeAction(input.pageContextId, input.action, input.section, {
+        formId: resolved.form.formId,
+        controlPath: resolved.repeater.controlPath,
+        bookmarks: deduped,
+      });
+      if (!isOk(result)) {
+        if (isInvalidBookmarkError(result.error.message)) {
+          return err(new InvalidBookmarkError(deduped[0]!));
+        }
+        return result;
+      }
+      const bizErr = classifyBusinessError(result.value.events);
+      if (bizErr !== null) return err(bizErr);
+      const out = this.buildOutput(input.pageContextId, result.value);
+      const captured = await this.downloadService.capture(result.value.events);
+      return ok({ ...out, downloads: captured.downloads, externalUris: captured.externalUris });
     }
 
     if (input.cue) {
