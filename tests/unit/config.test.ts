@@ -97,3 +97,24 @@ describe('download limits', () => {
     expect(loadConfig().bc.downloadLimits.dir).toBe('/reports');
   });
 });
+
+describe('max selection', () => {
+  const KEYS = ['BC_MAX_SELECTION', 'BC_BASE_URL', 'BC_USERNAME', 'BC_PASSWORD'];
+  let saved: Record<string, string | undefined>;
+  beforeEach(() => { saved = Object.fromEntries(KEYS.map(k => [k, process.env[k]])); KEYS.forEach(k => delete process.env[k]); });
+  afterEach(() => { KEYS.forEach(k => { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }); });
+
+  it('defaults BC_MAX_SELECTION to 100', () => {
+    process.env.BC_BASE_URL = 'http://x/BC';
+    process.env.BC_USERNAME = 'test';
+    process.env.BC_PASSWORD = 'test';
+    expect(loadConfig().bc.maxSelection).toBe(100);
+  });
+  it('reads BC_MAX_SELECTION from env', () => {
+    process.env.BC_BASE_URL = 'http://x/BC';
+    process.env.BC_USERNAME = 'test';
+    process.env.BC_PASSWORD = 'test';
+    process.env.BC_MAX_SELECTION = '25';
+    expect(loadConfig().bc.maxSelection).toBe(25);
+  });
+});

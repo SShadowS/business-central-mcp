@@ -25,6 +25,8 @@ export interface BCConfig {
     /** Directory to write captured downloads to. undefined = no disk write. */
     dir: string | undefined;
   };
+  /** Max bookmarks accepted in one multi-row selection (bc_execute_action bookmarks[]). */
+  maxSelection: number;
 }
 
 export interface LoggingConfig {
@@ -104,6 +106,7 @@ export function loadConfig(): AppConfig {
         maxDownloads: optionalEnvInt('BC_MAX_DOWNLOADS', 5),
         dir: process.env['BC_DOWNLOAD_DIR'] || process.env['BC_REPORT_DIR'] || undefined,
       },
+      maxSelection: optionalEnvInt('BC_MAX_SELECTION', 100),
     },
     logging: {
       level: optionalEnv('LOG_LEVEL', 'info'),
