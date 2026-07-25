@@ -192,7 +192,7 @@ export class BCSession {
           all.push(...r.value);
         }
         return ok(all);
-      })(), effectiveTimeout + 5000, `InvokeSequence(${interactions.length})`));
+      })(), effectiveTimeout * interactions.length + 5000, `InvokeSequence(${interactions.length})`));
     } catch (e) {
       if (e instanceof TimeoutError) return err(new ProtocolError(e.message));
       throw e;

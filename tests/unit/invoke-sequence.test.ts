@@ -75,14 +75,17 @@ describe('BCSession.invokeSequence', () => {
       onMessage: () => () => {},
       setRequestHandler: undefined,
       async sendRpc(_method: string, params: unknown[]) {
-        const inv = (params[0] as { interactionsToInvoke: Array<{ interactionName: string }> }).interactionsToInvoke[0];
+        const inv = (params[0] as { interactionsToInvoke: Array<{ interactionName: string; controlPath: string }> }).interactionsToInvoke[0];
         callCount++;
         if (callCount === 1) {
           // Stall the first send of the sequence until the concurrent invoke()
           // has had a chance to try to jump the queue.
           await firstSendGate;
         }
-        order.push(inv.interactionName);
+        // Discriminate by controlPath too: `b` and `other` are both InvokeAction
+        // interactions, so recording interactionName alone would pass identically
+        // for the correct order [a,b,other] and the broken interleaved [a,other,b].
+        order.push(`${inv.interactionName}:${inv.controlPath}`);
         return ok([{ handlerType: 'DN.CallbackResponseProperties', parameters: [{ CompletedInteractions: [{ CallbackId: 'x' }] }] }]);
       },
       closeWs: () => {},
@@ -108,6 +111,7 @@ describe('BCSession.invokeSequence', () => {
     const [seqRes] = await Promise.all([seqPromise, concurrentPromise]);
     expect(seqRes.ok).toBe(true);
     // The concurrent invoke() must not land between the two sequence sends.
-    expect(order).toEqual(['SetCurrentRowAndRowsSelection', 'InvokeAction', 'InvokeAction']);
+    // (controlPath discriminates `b` from `other` — both are InvokeAction.)
+    expect(order).toEqual(['SetCurrentRowAndRowsSelection:p', 'InvokeAction:p/cr/c[0]', 'InvokeAction:other']);
   });
 });
