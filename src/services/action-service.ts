@@ -306,7 +306,19 @@ export class ActionService {
     // no-op (CanInvoke=false -> InvokeCore never runs), which previously
     // returned success with nothing deleted. Detect it and fail loudly instead.
     // Verified live: scripts/probe-action-enabled.ts.
-    if (selection && selection.bookmarks.length > 1 && systemAction !== 0) {
+    //
+    // Only gate when the invoke produced NO observable effect. A disabled action
+    // opens no dialog and no new form (Customers: just PropertyChanged Enabled
+    // =false). If the action DID fire -- a confirmation dialog or a new form
+    // appeared -- it was enabled; some pages grey the parent action while its
+    // modal is up, which would otherwise trip a false MultiRowActionUnavailable
+    // AND orphan the open dialog (we return before the DialogOpened handling
+    // below). Custom AL actions (systemAction 0) are intentionally out of scope:
+    // `find(systemAction === 0)` would be ambiguous across many actions.
+    const actionProducedEffect = events.some(e =>
+      e.type === 'DialogOpened' || (e.type === 'FormCreated' && e.formId !== form.formId),
+    );
+    if (!actionProducedEffect && selection && selection.bookmarks.length > 1 && systemAction !== 0) {
       const updatedForm = this.repo.get(pageContextId)?.forms.get(form.formId);
       const actionNode = updatedForm
         ? treeActions(updatedForm.root).find(a => a.systemAction === systemAction)

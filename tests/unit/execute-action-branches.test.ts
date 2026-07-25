@@ -478,6 +478,31 @@ describe('ActionService.executeAction — multi-row selection gate (BC-disabled 
     expect(session.invokeSequence).toHaveBeenCalledTimes(1);
   });
 
+  it('does not gate when the invoke produced an effect (a confirmation dialog opened), even if the toolbar action reads disabled', async () => {
+    // On a delete-CAPABLE page the action fires and BC opens a Yes/No confirm.
+    // Some pages grey the parent action while its modal is up -- the gate must
+    // NOT fire off that stale Enabled=false (it would false-reject AND orphan
+    // the open dialog). A DialogOpened in the response proves the action ran.
+    const dialogEvent: BCEvent = {
+      type: 'DialogOpened',
+      formId: 'confirm-1',
+      controlTree: { t: 'lf', ServerId: 'confirm-1', Caption: 'Delete the 3 records?', Children: [] },
+    } as BCEvent;
+    const session = {
+      invoke: vi.fn(async () => ok(invokeCompletedEvents())),
+      invokeSequence: vi.fn(async () => ok([...invokeCompletedEvents(), dialogEvent])),
+    };
+    const svc = new ActionService(session as any, makeRepoWithDelete(false), logger);
+
+    const result = await svc.executeAction('pc:1', 'Delete', 'header', {
+      formId: 'F1', controlPath: 'server:c[0]', bookmarks: ['A', 'B', 'C'],
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.dialog?.formId).toBe('confirm-1');
+  });
+
   it('does not gate a single-bookmark selection (Delete stays enabled for one row)', async () => {
     // Even if the seeded flag were false, a length-1 selection must not trip the
     // multi-row gate -- single-row Delete is always allowed where Delete exists.
