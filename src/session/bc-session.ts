@@ -165,6 +165,40 @@ export class BCSession {
     }
   }
 
+  /**
+   * Send several interactions as ONE queued task, in order, merging all their
+   * events. Aborts and returns the first error. Because it occupies a single
+   * queue entry, no other operation's invoke can interleave between the
+   * interactions — used for select-then-act atomicity (multi-row selection).
+   * Intermediate interactions settle on InvokeCompleted; the final one settles
+   * on the caller's `expect` predicate.
+   */
+  async invokeSequence(
+    interactions: BCInteraction[],
+    expect: EventPredicate,
+    timeoutMs?: number,
+  ): Promise<Result<BCEvent[], ProtocolError>> {
+    if (this.dead) return err(new ProtocolError('Session is dead'));
+    if (interactions.length === 0) return ok([]);
+    const effectiveTimeout = timeoutMs ?? this.timeoutMs;
+    try {
+      return await this.enqueue(() => this.withTimeout((async () => {
+        const all: BCEvent[] = [];
+        for (let i = 0; i < interactions.length; i++) {
+          const isLast = i === interactions.length - 1;
+          const predicate: EventPredicate = isLast ? expect : (e) => e.type === 'InvokeCompleted';
+          const r = await this.invokeUnqueued(interactions[i]!, predicate, effectiveTimeout);
+          if (isErr(r)) return r;
+          all.push(...r.value);
+        }
+        return ok(all);
+      })(), effectiveTimeout + 5000, `InvokeSequence(${interactions.length})`));
+    } catch (e) {
+      if (e instanceof TimeoutError) return err(new ProtocolError(e.message));
+      throw e;
+    }
+  }
+
   private withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
