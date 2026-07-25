@@ -1,12 +1,13 @@
 import { v4 as uuid } from 'uuid';
 import { ok, err, isErr, isOk, type Result } from '../core/result.js';
-import { ProtocolError } from '../core/errors.js';
+import { ProtocolError, InvalidBookmarkError } from '../core/errors.js';
 import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { PageContext } from '../protocol/page-context.js';
 import type { SetCurrentRowInteraction, InvokeActionInteraction, LoadFormInteraction } from '../protocol/types.js';
 import { SystemAction } from '../protocol/types.js';
 import { resolveSection } from '../protocol/section-resolver.js';
+import { isInvalidBookmarkError } from '../session/rpc-error-classifier.js';
 import type { Logger } from '../core/logger.js';
 import { ChildFormHydrationStrategy } from './strategies/child-form-hydration.js';
 
@@ -21,8 +22,24 @@ export class NavigationService {
     this.childFormHydration = new ChildFormHydrationStrategy(session, repo, logger);
   }
 
-  /** Select a row by bookmark (positions cursor without opening) */
+  /** Select a single row by bookmark (positions the cursor without opening). */
   async selectRow(pageContextId: string, bookmark: string, sectionId?: string): Promise<Result<PageContext, ProtocolError>> {
+    return this.selectRows(pageContextId, [bookmark], sectionId);
+  }
+
+  /**
+   * Select N rows. The anchor (current row) is bookmarks[0] — which is always a
+   * member of the set, satisfying BC's "current row must be in SelectedRows"
+   * requirement for selection-consuming actions (DeleteAction etc.). Non-anchor
+   * bookmarks not in BC's loaded rows are silently skipped by BC; a stale ANCHOR
+   * makes BC throw InvalidBookmarkException, mapped here to InvalidBookmarkError.
+   */
+  async selectRows(pageContextId: string, bookmarks: string[], sectionId?: string): Promise<Result<PageContext, ProtocolError>> {
+    if (bookmarks.length === 0) return err(new ProtocolError('selectRows requires at least one bookmark.'));
+    const anchor = bookmarks[0]!;
+    // Anchor-membership invariant (defensive; holds by construction here).
+    if (!bookmarks.includes(anchor)) return err(new ProtocolError('Internal: anchor not in selection set.'));
+
     const ctx = this.repo.get(pageContextId);
     if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
     const resolved = resolveSection(ctx, sectionId);
@@ -33,15 +50,20 @@ export class NavigationService {
       type: 'SetCurrentRow',
       formId: resolved.form.formId,
       controlPath: resolved.repeater.controlPath,
-      key: bookmark,
+      key: anchor,
+      rowsToSelect: bookmarks,
     };
 
     const result = await this.session.invoke(
       interaction,
       (event) => event.type === 'InvokeCompleted' || event.type === 'BookmarkChanged',
     );
-
-    if (isErr(result)) return result;
+    if (isErr(result)) {
+      if (isInvalidBookmarkError(result.error.message)) {
+        return err(new InvalidBookmarkError(anchor, { pageContextId }));
+      }
+      return result;
+    }
     this.repo.applyToPage(pageContextId, result.value);
     return ok(this.repo.get(pageContextId)!);
   }
