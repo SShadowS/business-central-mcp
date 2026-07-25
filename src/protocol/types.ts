@@ -254,6 +254,8 @@ export interface SetCurrentRowInteraction extends BaseInteraction {
   readonly formId: string;
   readonly controlPath: string;
   readonly key: string;
+  /** Full selection set. Defaults to [key]. key MUST be a member. */
+  readonly rowsToSelect?: string[];
 }
 
 export interface ScrollRepeaterInteraction extends BaseInteraction {

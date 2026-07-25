@@ -178,7 +178,7 @@ export class InteractionEncoder {
         return { interactionName: 'Filter', formId: interaction.formId, controlPath: interaction.controlPath, namedParameters: JSON.stringify(filterParams), callbackId };
       }
       case 'SetCurrentRow':
-        return { interactionName: 'SetCurrentRowAndRowsSelection', formId: interaction.formId, controlPath: interaction.controlPath, namedParameters: JSON.stringify({ key: interaction.key, selectAll: false, rowsToSelect: [interaction.key], unselectAll: true, rowsToUnselect: [] }), callbackId };
+        return { interactionName: 'SetCurrentRowAndRowsSelection', formId: interaction.formId, controlPath: interaction.controlPath, namedParameters: JSON.stringify({ key: interaction.key, selectAll: false, rowsToSelect: interaction.rowsToSelect ?? [interaction.key], unselectAll: true, rowsToUnselect: [] }), callbackId };
       case 'ScrollRepeater':
         return { interactionName: 'ScrollRepeater', formId: interaction.formId, controlPath: interaction.controlPath, namedParameters: JSON.stringify({ delta: interaction.delta }), callbackId };
       case 'SessionAction':
