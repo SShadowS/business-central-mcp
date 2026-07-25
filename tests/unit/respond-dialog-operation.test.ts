@@ -30,11 +30,16 @@ function makeRepo(withPageContext = true) {
   return repo;
 }
 
+// Minimal stub for DownloadService — captures nothing.
+function makeDownloadService() {
+  return { capture: vi.fn(async () => ({ downloads: [], externalUris: [] })) } as any;
+}
+
 describe('RespondDialogOperation — pageContextId validation', () => {
   it('returns PROTOCOL_ERROR for unknown pageContextId without invoking session', async () => {
     const session = makeSession();
     const repo = makeRepo(false); // no page contexts
-    const op = new RespondDialogOperation(session, repo);
+    const op = new RespondDialogOperation(session, repo, makeDownloadService());
 
     const result = await op.execute({
       pageContextId: 'pc:does-not-exist',
@@ -55,7 +60,7 @@ describe('RespondDialogOperation — "close" response', () => {
   it('sends CloseForm interaction (not InvokeAction) for response="close"', async () => {
     const session = makeSession();
     const repo = makeRepo();
-    const op = new RespondDialogOperation(session, repo);
+    const op = new RespondDialogOperation(session, repo, makeDownloadService());
 
     await op.execute({
       pageContextId: 'pc:dialog:1',
@@ -72,7 +77,7 @@ describe('RespondDialogOperation — "close" response', () => {
   it('"close" response returns success=true with empty openedPages', async () => {
     const session = makeSession();
     const repo = makeRepo();
-    const op = new RespondDialogOperation(session, repo);
+    const op = new RespondDialogOperation(session, repo, makeDownloadService());
 
     const result = await op.execute({
       pageContextId: 'pc:dialog:1',
@@ -92,7 +97,7 @@ describe('RespondDialogOperation — "close" response', () => {
       invoke: vi.fn(async () => err(new ProtocolError('session closed unexpectedly'))),
     });
     const repo = makeRepo();
-    const op = new RespondDialogOperation(session, repo);
+    const op = new RespondDialogOperation(session, repo, makeDownloadService());
 
     const result = await op.execute({
       pageContextId: 'pc:dialog:1',
@@ -120,7 +125,7 @@ describe('RespondDialogOperation — RESPONSE_MAP routing', () => {
     it(`response="${response}" sends InvokeAction with systemAction=${expectedSystemAction}`, async () => {
       const session = makeSession();
       const repo = makeRepo();
-      const op = new RespondDialogOperation(session, repo);
+      const op = new RespondDialogOperation(session, repo, makeDownloadService());
 
       await op.execute({
         pageContextId: 'pc:dialog:1',
@@ -139,7 +144,7 @@ describe('RespondDialogOperation — RESPONSE_MAP routing', () => {
   it('response="ok" sends InvokeAction (NOT CloseForm)', async () => {
     const session = makeSession();
     const repo = makeRepo();
-    const op = new RespondDialogOperation(session, repo);
+    const op = new RespondDialogOperation(session, repo, makeDownloadService());
 
     await op.execute({
       pageContextId: 'pc:dialog:1',
@@ -157,7 +162,7 @@ describe('RespondDialogOperation — output shape', () => {
   it('returns success=true with empty changedSections, dialogsOpened, openedPages when no events emitted', async () => {
     const session = makeSession();
     const repo = makeRepo();
-    const op = new RespondDialogOperation(session, repo);
+    const op = new RespondDialogOperation(session, repo, makeDownloadService());
 
     const result = await op.execute({
       pageContextId: 'pc:dialog:1',
@@ -184,7 +189,7 @@ describe('RespondDialogOperation — output shape', () => {
       invoke: vi.fn(async () => ok([dialogEvent])),
     });
     const repo = makeRepo();
-    const op = new RespondDialogOperation(session, repo);
+    const op = new RespondDialogOperation(session, repo, makeDownloadService());
 
     const result = await op.execute({
       pageContextId: 'pc:dialog:1',
@@ -205,7 +210,7 @@ describe('RespondDialogOperation — output shape', () => {
       invoke: vi.fn(async () => err(new ProtocolError('invoke failed'))),
     });
     const repo = makeRepo();
-    const op = new RespondDialogOperation(session, repo);
+    const op = new RespondDialogOperation(session, repo, makeDownloadService());
 
     const result = await op.execute({
       pageContextId: 'pc:dialog:1',

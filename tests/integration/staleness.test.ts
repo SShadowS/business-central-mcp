@@ -30,6 +30,7 @@ import { ExecuteActionOperation } from '../../src/operations/execute-action.js';
 import { SystemAction } from '../../src/protocol/types.js';
 import { isOk, unwrap } from '../../src/core/result.js';
 import { integrationPool, type PooledLease } from './helpers/session-pool.js';
+import { stubDownloadService } from './helpers/download-service.js';
 
 describe('stateVersion staleness guard (integration, Cronus28)', () => {
   let lease: PooledLease;
@@ -61,7 +62,7 @@ describe('stateVersion staleness guard (integration, Cronus28)', () => {
     readDataOp = new ReadDataOperation(dataService, filterService, sortService, repo);
     writeDataOp = new WriteDataOperation(dataService, repo);
     const navigationService = new NavigationService(session, repo, logger);
-    executeActionOp = new ExecuteActionOperation(actionService, repo, navigationService);
+    executeActionOp = new ExecuteActionOperation(actionService, repo, navigationService, stubDownloadService(logger));
   }, 60_000);
 
   afterAll(async () => {

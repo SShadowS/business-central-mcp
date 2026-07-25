@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { IntegrationSessionPool } from '../../tests/integration/helpers/session-pool.js';
 import type { BCSession } from '../../src/session/bc-session.js';
+import type { NTLMAuthProvider } from '../../src/connection/auth/ntlm-provider.js';
 
 // Minimal fake session: only isAlive + closeGracefully are touched by the pool.
 function fakeSession(): BCSession {
@@ -8,6 +9,14 @@ function fakeSession(): BCSession {
     isAlive: true,
     closeGracefully: vi.fn(async () => {}),
   } as unknown as BCSession;
+}
+
+// buildSession's real contract also returns the (already-authenticated) auth
+// provider used to establish the session -- callers reuse it for downloads
+// that need the SAME identity (see PooledLease.auth). Not exercised by these
+// pool-mechanics tests, so a bare stand-in is enough.
+function fakeAuth(): NTLMAuthProvider {
+  return {} as unknown as NTLMAuthProvider;
 }
 
 describe('IntegrationSessionPool', () => {
@@ -19,7 +28,7 @@ describe('IntegrationSessionPool', () => {
     const pool = new IntegrationSessionPool({
       users: ['u1', 'u2', 'u3'],
       cooldownMs: 15000,
-      buildSession: async (user) => { handed.push(user); return fakeSession(); },
+      buildSession: async (user) => { handed.push(user); return { session: fakeSession(), auth: fakeAuth() }; },
     });
 
     for (let i = 0; i < 3; i++) {
@@ -35,7 +44,7 @@ describe('IntegrationSessionPool', () => {
     const pool = new IntegrationSessionPool({
       users: ['u1', 'u2'],
       cooldownMs: 15000,
-      buildSession: async (user) => { handed.push(user); return fakeSession(); },
+      buildSession: async (user) => { handed.push(user); return { session: fakeSession(), auth: fakeAuth() }; },
     });
 
     const lease1 = await pool.checkOut();          // u1
@@ -55,7 +64,7 @@ describe('IntegrationSessionPool', () => {
     const pool = new IntegrationSessionPool({
       users: ['u1', 'u2'],
       cooldownMs: 15000,
-      buildSession: async (user, profile) => { calls.push({ user, profile }); return fakeSession(); },
+      buildSession: async (user, profile) => { calls.push({ user, profile }); return { session: fakeSession(), auth: fakeAuth() }; },
     });
 
     const lease = await pool.checkOut({ profile: 'BUSINESS MANAGER' });
@@ -72,7 +81,7 @@ describe('IntegrationSessionPool', () => {
     const pool = new IntegrationSessionPool({
       users: ['u1'],
       cooldownMs: 15000,
-      buildSession: async () => fakeSession(),
+      buildSession: async () => ({ session: fakeSession(), auth: fakeAuth() }),
     });
 
     const lease1 = await pool.checkOut();

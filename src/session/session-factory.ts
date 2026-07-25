@@ -21,8 +21,6 @@ export class SessionFactory {
     const wsResult = await this.connectionFactory.create();
     if (isErr(wsResult)) return wsResult;
 
-    const reportDownloader = this.connectionFactory.createReportDownloader();
-
     const session = new BCSession(
       wsResult.value,
       this.decoder,
@@ -31,7 +29,6 @@ export class SessionFactory {
       this.tenantId,
       this.timeoutMs,
       this.profile,
-      reportDownloader,
     );
 
     try {

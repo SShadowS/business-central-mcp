@@ -28,6 +28,7 @@ import { SwitchCompanyOperation } from './operations/switch-company.js';
 import { ListCompaniesOperation } from './operations/list-companies.js';
 import { RunReportOperation } from './operations/run-report.js';
 import { WizardNavigateOperation } from './operations/wizard-navigate.js';
+import { DownloadService } from './services/download-service.js';
 import { LookupService } from './services/lookup-service.js';
 import { LookupOperation } from './operations/lookup.js';
 import { QueryOperation } from './operations/query.js';
@@ -77,20 +78,22 @@ async function main() {
     const navigationService = new NavigationService(s, pageContextRepo, logger);
     const searchService = new SearchService(s, logger);
     const lookupService = new LookupService(s, pageContextRepo, logger);
+    const httpClient = connectionFactory.createHttpClient();
+    const downloadService = new DownloadService(httpClient, config.bc.baseUrl, config.bc.downloadLimits, logger);
 
     const operations: Operations = {
       openPage: new OpenPageOperation(pageService),
       readData: new ReadDataOperation(dataService, filterService, sortService, pageContextRepo),
       writeData: new WriteDataOperation(dataService, pageContextRepo),
-      executeAction: new ExecuteActionOperation(actionService, pageContextRepo, navigationService),
+      executeAction: new ExecuteActionOperation(actionService, pageContextRepo, navigationService, downloadService),
       closePage: new ClosePageOperation(pageService),
       searchPages: new SearchPagesOperation(searchService),
       navigate: new NavigateOperation(navigationService),
-      respondDialog: new RespondDialogOperation(s, pageContextRepo),
+      respondDialog: new RespondDialogOperation(s, pageContextRepo, downloadService),
       switchCompany: new SwitchCompanyOperation(s, pageContextRepo, logger),
       listCompanies: new ListCompaniesOperation(pageService, dataService, () => s.companyName, logger),
-      runReport: new RunReportOperation(s, pageContextRepo),
-      wizardNavigate: new WizardNavigateOperation(actionService, pageContextRepo),
+      runReport: new RunReportOperation(s, pageContextRepo, downloadService),
+      wizardNavigate: new WizardNavigateOperation(actionService, pageContextRepo, downloadService),
       lookup: new LookupOperation(lookupService),
       query: new QueryOperation({
         odataUrl: config.bc.odataUrl,

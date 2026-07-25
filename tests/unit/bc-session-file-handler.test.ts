@@ -4,8 +4,9 @@
  * The /csh protocol delivers download URLs inline in the invoke callback response as
  * DN.LogicalClientEventRaisingHandler("UriToShow", relativeUrl, style). These arrive
  * as FileDownloadReady events after EventDecoder.decode(). BCSession.runReportWithDownload()
- * drives the full SendTo flow and calls ReportDownloader.downloadFromUrl() with the
- * URL extracted from the event.
+ * drives the full SendTo flow and returns the raw `events` -- fetching the file bytes
+ * from the FileDownloadReady.relativeUrl is DownloadService's job, not BCSession's
+ * (see tests/unit/download-service.test.ts).
  *
  * Reference: ResponseManager.RegisterUriToShowEvents (decompiled
  *   Microsoft.Dynamics.Framework.UI.Web). Verified from live BC28 wire capture (2026-06-15).
@@ -15,7 +16,6 @@ import { describe, it, expect, vi } from 'vitest';
 import { BCSession } from '../../src/session/bc-session.js';
 import { EventDecoder } from '../../src/protocol/event-decoder.js';
 import { InteractionEncoder } from '../../src/protocol/interaction-encoder.js';
-import type { ReportDownloader } from '../../src/session/report-downloader.js';
 import type { BCEvent } from '../../src/protocol/types.js';
 import { isOk, isErr } from '../../src/core/result.js';
 
@@ -82,18 +82,6 @@ function invokeCompletedHandlers() {
   ];
 }
 
-function createMockDownloader(overrides?: Partial<ReportDownloader>): ReportDownloader {
-  return {
-    baseUrl: 'http://cronus28/BC',
-    downloadFromUrl: vi.fn().mockResolvedValue({
-      bytes: Buffer.from('%PDF-test'),
-      contentType: 'application/pdf',
-      fileName: 'Trial Balance.pdf',
-    }),
-    ...overrides,
-  } as unknown as ReportDownloader;
-}
-
 function createMockWsWithRequestHandler() {
   let capturedHandler: ((method: string, params: unknown[], id: string) => Promise<unknown>) | null = null;
 
@@ -156,7 +144,7 @@ describe('BCSession inbound request handler', () => {
 });
 
 describe('BCSession.runReportWithDownload', () => {
-  function buildSession(downloader: ReportDownloader) {
+  function buildSession() {
     const { ws } = createMockWsWithRequestHandler();
     const decoder = createRealDecoder();
 
@@ -171,50 +159,33 @@ describe('BCSession.runReportWithDownload', () => {
 
     const session = new BCSession(
       ws as any, decoder, createMockEncoder(),
-      createMockLogger() as any, 'default', 30000, '', downloader,
+      createMockLogger() as any, 'default', 30000, '',
     );
 
     return { session, ws };
   }
 
-  it('drives SendTo flow and returns PDF bytes on success', async () => {
-    const downloader = createMockDownloader();
-    const { session } = buildSession(downloader);
+  it('drives SendTo flow and returns a FileDownloadReady event on success', async () => {
+    const { session } = buildSession();
 
     const result = await session.runReportWithDownload(6);
     expect(isOk(result)).toBe(true);
     if (!isOk(result)) return;
 
-    expect(result.value.bytes.toString()).toBe('%PDF-test');
-    expect(result.value.contentType).toBe('application/pdf');
-    expect(result.value.fileName).toBe('Trial Balance.pdf');
-
-    expect(downloader.downloadFromUrl).toHaveBeenCalledWith(
-      'DynamicFileHandler.axd?form=41D&fname=Trial%20Balance.pdf',
-    );
-  });
-
-  it('returns error when no reportDownloader is configured', async () => {
-    const { ws } = createMockWsWithRequestHandler();
-    const session = new BCSession(
-      ws as any, createRealDecoder(), createMockEncoder(),
-      createMockLogger() as any, 'default',
-    );
-
-    const result = await session.runReportWithDownload(6);
-    expect(isErr(result)).toBe(true);
-    if (!isErr(result)) return;
-    expect(result.error.message).toMatch(/no report downloader/i);
+    const dlReady = result.value.events.find(e => e.type === 'FileDownloadReady');
+    expect(dlReady).toBeDefined();
+    if (dlReady?.type !== 'FileDownloadReady') return;
+    expect(dlReady.relativeUrl).toBe('DynamicFileHandler.axd?form=41D&fname=Trial%20Balance.pdf');
+    expect(dlReady.style).toBe('1');
   });
 
   it('returns error when request page dialog is not returned', async () => {
     const { ws } = createMockWsWithRequestHandler();
     ws.sendRpc.mockResolvedValue({ ok: true, value: invokeCompletedHandlers() });
 
-    const downloader = createMockDownloader();
     const session = new BCSession(
       ws as any, createRealDecoder(), createMockEncoder(),
-      createMockLogger() as any, 'default', 30000, '', downloader,
+      createMockLogger() as any, 'default', 30000, '',
     );
 
     const result = await session.runReportWithDownload(6);
@@ -230,10 +201,9 @@ describe('BCSession.runReportWithDownload', () => {
       .mockResolvedValueOnce({ ok: true, value: dialogHandlers('fmt-1') })
       .mockResolvedValueOnce({ ok: true, value: invokeCompletedHandlers() }); // no UriToShow
 
-    const downloader = createMockDownloader();
     const session = new BCSession(
       ws as any, createRealDecoder(), createMockEncoder(),
-      createMockLogger() as any, 'default', 30000, '', downloader,
+      createMockLogger() as any, 'default', 30000, '',
     );
 
     const result = await session.runReportWithDownload(6);
@@ -248,10 +218,9 @@ describe('BCSession.runReportWithDownload', () => {
       .mockResolvedValueOnce({ ok: true, value: dialogHandlers('fmt-1') })
       .mockResolvedValueOnce({ ok: true, value: fileDownloadHandlers('DynamicFileHandler.axd?fname=x.pdf') });
 
-    const downloader = createMockDownloader();
     const session = new BCSession(
       ws as any, createRealDecoder(), createMockEncoder(),
-      createMockLogger() as any, 'default', 30000, '', downloader,
+      createMockLogger() as any, 'default', 30000, '',
     );
 
     const result = await session.runReportWithDownload(6, 'pdf', { requestPageFormId: 'req-already-open' });

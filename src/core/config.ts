@@ -18,6 +18,13 @@ export interface BCConfig {
   odataUrl: string;
   /** Company name for OData queries. Omit to use the first available company. */
   odataCompanyName: string | undefined;
+  downloadLimits: {
+    maxBytes: number;
+    maxTotalBytes: number;
+    maxDownloads: number;
+    /** Directory to write captured downloads to. undefined = no disk write. */
+    dir: string | undefined;
+  };
 }
 
 export interface LoggingConfig {
@@ -91,6 +98,12 @@ export function loadConfig(): AppConfig {
       reconnectBaseDelayMs: optionalEnvInt('BC_RECONNECT_BASE_DELAY', 1000),
       odataUrl: deriveODataUrl(requireEnv('BC_BASE_URL').replace(/\/+$/, '')),
       odataCompanyName: process.env.BC_ODATA_COMPANY || undefined,
+      downloadLimits: {
+        maxBytes: optionalEnvInt('BC_MAX_DOWNLOAD_BYTES', 5_242_880),
+        maxTotalBytes: optionalEnvInt('BC_MAX_DOWNLOAD_TOTAL_BYTES', 10_485_760),
+        maxDownloads: optionalEnvInt('BC_MAX_DOWNLOADS', 5),
+        dir: process.env['BC_DOWNLOAD_DIR'] || process.env['BC_REPORT_DIR'] || undefined,
+      },
     },
     logging: {
       level: optionalEnv('LOG_LEVEL', 'info'),

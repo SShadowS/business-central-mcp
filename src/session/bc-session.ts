@@ -10,7 +10,6 @@ import type { Logger } from '../core/logger.js';
 import { ModalStack } from './modal-stack.js';
 import { isFatalRpcError } from './rpc-error-classifier.js';
 import { findLicenseDialog } from './license-dialog.js';
-import type { ReportDownloader } from './report-downloader.js';
 import { resolveFormatLabel } from './report-format-resolver.js';
 import { buildFormTree } from '../protocol/form-tree-builder.js';
 import { walkTree } from '../protocol/form-tree-walk.js';
@@ -38,7 +37,6 @@ export class BCSession {
     private readonly tenantId: string,
     private readonly timeoutMs: number = DEFAULT_TIMEOUT_MS,
     private readonly profile: string = '',
-    private readonly reportDownloader?: ReportDownloader,
   ) {
     if (typeof this.ws.setRequestHandler === 'function') {
       // Safe default handler for any server-initiated inbound JSON-RPC request.
@@ -550,18 +548,21 @@ export class BCSession {
   }
 
   /**
-   * Execute report `reportId` through the "Send to..." flow and capture the
-   * rendered output bytes. The flow mirrors what the BC web browser client does:
+   * Execute report `reportId` through the "Send to..." flow and return the
+   * events produced along the way, including the `FileDownloadReady` event
+   * carrying the download URL. The flow mirrors what the BC web browser
+   * client does:
    *
    *   1. OpenForm(report=<id>) → request page (DialogOpened)
    *   2. InvokeAction(410=SendTo) on request page → format dialog (DialogOpened, MappingHint "PrintDialog")
    *   3. [If format is not pdf] SaveValue the format text label into the SelectionControl
    *   4. InvokeAction(300=OK) on format dialog → FileDownloadReady event inline
-   *   5. Fetch `DynamicFileHandler.axd?...` with NTLM headers → bytes
    *
-   * Steps 1–5 are driven internally. The caller may have already opened the
+   * Steps 1–4 are driven internally. The caller may have already opened the
    * request page (via `runReport`) and optionally filled parameters; in that
-   * case pass `options.requestPageFormId` to skip step 1.
+   * case pass `options.requestPageFormId` to skip step 1. Fetching the bytes
+   * from the `FileDownloadReady.relativeUrl` is the caller's responsibility
+   * (see `DownloadService`).
    *
    * Format selection:
    *   BC's PrintDialog SelectionControl carries Items with human-readable text
@@ -583,9 +584,8 @@ export class BCSession {
     reportId: number,
     format: 'pdf' | 'excel' | 'word' = 'pdf',
     options?: { requestPageFormId?: string; downloadTimeoutMs?: number },
-  ): Promise<Result<{ events: BCEvent[]; bytes: Buffer; contentType: string; fileName?: string }, ProtocolError>> {
+  ): Promise<Result<{ events: BCEvent[] }, ProtocolError>> {
     if (this.dead) return err(new ProtocolError('Session is dead'));
-    if (!this.reportDownloader) return err(new ProtocolError('No report downloader configured'));
 
     const effectiveDownloadTimeout = options?.downloadTimeoutMs ?? Math.max(this.timeoutMs, 120000);
 
@@ -645,16 +645,7 @@ export class BCSession {
     if (!dlReady || dlReady.type !== 'FileDownloadReady') {
       return err(new ProtocolError('Report rendered but no download URL received (FileDownloadReady event missing)'));
     }
-
-    // Step 5: Fetch the file
-    this.logger.info(`Report download URL: ${dlReady.relativeUrl}`);
-    try {
-      const { bytes, contentType, fileName } = await this.reportDownloader.downloadFromUrl(dlReady.relativeUrl);
-      this.logger.info(`Report captured: ${bytes.length} bytes, contentType=${contentType}${fileName ? `, fileName=${fileName}` : ''}`);
-      return ok({ events: allEvents, bytes, contentType, fileName });
-    } catch (e) {
-      return err(new ProtocolError(`Download from DynamicFileHandler failed: ${e instanceof Error ? e.message : String(e)}`));
-    }
+    return ok({ events: allEvents });
   }
 
   /**

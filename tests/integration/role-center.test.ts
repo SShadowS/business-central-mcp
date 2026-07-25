@@ -29,6 +29,7 @@ import { OpenPageOperation } from '../../src/operations/open-page.js';
 import { ExecuteActionOperation } from '../../src/operations/execute-action.js';
 import type { Section } from '../../src/protocol/section-dto.js';
 import { integrationPool, type PooledLease } from './helpers/session-pool.js';
+import { stubDownloadService } from './helpers/download-service.js';
 
 // BUSINESS MANAGER profile's default Role Center on a fresh BC28 install is
 // page 9022 ("Business Manager Role Center" -- DesignName confirmed via the
@@ -58,7 +59,7 @@ describe('Role Center cues live (BC28 BUSINESS MANAGER)', () => {
     const actionService = new ActionService(session, repo, logger);
     const navigationService = new NavigationService(session, repo, logger);
     openPage = new OpenPageOperation(pageService);
-    executeAction = new ExecuteActionOperation(actionService, repo, navigationService);
+    executeAction = new ExecuteActionOperation(actionService, repo, navigationService, stubDownloadService(logger));
   }, 60_000);
 
   afterAll(async () => {

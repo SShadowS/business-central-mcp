@@ -5,6 +5,7 @@ import type { ActionService, ActionResult } from '../services/action-service.js'
 import type { NavigationService } from '../services/navigation-service.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { ControlField } from '../protocol/types.js';
+import type { Download, DownloadService } from '../services/download-service.js';
 import { resolveSection } from '../protocol/section-resolver.js';
 import { detectChangedSections, detectDialogs } from '../protocol/mutation-result.js';
 import { isEffectivelyVisible } from '../protocol/visibility.js';
@@ -34,6 +35,10 @@ export interface ExecuteActionOutput {
   openedPages: Array<{ pageContextId: string; caption: string }>;
   dialogsOpened: Array<{ formId: string; message?: string; fields?: ControlField[] }>;
   requiresDialogResponse: boolean;
+  /** Captured file downloads produced by this action (e.g. Open in Excel); empty when none. */
+  downloads: Download[];
+  /** Links BC would open externally (not fetched by the server); empty when none. */
+  externalUris: Array<{ uri: string; style: string }>;
 }
 
 export class ExecuteActionOperation {
@@ -41,6 +46,7 @@ export class ExecuteActionOperation {
     private readonly actionService: ActionService,
     private readonly repo: PageContextRepository,
     private readonly navigationService: NavigationService,
+    private readonly downloadService: DownloadService,
   ) {}
 
   async execute(input: ExecuteActionInput): Promise<Result<ExecuteActionOutput, BCError>> {
@@ -59,7 +65,9 @@ export class ExecuteActionOperation {
       if (!isOk(result)) return result;
       const bizErr = classifyBusinessError(result.value.events);
       if (bizErr !== null) return err(bizErr);
-      return ok(this.buildOutput(input.pageContextId, result.value));
+      const out = this.buildOutput(input.pageContextId, result.value);
+      const captured = await this.downloadService.capture(result.value.events);
+      return ok({ ...out, downloads: captured.downloads, externalUris: captured.externalUris });
     }
     if (!input.action) {
       return err(new ProtocolError('Provide exactly one of: action, cue'));
@@ -77,7 +85,9 @@ export class ExecuteActionOperation {
     if (!isOk(result)) return result;
     const bizErr = classifyBusinessError(result.value.events);
     if (bizErr !== null) return err(bizErr);
-    return ok(this.buildOutput(input.pageContextId, result.value));
+    const out = this.buildOutput(input.pageContextId, result.value);
+    const captured = await this.downloadService.capture(result.value.events);
+    return ok({ ...out, downloads: captured.downloads, externalUris: captured.externalUris });
   }
 
   /**
@@ -112,7 +122,7 @@ export class ExecuteActionOperation {
     return ok(undefined);
   }
 
-  private buildOutput(pageContextId: string, ar: ActionResult): ExecuteActionOutput {
+  private buildOutput(pageContextId: string, ar: ActionResult): Omit<ExecuteActionOutput, 'downloads' | 'externalUris'> {
     let updatedFields: Array<{ name: string; value?: string }> | undefined;
     if (ar.updatedState) {
       const resolved = resolveSection(ar.updatedState, 'header');

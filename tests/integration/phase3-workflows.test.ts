@@ -19,6 +19,7 @@ import { detectDialogs, detectChangedSections } from '../../src/protocol/mutatio
 import { actions as treeActions, repeaters as treeRepeaters } from '../../src/protocol/form-views.js';
 import { isOk, isErr, unwrap } from '../../src/core/result.js';
 import { integrationPool, type PooledLease } from './helpers/session-pool.js';
+import { stubDownloadService } from './helpers/download-service.js';
 
 // =============================================================================
 // Helper: session + service bootstrap (shared pattern across integration tests)
@@ -44,7 +45,7 @@ function createTestHarness() {
     pageService = new PageService(session, repo, logger);
     dataService = new DataService(session, repo, logger);
     actionService = new ActionService(session, repo, logger);
-    respondDialog = new RespondDialogOperation(session, repo);
+    respondDialog = new RespondDialogOperation(session, repo, stubDownloadService(logger));
   }
 
   async function teardown() {

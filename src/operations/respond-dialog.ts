@@ -5,6 +5,7 @@ import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import { SystemAction } from '../protocol/types.js';
 import { detectChangedSections, detectDialogs } from '../protocol/mutation-result.js';
 import { classifyBusinessError } from '../protocol/error-classifier.js';
+import type { Download, DownloadService } from '../services/download-service.js';
 
 export interface RespondDialogInput {
   pageContextId: string;
@@ -18,6 +19,10 @@ export interface RespondDialogOutput {
   dialogsOpened: Array<{ formId: string; message?: string; fields?: import('../protocol/types.js').ControlField[] }>;
   requiresDialogResponse: boolean;
   openedPages: Array<{ pageContextId: string; caption: string }>;
+  /** Captured file downloads produced by this response (e.g. Open in Excel); empty when none. */
+  downloads: Download[];
+  /** Links BC would open externally (not fetched by the server); empty when none. */
+  externalUris: Array<{ uri: string; style: string }>;
 }
 
 const RESPONSE_MAP: Record<string, number> = {
@@ -32,6 +37,7 @@ export class RespondDialogOperation {
   constructor(
     private readonly session: BCSession,
     private readonly repo: PageContextRepository,
+    private readonly downloadService: DownloadService,
   ) {}
 
   async execute(input: RespondDialogInput): Promise<Result<RespondDialogOutput, BCError>> {
@@ -54,12 +60,15 @@ export class RespondDialogOperation {
       const updatedCtx = this.repo.get(input.pageContextId);
       const changedSections = updatedCtx ? detectChangedSections(updatedCtx, closeResult.value) : [];
       const newDialogs = detectDialogs(closeResult.value);
+      const closeCaptured = await this.downloadService.capture(closeResult.value);
       return ok({
         success: true,
         changedSections,
         dialogsOpened: newDialogs,
         requiresDialogResponse: newDialogs.length > 0,
         openedPages: [],
+        downloads: closeCaptured.downloads,
+        externalUris: closeCaptured.externalUris,
       });
     }
 
@@ -101,12 +110,15 @@ export class RespondDialogOperation {
       }
     }
 
+    const captured = await this.downloadService.capture(events);
     return ok({
       success: true,
       changedSections,
       dialogsOpened: newDialogs,
       requiresDialogResponse: newDialogs.length > 0,
       openedPages,
+      downloads: captured.downloads,
+      externalUris: captured.externalUris,
     });
   }
 }

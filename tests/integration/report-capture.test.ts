@@ -1,8 +1,16 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { config as dotenvConfig } from 'dotenv';
 import type { BCSession } from '../../src/session/bc-session.js';
 import { RunReportOperation } from '../../src/operations/run-report.js';
-import { isOk, isErr } from '../../src/core/result.js';
+import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
+import { DownloadService } from '../../src/services/download-service.js';
+import { loadConfig } from '../../src/core/config.js';
+import { createNullLogger } from '../../src/core/logger.js';
+import { isOk, isErr, unwrap } from '../../src/core/result.js';
 import { integrationPool, type PooledLease } from './helpers/session-pool.js';
+import { realDownloadService } from './helpers/download-service.js';
+
+dotenvConfig();
 
 /**
  * Live report-output capture against Cronus28.
@@ -15,8 +23,19 @@ import { integrationPool, type PooledLease } from './helpers/session-pool.js';
  * For PDF: no SaveValue (BC default). For Excel/Word: SaveValue the matched
  * text label from the PrintDialog SelectionControl's Items, then OK.
  *
- * The pool builds sessions WITH a reportDownloader (ConnectionFactory.createReportDownloader),
- * so RunReportOperation.executeWithDownload can resolve the captured URL.
+ * BCSession.runReportWithDownload() now only drives the wire protocol and
+ * returns the raw `events`; fetching the file bytes over HTTP is DownloadService's
+ * job. This test builds its own BCHttpClient/DownloadService pair via
+ * `lease.auth` -- the SAME already-authenticated NTLMAuthProvider instance that
+ * `session-pool.ts` used to establish this session's /csh WebSocket connection.
+ *
+ * IMPORTANT: DynamicFileHandler.axd (the download-URL endpoint) ties a
+ * generated file to the SPECIFIC auth session that produced it, not merely to
+ * the username. A brand-new NTLMAuthProvider login for the same user is a
+ * DIFFERENT server-side session and 404s on the follow-up GET -- confirmed
+ * live via scripts/diag-download-404.ts (same-auth: 200 OK; fresh-login: 404).
+ * `lease.auth` exists precisely so tests reuse the correct identity instead of
+ * re-authenticating.
  *
  * Report 6 = Trial Balance. It has no mandatory request-page parameters, so the
  * render succeeds with no additional parameter fills. If this ever changes, swap
@@ -25,18 +44,27 @@ import { integrationPool, type PooledLease } from './helpers/session-pool.js';
 describe('Report output capture (integration)', () => {
   let lease: PooledLease;
   let session: BCSession;
+  let downloadService: DownloadService;
 
   beforeAll(async () => {
     lease = await integrationPool.checkOut();
     session = lease.session;
+
+    const cfg = loadConfig();
+    const logger = createNullLogger();
+    downloadService = realDownloadService(cfg.bc, () => lease.auth.getWebSocketHeaders(), logger);
   }, 60000);
 
   afterAll(async () => {
     if (lease) await integrationPool.checkIn(lease, { poisoned: !session?.isAlive });
   });
 
+  function buildOp(): RunReportOperation {
+    return new RunReportOperation(session, new PageContextRepository(), downloadService);
+  }
+
   it('captures a non-empty PDF for report 6 (Trial Balance) via format:pdf', async () => {
-    const op = new RunReportOperation(session);
+    const op = buildOp();
 
     const result = await op.execute({ reportId: '6', format: 'pdf' });
 
@@ -47,11 +75,12 @@ describe('Report output capture (integration)', () => {
     const out = result.value;
     expect(out.success).toBe(true);
     expect(out.reportId).toBe(6);
-    expect(out.download).toBeDefined();
+    expect(out.downloads).toHaveLength(1);
+    expect(out.downloads[0]!.error).toBeUndefined();
 
-    const dl = out.download!;
+    const dl = out.downloads[0]!;
     // Bytes are base64; decode and assert non-empty + %PDF magic.
-    const buf = Buffer.from(dl.bytes, 'base64');
+    const buf = Buffer.from(dl.bytes!, 'base64');
     console.error(`[TEST] captured report 6 pdf: ${buf.length} bytes, contentType=${dl.contentType}, fileName=${dl.fileName ?? '(none)'}`);
 
     expect(buf.length).toBeGreaterThan(0);
@@ -63,7 +92,7 @@ describe('Report output capture (integration)', () => {
   }, 120000);
 
   it('captures a non-empty Excel file for report 6 (Trial Balance) via format:excel', async () => {
-    const op = new RunReportOperation(session);
+    const op = buildOp();
 
     const result = await op.execute({ reportId: '6', format: 'excel' });
 
@@ -79,10 +108,11 @@ describe('Report output capture (integration)', () => {
     const out = result.value;
     expect(out.success).toBe(true);
     expect(out.reportId).toBe(6);
-    expect(out.download).toBeDefined();
+    expect(out.downloads).toHaveLength(1);
+    expect(out.downloads[0]!.error).toBeUndefined();
 
-    const dl = out.download!;
-    const buf = Buffer.from(dl.bytes, 'base64');
+    const dl = out.downloads[0]!;
+    const buf = Buffer.from(dl.bytes!, 'base64');
     console.error(`[TEST] captured report 6 excel: ${buf.length} bytes, contentType=${dl.contentType}, fileName=${dl.fileName ?? '(none)'}`);
 
     // Excel OOXML is a ZIP — magic bytes are PK\x03\x04
@@ -97,7 +127,7 @@ describe('Report output capture (integration)', () => {
   }, 120000);
 
   it('captures a non-empty Word document for report 6 (Trial Balance) via format:word', async () => {
-    const op = new RunReportOperation(session);
+    const op = buildOp();
 
     const result = await op.execute({ reportId: '6', format: 'word' });
 
@@ -113,10 +143,11 @@ describe('Report output capture (integration)', () => {
     const out = result.value;
     expect(out.success).toBe(true);
     expect(out.reportId).toBe(6);
-    expect(out.download).toBeDefined();
+    expect(out.downloads).toHaveLength(1);
+    expect(out.downloads[0]!.error).toBeUndefined();
 
-    const dl = out.download!;
-    const buf = Buffer.from(dl.bytes, 'base64');
+    const dl = out.downloads[0]!;
+    const buf = Buffer.from(dl.bytes!, 'base64');
     console.error(`[TEST] captured report 6 word: ${buf.length} bytes, contentType=${dl.contentType}, fileName=${dl.fileName ?? '(none)'}`);
 
     // Word OOXML is a ZIP — magic bytes are PK\x03\x04

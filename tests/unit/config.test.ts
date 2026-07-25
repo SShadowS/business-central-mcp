@@ -65,3 +65,35 @@ describe('loadConfig', () => {
     expect(config.logging.level).toBe('debug');
   });
 });
+
+describe('download limits', () => {
+  const KEYS = ['BC_MAX_DOWNLOAD_BYTES', 'BC_MAX_DOWNLOAD_TOTAL_BYTES', 'BC_MAX_DOWNLOADS', 'BC_DOWNLOAD_DIR', 'BC_REPORT_DIR', 'BC_BASE_URL', 'BC_USERNAME', 'BC_PASSWORD'];
+  let saved: Record<string, string | undefined>;
+  beforeEach(() => { saved = Object.fromEntries(KEYS.map(k => [k, process.env[k]])); KEYS.forEach(k => delete process.env[k]); });
+  afterEach(() => { KEYS.forEach(k => { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }); });
+
+  it('defaults to 5MB / 10MB / 5 / no dir', () => {
+    process.env.BC_BASE_URL = 'http://x/BC';
+    process.env.BC_USERNAME = 'test';
+    process.env.BC_PASSWORD = 'test';
+    const c = loadConfig();
+    expect(c.bc.downloadLimits).toEqual({ maxBytes: 5242880, maxTotalBytes: 10485760, maxDownloads: 5, dir: undefined });
+  });
+
+  it('BC_DOWNLOAD_DIR wins over BC_REPORT_DIR', () => {
+    process.env.BC_BASE_URL = 'http://x/BC';
+    process.env.BC_USERNAME = 'test';
+    process.env.BC_PASSWORD = 'test';
+    process.env.BC_REPORT_DIR = '/reports';
+    process.env.BC_DOWNLOAD_DIR = '/downloads';
+    expect(loadConfig().bc.downloadLimits.dir).toBe('/downloads');
+  });
+
+  it('falls back to BC_REPORT_DIR when BC_DOWNLOAD_DIR unset', () => {
+    process.env.BC_BASE_URL = 'http://x/BC';
+    process.env.BC_USERNAME = 'test';
+    process.env.BC_PASSWORD = 'test';
+    process.env.BC_REPORT_DIR = '/reports';
+    expect(loadConfig().bc.downloadLimits.dir).toBe('/reports');
+  });
+});

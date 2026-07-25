@@ -11,12 +11,25 @@ import type { BCSession } from '../../../src/session/bc-session.js';
 export interface PooledLease {
   session: BCSession;
   user: string;
+  /**
+   * The SAME NTLMAuthProvider instance (already authenticated) used to establish
+   * this session's /csh WebSocket connection. DynamicFileHandler.axd (the
+   * download-URL endpoint reports/exports emit via FileDownloadReady/UriToShow)
+   * checks the identity behind the request against the session that generated
+   * the file -- a FRESH NTLM login for the same username is a DIFFERENT
+   * server-side session and 404s. Confirmed live (scripts/diag-download-404.ts):
+   * reusing this same auth's cookies for the follow-up GET succeeds; a second
+   * independent login does not. Callers that need to fetch a captured download's
+   * bytes over HTTP (report-capture.test.ts, download-capture.test.ts) MUST reuse
+   * `lease.auth.getWebSocketHeaders()` rather than authenticating again.
+   */
+  auth: NTLMAuthProvider;
 }
 
 interface PoolOptions {
   users: string[];
   cooldownMs: number;
-  buildSession: (user: string, profile?: string) => Promise<BCSession>;
+  buildSession: (user: string, profile?: string) => Promise<{ session: BCSession; auth: NTLMAuthProvider }>;
 }
 
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
@@ -24,7 +37,7 @@ const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, m
 export class IntegrationSessionPool {
   private readonly users: string[];
   private readonly cooldownMs: number;
-  private readonly buildSession: (user: string, profile?: string) => Promise<BCSession>;
+  private readonly buildSession: (user: string, profile?: string) => Promise<{ session: BCSession; auth: NTLMAuthProvider }>;
   private readonly cooldownUntil = new Map<string, number>();
   private readonly inUse = new Set<string>();
   private rrIndex = 0;
@@ -39,8 +52,8 @@ export class IntegrationSessionPool {
     const user = await this.acquireUser();
     this.inUse.add(user);
     try {
-      const session = await this.buildSession(user, opts?.profile);
-      return { session, user };
+      const { session, auth } = await this.buildSession(user, opts?.profile);
+      return { session, user, auth };
     } catch (e) {
       // Release the slot so a build failure does not strand the user forever.
       this.inUse.delete(user);
@@ -109,7 +122,7 @@ const CRONUS28: BCConfig = {
 const POOL_USERS = (process.env.BC_TEST_USERS ?? 'sshadows,bcmcp_test1,bcmcp_test2')
   .split(',').map(s => s.trim()).filter(Boolean);
 
-async function buildCronus28Session(user: string, profile = ''): Promise<BCSession> {
+async function buildCronus28Session(user: string, profile = ''): Promise<{ session: BCSession; auth: NTLMAuthProvider }> {
   const logger = createNullLogger();
   const cfg: BCConfig = { ...CRONUS28, username: user };
   const auth = new NTLMAuthProvider({
@@ -131,7 +144,12 @@ async function buildCronus28Session(user: string, profile = ''): Promise<BCSessi
     cfg.invokeTimeoutMs,
     profile,
   );
-  return unwrap(await sessionFactory.create());
+  // ConnectionFactory.connect() authenticates `auth` before opening the /csh
+  // WebSocket, so by the time create() resolves `auth` already holds the
+  // exact cookies tied to this session -- the only ones DynamicFileHandler.axd
+  // will accept for files this session generates (see PooledLease.auth doc).
+  const session = unwrap(await sessionFactory.create());
+  return { session, auth };
 }
 
 export const integrationPool = new IntegrationSessionPool({

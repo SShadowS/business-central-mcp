@@ -12,7 +12,9 @@ Typical workflow: bc_open_page (returns isModal=true, fields for step 0) -> bc_w
 
 Do NOT use this for non-wizard pages -- use bc_execute_action instead. Do NOT call "next" past the last step -- use "finish" once availableNav lists it.
 
-Example: { "pageContextId": "abc", "action": "next" }`,
+Example: { "pageContextId": "abc", "action": "next" }
+
+If the action produces a file (Open in Excel, Print, export), its bytes appear in \`downloads[]\`; links BC would open externally appear in \`externalUris[]\` and are never fetched by the server.`,
     inputSchema: toMcpJsonSchema(WizardNavigateSchema),
     zodSchema: WizardNavigateSchema,
     execute: (input) => ops.wizardNavigate.execute(input as Parameters<typeof ops.wizardNavigate.execute>[0]),
