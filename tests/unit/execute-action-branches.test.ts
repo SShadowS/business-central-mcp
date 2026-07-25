@@ -373,6 +373,43 @@ describe('ActionService.executeAction — selection descriptor (atomic path)', (
     expect(session.invoke).toHaveBeenCalledTimes(1);
     expect(session.invokeSequence).not.toHaveBeenCalled();
   });
+
+  // Load-bearing property: for a row-targeting action (Delete) on a page that
+  // HAS a repeater, the action interaction must target the row-scoped
+  // `{repeater}/cr/c[0]` path, not the bare repeater path or a default
+  // 'server:c[0]' fallback. This is what makes "delete these selected rows"
+  // actually operate on the current row BC just selected via SetCurrentRow.
+  // Mirrors the repeater fixture in tests/unit/select-rows.test.ts /
+  // tests/protocol/section-resolver.test.ts (`{ t: 'rc', Columns: [...] }` as
+  // the root's only child -> repeater.controlPath === 'server:c[0]').
+  it('targets the repeater cr/c[0] controlPath for Delete+selection (row-scoped, not the raw repeater or default path)', async () => {
+    const session = makeSession();
+    const repo = new PageContextRepository();
+    repo.create('pc:2', 'F1', { isModal: false, wizardState: null });
+    repo.applyEvents([{
+      type: 'FormCreated',
+      formId: 'F1',
+      controlTree: {
+        t: 'lf', ServerId: 'F1', PageType: 1,
+        Children: [{ t: 'rc', Columns: [{ t: 'rcc', Caption: 'No.' }] }],
+      },
+    } as BCEvent]);
+    const svc = new ActionService(session as any, repo, logger);
+
+    const result = await svc.executeAction('pc:2', 'Delete', 'header', {
+      formId: 'f',
+      controlPath: 'server:c[0]',
+      bookmarks: ['A', 'B'],
+    });
+
+    expect(result.ok).toBe(true);
+    const [interactions] = session.invokeSequence.mock.calls[0]!;
+    expect(interactions[1]).toMatchObject({
+      type: 'InvokeAction',
+      controlPath: 'server:c[0]/cr/c[0]',
+      systemAction: 20, // SystemAction.Delete
+    });
+  });
 });
 
 describe('ActionService.isCurrentRowOnlyAction', () => {
@@ -381,6 +418,18 @@ describe('ActionService.isCurrentRowOnlyAction', () => {
 
   it('returns true for Edit (current-row-only)', () => {
     expect(svc.isCurrentRowOnlyAction('Edit')).toBe(true);
+  });
+
+  it('returns true for View (current-row-only)', () => {
+    expect(svc.isCurrentRowOnlyAction('View')).toBe(true);
+  });
+
+  it('returns true for DrillDown (current-row-only, not in SYSTEM_ACTION_NAMES)', () => {
+    expect(svc.isCurrentRowOnlyAction('DrillDown')).toBe(true);
+  });
+
+  it('returns true for New (current-row-only)', () => {
+    expect(svc.isCurrentRowOnlyAction('New')).toBe(true);
   });
 
   it('returns false for Delete (consumes the selection)', () => {

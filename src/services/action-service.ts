@@ -30,6 +30,17 @@ const SYSTEM_ACTION_NAMES: Map<string, number> = new Map([
   ['view', SystemAction.View],
 ]);
 
+/**
+ * Action names that act on the current row only -- they do NOT consume a
+ * multi-row selection (Delete does, so it is deliberately excluded). Kept as
+ * its own set rather than derived from SYSTEM_ACTION_NAMES: that map has no
+ * 'drilldown' entry (DrillDown-by-name never takes the fast path in
+ * executeAction -- it's only reached via the numeric SystemAction constant
+ * from executeOnCue), but isCurrentRowOnlyAction must still classify a
+ * caller-supplied action:'DrillDown' string correctly for bookmarks[] validation.
+ */
+const CURRENT_ROW_ONLY_ACTION_NAMES: ReadonlySet<string> = new Set(['edit', 'view', 'drilldown', 'new']);
+
 export interface ActionResult {
   success: boolean;
   events: BCEvent[];
@@ -120,8 +131,7 @@ export class ActionService {
 
   /** Edit/View/DrillDown/New act on the current row only -- they do NOT consume a multi-row selection (Delete does). */
   isCurrentRowOnlyAction(name: string): boolean {
-    const sa = SYSTEM_ACTION_NAMES.get(name.toLowerCase());
-    return sa === SystemAction.Edit || sa === SystemAction.View || sa === SystemAction.DrillDown || sa === SystemAction.New;
+    return CURRENT_ROW_ONLY_ACTION_NAMES.has(name.toLowerCase().replace(/\s+/g, ''));
   }
 
   /**
