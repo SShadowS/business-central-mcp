@@ -13,6 +13,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [1.5.0] - 2026-07-25
+
+### Added
+
+- **Multi-row selection.** `bc_execute_action` accepts `bookmarks: string[]` to
+  select N rows and invoke a selection-consuming action (Delete) over the whole
+  set atomically (`SetCurrentRowAndRowsSelection` + `InvokeAction` in one queue
+  entry). The anchor is `bookmarks[0]` and must be a member of the set. Only
+  selection-consuming actions act on all rows; Edit/View/DrillDown/New are
+  current-row-only and are rejected with `bookmarks[]`. A stale anchor returns
+  `INVALID_BOOKMARK`; `BC_MAX_SELECTION` (default 100) caps the set.
+- **Generic file download capture.** `bc_execute_action`, `bc_respond_dialog`,
+  `bc_wizard_navigate`, and `bc_run_report` now return `downloads: Download[]`
+  (inline base64 + optional disk write) and `externalUris[]` via a shared
+  `DownloadService`. Only same-origin URLs under an allowlisted BC file path are
+  fetched (SSRF/credential-leak guard); external and `mailto:` URIs are surfaced
+  but never dereferenced. Per-file/aggregate/count caps and `BC_DOWNLOAD_DIR`
+  are configurable.
+- **Config.** `BC_MAX_SELECTION`; download limits `BC_MAX_DOWNLOAD_BYTES`,
+  `BC_MAX_DOWNLOAD_TOTAL_BYTES`, `BC_MAX_DOWNLOADS`, `BC_DOWNLOAD_DIR`
+  (falls back to `BC_REPORT_DIR`).
+
+### Changed
+
+- **BREAKING (`bc_run_report`):** the singular `download` field is replaced by
+  `downloads: Download[]` for parity with the other download-capturing tools.
+- Default client version / serverMajor now default to BC28.
+
+### Fixed
+
+- **BC 28.3 `/csh` 403.** The WebSocket upgrade now sends an `Origin` header, so
+  BC 28.3's `RequestOriginValidationMiddleware` no longer rejects the connection.
+  Same-origin only; a no-op on BC 28.0.
+- **Multi-row action silent no-op.** A multi-row Delete on a page that forbids it
+  (e.g. the Customer list) previously returned success with nothing deleted. BC
+  disables such actions server-side (`Enabled=false`); `bc_execute_action` now
+  detects that and returns `MULTI_ROW_ACTION_UNAVAILABLE` instead of a lying
+  success. Where BC keeps the action enabled it deletes all selected rows.
+- Download disk-write filenames are sanitized against path traversal.
+
 ## [1.4.0] - 2026-07-11
 
 ### Added
