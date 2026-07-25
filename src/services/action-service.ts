@@ -4,10 +4,11 @@ import { ProtocolError } from '../core/errors.js';
 import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { PageContext } from '../protocol/page-context.js';
-import type { BCEvent, InvokeActionInteraction } from '../protocol/types.js';
+import type { BCEvent, InvokeActionInteraction, SetCurrentRowInteraction } from '../protocol/types.js';
 import { SystemAction } from '../protocol/types.js';
 import { resolveSection } from '../protocol/section-resolver.js';
 import type { FormState } from '../protocol/form-state.js';
+import type { RepeaterNode } from '../protocol/form-node.js';
 import { isEffectivelyVisible } from '../protocol/visibility.js';
 import { actions as treeActions, groupVisibility as treeGroupVisibility, cues as treeCues } from '../protocol/form-views.js';
 import { classifyWizardNav } from '../protocol/wizard-classify.js';
@@ -36,6 +37,18 @@ export interface ActionResult {
   updatedState?: PageContext;
 }
 
+/**
+ * Multi-row selection to apply atomically with an action. `controlPath` is the
+ * repeater's controlPath (the target of SetCurrentRow); `bookmarks[0]` is the
+ * anchor and MUST be a member of `bookmarks` (BC's row-targeting actions read
+ * the current row from the same selection set).
+ */
+export interface RowSelection {
+  readonly formId: string;
+  readonly controlPath: string;
+  readonly bookmarks: string[];
+}
+
 export class ActionService {
   private readonly childFormHydration: ChildFormHydrationStrategy;
 
@@ -47,7 +60,12 @@ export class ActionService {
     this.childFormHydration = new ChildFormHydrationStrategy(session, repo, logger);
   }
 
-  async executeAction(pageContextId: string, actionName: string, sectionId?: string): Promise<Result<ActionResult, ProtocolError>> {
+  async executeAction(
+    pageContextId: string,
+    actionName: string,
+    sectionId?: string,
+    selection?: RowSelection,
+  ): Promise<Result<ActionResult, ProtocolError>> {
     const ctx = this.repo.get(pageContextId);
     if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
 
@@ -55,12 +73,20 @@ export class ActionService {
     const resolved = resolveSection(ctx, sectionId, 'header');
     if ('error' in resolved) return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
 
-    const { form } = resolved;
+    const { form, repeater } = resolved;
     const allActions = treeActions(form.root);
 
     // Well-known SystemAction fast path
     const systemActionByName = SYSTEM_ACTION_NAMES.get(actionName.toLowerCase());
     if (systemActionByName !== undefined) {
+      if (selection) {
+        // A selection must reach invokeAction alongside the row-targeting
+        // controlPath executeSystemAction would otherwise compute -- inline
+        // the same resolution (shared via resolveActionControlPath) instead of
+        // delegating, since executeSystemAction's own signature stays selection-free.
+        const controlPath = this.resolveActionControlPath(form, repeater, systemActionByName);
+        return this.invokeAction(pageContextId, form, controlPath, systemActionByName, 'action', selection);
+      }
       return this.executeSystemAction(pageContextId, systemActionByName, sectionId);
     }
 
@@ -89,7 +115,13 @@ export class ActionService {
     if (actionNode.properties.enabled === false) {
       return err(new ProtocolError(`Action is disabled: ${actionName}`));
     }
-    return this.invokeAction(pageContextId, form, actionNode.controlPath, actionNode.systemAction);
+    return this.invokeAction(pageContextId, form, actionNode.controlPath, actionNode.systemAction, 'action', selection);
+  }
+
+  /** Edit/View/DrillDown/New act on the current row only -- they do NOT consume a multi-row selection (Delete does). */
+  isCurrentRowOnlyAction(name: string): boolean {
+    const sa = SYSTEM_ACTION_NAMES.get(name.toLowerCase());
+    return sa === SystemAction.Edit || sa === SystemAction.View || sa === SystemAction.DrillDown || sa === SystemAction.New;
   }
 
   /**
@@ -198,17 +230,24 @@ export class ActionService {
     if ('error' in resolved) return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
 
     const { form, repeater } = resolved;
-
-    // For row-targeting actions on pages with a repeater, use the repeater's controlPath
-    let controlPath: string;
-    if (repeater && ROW_TARGETING_ACTIONS.has(systemAction)) {
-      controlPath = repeater.controlPath + '/cr/c[0]';
-    } else {
-      const action = treeActions(form.root).find(a => a.systemAction === systemAction);
-      controlPath = action?.controlPath ?? 'server:c[0]';
-    }
+    const controlPath = this.resolveActionControlPath(form, repeater, systemAction);
 
     return this.invokeAction(pageContextId, form, controlPath, systemAction);
+  }
+
+  /**
+   * Resolve the controlPath a SystemAction should target: row-targeting actions
+   * (Delete/Edit/View/DrillDown/New) on a page with a repeater address the
+   * current row (`cr/c[0]`); everything else resolves to its own action node.
+   * Shared by `executeSystemAction` and the SYSTEM_ACTION_NAMES fast path in
+   * `executeAction` (the latter needs it inline to also thread a selection).
+   */
+  private resolveActionControlPath(form: FormState, repeater: RepeaterNode | null, systemAction: number): string {
+    if (repeater && ROW_TARGETING_ACTIONS.has(systemAction)) {
+      return repeater.controlPath + '/cr/c[0]';
+    }
+    const action = treeActions(form.root).find(a => a.systemAction === systemAction);
+    return action?.controlPath ?? 'server:c[0]';
   }
 
   private async invokeAction(
@@ -217,6 +256,7 @@ export class ActionService {
     controlPath: string,
     systemAction: number,
     openedPagePrefix = 'action',
+    selection?: RowSelection,
   ): Promise<Result<ActionResult, ProtocolError>> {
     const interaction: InvokeActionInteraction = {
       type: 'InvokeAction',
@@ -225,10 +265,21 @@ export class ActionService {
       systemAction,
     };
 
-    const result = await this.session.invoke(
-      interaction,
-      (event) => event.type === 'InvokeCompleted',
-    );
+    const expect = (event: BCEvent): boolean => event.type === 'InvokeCompleted';
+
+    let result;
+    if (selection) {
+      const selectInteraction: SetCurrentRowInteraction = {
+        type: 'SetCurrentRow',
+        formId: selection.formId,
+        controlPath: selection.controlPath,
+        key: selection.bookmarks[0]!,
+        rowsToSelect: selection.bookmarks,
+      };
+      result = await this.session.invokeSequence([selectInteraction, interaction], expect);
+    } else {
+      result = await this.session.invoke(interaction, expect);
+    }
 
     if (isErr(result)) return result;
 

@@ -17,6 +17,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { ExecuteActionOperation } from '../../src/operations/execute-action.js';
+import { ActionService } from '../../src/services/action-service.js';
 import { ok, err } from '../../src/core/result.js';
 import { ProtocolError } from '../../src/core/errors.js';
 import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
@@ -299,5 +300,90 @@ describe('ExecuteActionOperation — buildOutput (uncovered branches)', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.openedPages).toHaveLength(0);
+  });
+});
+
+describe('ActionService.executeAction — selection descriptor (atomic path)', () => {
+  // Same ctx-shaping as execute-action-cue.test.ts: create() auto-registers a
+  // 'header' section against rootFormId; applyEvents seeds a real (empty) lf
+  // control tree so treeActions/treeRepeaters have a proper root to walk.
+  function makeRepo() {
+    const repo = new PageContextRepository();
+    repo.create('pc:1', 'root', { isModal: false, wizardState: null });
+    repo.applyEvents([{
+      type: 'FormCreated',
+      formId: 'root',
+      controlTree: { t: 'lf', ServerId: 'root', PageType: 1, Children: [] },
+    } as BCEvent]);
+    return repo;
+  }
+
+  function invokeCompletedEvents(): BCEvent[] {
+    return [{
+      type: 'InvokeCompleted',
+      sequenceNumber: 1,
+      completedInteractions: [{ invocationId: 'cb1', durationMs: 0 }],
+    } as BCEvent];
+  }
+
+  function makeSession() {
+    return {
+      invoke: vi.fn(async () => ok(invokeCompletedEvents())),
+      invokeSequence: vi.fn(async () => ok(invokeCompletedEvents())),
+    };
+  }
+
+  const logger: any = { info() {}, debug() {}, warn() {}, error() {} };
+
+  it('routes select+action through invokeSequence when a selection is given', async () => {
+    const session = makeSession();
+    const repo = makeRepo();
+    const svc = new ActionService(session as any, repo, logger);
+
+    const result = await svc.executeAction('pc:1', 'Delete', 'header', {
+      formId: 'f',
+      controlPath: 'server:c[0]',
+      bookmarks: ['A', 'B'],
+    });
+
+    expect(result.ok).toBe(true);
+    expect(session.invoke).not.toHaveBeenCalled();
+    expect(session.invokeSequence).toHaveBeenCalledTimes(1);
+
+    const [interactions] = session.invokeSequence.mock.calls[0]!;
+    expect(interactions).toHaveLength(2);
+    expect(interactions[0]).toMatchObject({
+      type: 'SetCurrentRow',
+      formId: 'f',
+      controlPath: 'server:c[0]',
+      key: 'A',
+      rowsToSelect: ['A', 'B'],
+    });
+    expect(interactions[1]).toMatchObject({ type: 'InvokeAction' });
+  });
+
+  it('uses a single invoke when no selection is given (unchanged path)', async () => {
+    const session = makeSession();
+    const repo = makeRepo();
+    const svc = new ActionService(session as any, repo, logger);
+
+    const result = await svc.executeAction('pc:1', 'Refresh');
+
+    expect(result.ok).toBe(true);
+    expect(session.invoke).toHaveBeenCalledTimes(1);
+    expect(session.invokeSequence).not.toHaveBeenCalled();
+  });
+});
+
+describe('ActionService.isCurrentRowOnlyAction', () => {
+  const logger: any = { info() {}, debug() {}, warn() {}, error() {} };
+  const svc = new ActionService({} as any, new PageContextRepository(), logger);
+
+  it('returns true for Edit (current-row-only)', () => {
+    expect(svc.isCurrentRowOnlyAction('Edit')).toBe(true);
+  });
+
+  it('returns false for Delete (consumes the selection)', () => {
+    expect(svc.isCurrentRowOnlyAction('Delete')).toBe(false);
   });
 });
