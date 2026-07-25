@@ -16,6 +16,8 @@ If the action triggers a confirmation dialog or modal page, the response include
 
 Row-scoped actions (Delete, Edit on a list row) require targeting a specific row. Use rowIndex (0-based) or bookmark to specify which row the action applies to. For Document pages, use section to disambiguate between header and line actions (e.g., "Delete" on header deletes the whole document, "Delete" on "lines" deletes one line).
 
+For batch operations across multiple rows (e.g. deleting several lines at once), pass bookmarks (an array) instead of bookmark/rowIndex -- the first entry is the anchor row. Only actions that consume a selection (e.g. Delete) act on all listed rows; current-row-only actions (Edit, View, DrillDown, New) reject bookmarks[] and must use bookmark/rowIndex instead. bookmarks[] is mutually exclusive with bookmark, rowIndex, and cue.
+
 Pass expectedStateVersion (from a prior bc_read_data or bc_open_page stateVersion field) to guard against acting on drifted state. If the page has been mutated by async events or a sibling operation since that read, the call is immediately rejected with code STALE_CONTEXT before touching BC. Re-read with bc_read_data to get the current stateVersion, then retry. Omit expectedStateVersion to skip the check.
 
 Do NOT use this for writing field values -- use bc_write_data. Do NOT use this to open records from a list -- use bc_navigate with drill_down action instead.
@@ -26,6 +28,7 @@ Examples:
 - Delete a row: { "pageContextId": "list1", "action": "Delete", "bookmark": "..." }
 - Create new record: { "pageContextId": "abc", "action": "New" }
 - Delete a document line: { "pageContextId": "abc", "action": "Delete", "section": "lines", "rowIndex": 2 }
+- Delete multiple rows in one call: { "pageContextId": "list1", "action": "Delete", "bookmarks": ["bk1", "bk2"] } -- only selection-consuming actions like Delete act on all listed rows
 - Execute with staleness guard: { "pageContextId": "abc", "action": "Post", "expectedStateVersion": 5 }
 
 If the action produces a file (Open in Excel, Print, export), its bytes appear in \`downloads[]\`; links BC would open externally appear in \`externalUris[]\` and are never fetched by the server.`,

@@ -51,8 +51,16 @@ export const ExecuteActionSchema = z.object({
   section: z.string().optional().describe('Section context. Required when using cue; optional for action. Examples: "lines", "subpage:Activities".'),
   rowIndex: z.number().int().min(0).optional().describe('0-based row position for row-scoped actions.'),
   bookmark: z.string().optional().describe('Stable row identifier for row-scoped actions.'),
+  bookmarks: z.array(z.string().min(1)).optional().describe('Stable row identifiers for a MULTI-ROW action (batch delete, apply-entries). The first bookmark is the anchor/current row. Mutually exclusive with bookmark, rowIndex, and cue. Bookmarks must come from a bc_read_data of the same section and must still be loaded. Only actions that consume a selection (e.g. Delete) act on all rows; Edit/View/DrillDown/New use the anchor only and are rejected with bookmarks[].'),
   expectedStateVersion: z.number().optional().describe('Opt-in staleness guard. Pass the stateVersion from a prior bc_read_data or bc_open_page response. If the page state has changed since that read (async events or sibling writes mutated it), the call is rejected immediately with code STALE_CONTEXT before touching BC. Omit to skip the check.'),
-}).refine(d => !!d.action !== !!d.cue, { message: 'Provide exactly one of: action, cue' });
+}).superRefine((d, ctx) => {
+  if (!!d.action === !!d.cue) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Provide exactly one of: action, cue' });
+  }
+  if (d.bookmarks && (d.bookmark !== undefined || d.rowIndex !== undefined || d.cue !== undefined)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'bookmarks[] is mutually exclusive with bookmark, rowIndex, and cue.' });
+  }
+});
 
 export const ClosePageSchema = z.object({
   pageContextId: z.string().min(1).describe('Page context ID returned by bc_open_page. Becomes invalid after closing.'),
