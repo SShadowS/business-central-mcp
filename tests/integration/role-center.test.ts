@@ -28,6 +28,7 @@ import { NavigationService } from '../../src/services/navigation-service.js';
 import { OpenPageOperation } from '../../src/operations/open-page.js';
 import { ExecuteActionOperation } from '../../src/operations/execute-action.js';
 import type { Section } from '../../src/protocol/section-dto.js';
+import { loadConfig } from '../../src/core/config.js';
 import { integrationPool, type PooledLease } from './helpers/session-pool.js';
 import { stubDownloadService } from './helpers/download-service.js';
 
@@ -59,7 +60,8 @@ describe('Role Center cues live (BC28 BUSINESS MANAGER)', () => {
     const actionService = new ActionService(session, repo, logger);
     const navigationService = new NavigationService(session, repo, logger);
     openPage = new OpenPageOperation(pageService);
-    executeAction = new ExecuteActionOperation(actionService, repo, navigationService, stubDownloadService(logger));
+    const cfg = loadConfig();
+    executeAction = new ExecuteActionOperation(actionService, repo, navigationService, stubDownloadService(logger), cfg.bc.maxSelection);
   }, 60_000);
 
   afterAll(async () => {

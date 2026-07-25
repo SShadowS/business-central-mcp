@@ -64,7 +64,7 @@ describe('Download capture via ExecuteActionOperation (integration)', () => {
     pageService = new PageService(session, repo, logger);
     const actionService = new ActionService(session, repo, logger);
     const navigationService = new NavigationService(session, repo, logger);
-    executeAction = new ExecuteActionOperation(actionService, repo, navigationService, downloadService);
+    executeAction = new ExecuteActionOperation(actionService, repo, navigationService, downloadService, cfg.bc.maxSelection);
   }, 60000);
 
   afterAll(async () => {

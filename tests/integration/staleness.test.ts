@@ -29,6 +29,7 @@ import { WriteDataOperation } from '../../src/operations/write-data.js';
 import { ExecuteActionOperation } from '../../src/operations/execute-action.js';
 import { SystemAction } from '../../src/protocol/types.js';
 import { isOk, unwrap } from '../../src/core/result.js';
+import { loadConfig } from '../../src/core/config.js';
 import { integrationPool, type PooledLease } from './helpers/session-pool.js';
 import { stubDownloadService } from './helpers/download-service.js';
 
@@ -62,7 +63,8 @@ describe('stateVersion staleness guard (integration, Cronus28)', () => {
     readDataOp = new ReadDataOperation(dataService, filterService, sortService, repo);
     writeDataOp = new WriteDataOperation(dataService, repo);
     const navigationService = new NavigationService(session, repo, logger);
-    executeActionOp = new ExecuteActionOperation(actionService, repo, navigationService, stubDownloadService(logger));
+    const cfg = loadConfig();
+    executeActionOp = new ExecuteActionOperation(actionService, repo, navigationService, stubDownloadService(logger), cfg.bc.maxSelection);
   }, 60_000);
 
   afterAll(async () => {
