@@ -1,6 +1,6 @@
 import { v4 as uuid } from 'uuid';
 import { ok, err, isOk, isErr, type Result } from '../core/result.js';
-import { ProtocolError } from '../core/errors.js';
+import { ProtocolError, MultiRowActionUnavailableError } from '../core/errors.js';
 import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { PageContext } from '../protocol/page-context.js';
@@ -295,6 +295,30 @@ export class ActionService {
 
     const events = result.value;
     this.repo.applyToPage(pageContextId, events);
+
+    // Multi-row selection gate. BC computes action enablement server-side
+    // (decompiled ActionControl.Enabled = Action.CanInvoke) and pushes
+    // Enabled=false when a page forbids the action for the current selection --
+    // e.g. the Customer list disables Delete once 2+ rows are selected, while
+    // setup lists (Payment Terms, Countries/Regions) keep it enabled. That
+    // Enabled=false rides in on the SELECT half of the invokeSequence, so it is
+    // already applied above. Invoking a disabled action is a silent server-side
+    // no-op (CanInvoke=false -> InvokeCore never runs), which previously
+    // returned success with nothing deleted. Detect it and fail loudly instead.
+    // Verified live: scripts/probe-action-enabled.ts.
+    if (selection && selection.bookmarks.length > 1 && systemAction !== 0) {
+      const updatedForm = this.repo.get(pageContextId)?.forms.get(form.formId);
+      const actionNode = updatedForm
+        ? treeActions(updatedForm.root).find(a => a.systemAction === systemAction)
+        : undefined;
+      if (actionNode?.properties.enabled === false) {
+        return err(new MultiRowActionUnavailableError(
+          actionNode.properties.caption ?? String(systemAction),
+          selection.bookmarks.length,
+          { pageContextId, systemAction },
+        ));
+      }
+    }
 
     // Register any newly-opened ownerless forms as their own page contexts.
     // Actions like "Dimensions" / "Ledger Entries" / "New" open a page as a

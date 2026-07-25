@@ -145,6 +145,33 @@ export class InvalidBookmarkError extends BCError {
   }
 }
 
+/**
+ * Returned when a multi-row selection is applied to an action that Business
+ * Central disables for multiple records on this page. BC computes action
+ * enablement server-side (decompiled `ActionControl.Enabled` = `Action.CanInvoke`)
+ * and pushes an `Enabled=false` PropertyChanged after the selection — the same
+ * signal the web client uses to grey out the button. Verified live: the Customer
+ * list (page 22) keeps Delete enabled for a single row but disables it once
+ * 2+ rows are selected, whereas setup lists (Payment Terms, Countries/Regions)
+ * keep it enabled. Detecting this replaces the old silent no-op (BC ignores an
+ * invoke of a disabled action, so the action returned success with no deletion).
+ */
+export class MultiRowActionUnavailableError extends BCError {
+  public readonly actionName: string;
+  public readonly selectionCount: number;
+  constructor(actionName: string, selectionCount: number, context?: Record<string, unknown>) {
+    super(
+      `Business Central disables '${actionName}' for a ${selectionCount}-row selection on this page. ` +
+        `Some pages (e.g. the Customer list) forbid multi-record ${actionName.toLowerCase()}. ` +
+        `Retry with a single bookmark, or perform the action one row at a time.`,
+      'MULTI_ROW_ACTION_UNAVAILABLE',
+      context,
+    );
+    this.actionName = actionName;
+    this.selectionCount = selectionCount;
+  }
+}
+
 const ERROR_HINTS: Record<string, string> = {
   VALIDATION_ERROR: 'Correct the field value(s) and retry with bc_write_data.',
   BUSINESS_ERROR: 'BC rejected the operation. Read the message, adjust inputs, and retry.',
@@ -154,6 +181,7 @@ const ERROR_HINTS: Record<string, string> = {
   CARDPART_STUB: 'This page is a CardPart stub when opened standalone. See the hostHint in this error and open that host page instead.',
   STALE_CONTEXT: 'The page changed since you last read it (stateVersion mismatch). Re-read with bc_read_data to get the current stateVersion, then retry.',
   INVALID_BOOKMARK: 'The anchor bookmark is no longer loaded in BC. Re-read the section with bc_read_data and retry with a current bookmark.',
+  MULTI_ROW_ACTION_UNAVAILABLE: 'This page disables the action for multiple selected rows. Retry with a single bookmark, or repeat the action per row.',
 };
 
 /**

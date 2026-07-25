@@ -5,38 +5,29 @@
 // atomic SetCurrentRow(rowsToSelect) + InvokeAction sequence through
 // ActionService/NavigationService (Tasks 1-8 of this plan).
 //
-// Deliberately non-destructive: no test actually confirms a Delete. Each
-// dialog-producing case responds 'no' to abort. This avoids depending on
-// disposable data existing in Cronus28 while still proving the selection
-// reaches BC and that the client-side guards (current-row-only rejection,
-// stale-anchor mapping) behave correctly.
+// Deliberately non-destructive: no test actually confirms a Delete. This
+// avoids depending on disposable data existing in Cronus28 while still proving
+// the selection reaches BC and that the guards behave correctly.
 //
-// *** KNOWN GAP discovered while writing this suite (live, reproduced 2x via
-// isolated single-vs-multi-bookmark A/B scripts, see task-9-report.md) ***
-// A bookmarks[] selection with EXACTLY ONE element reaches BC's Delete
-// confirmation normally (dialog opens, matching the pre-existing single
-// `bookmark` path). A selection with TWO OR MORE elements produces neither a
-// dialog nor a business error: ExecuteActionOperation returns success:true
-// with dialogsOpened:[] and no row is actually deleted (verified by
-// re-reading rows). The wire response for the >1 case is just a batch of
-// PropertyChanged{Enabled:false} events (BC disabling single-row-only ribbon
-// actions once SelectedRows.Count>1) -- no FormCreated/DialogOpened ever
-// arrives, even after a 3s wait, and a follow-up Refresh on the same page
-// succeeds cleanly (no LogicalModalityViolationException), proving BC has no
-// pending modal server-side. Likely root cause per decompiled source:
-// InvokeActionInteraction.InvokeCore -> EnsureControlInCurrentRowStrategy
-// .EnsureInCurrentRow (Microsoft.Dynamics.Framework.UI/EnsureControlInCurrentRowStrategy.cs)
-// gates the whole action invocation and returns false silently (no
-// exception) when re-resolving the `cr/c[0]` control's current bookmark
-// disagrees with BindingManager.CurrentBookmark under an active >1-row
-// selection; NavDeleteAction.DoConfirm (Microsoft.Dynamics.Nav.Client.UI
-// /NavDeleteAction.cs) -- which is what would show the Yes/No dialog -- is
-// simply never reached. This looks like an implementation gap in Task 6/7's
-// atomic selection path (the InvokeAction interaction it sends carries no
-// bookmark/key of its own -- see ActionService.invokeAction), not a BC
-// server limitation; the test below documents the CONFIRMED behavior rather
-// than asserting the originally-intended one, per instructions not to
-// fabricate a passing assertion.
+// *** RESOLVED (was "KNOWN GAP") ***
+// Earlier this suite documented a 3-row Delete on the Customer list returning
+// success with no dialog and no deletion, and (wrongly) blamed the atomic
+// selection path / EnsureControlInCurrentRowStrategy. The real cause, verified
+// live via scripts/probe-action-enabled.ts and confirmed by a user observation
+// (the web client GREYS OUT Delete on multi-select): the Customer list forbids
+// multi-record Delete. BC computes action enablement server-side (decompiled
+// ActionControl.Enabled = Action.CanInvoke; DeleteAction.CanInvoke requires
+// bindingManager.Deletable) and pushes Enabled=false once SelectedRows.Count>1.
+// Invoking a server-DISABLED action is a silent no-op (CanInvoke=false ->
+// InvokeCore never runs). Probe results: Customers (22) Delete enabled flips
+// true(single)->false(3-row); setup lists Payment Terms (4) and Countries (10)
+// stay enabled at 3 rows, where DeleteAction.InvokeCore loops SelectedRows and
+// the same frames delete for real. The encoder was never wrong (its
+// key:null/repeaterControlTarget:null match the live web-client frame exactly).
+// FIX: ActionService now reads the action's post-selection Enabled from the
+// applied SetCurrentRow echo and returns MultiRowActionUnavailableError
+// (code MULTI_ROW_ACTION_UNAVAILABLE) instead of a lying success. MRS1 below
+// now asserts that error on the Customer list.
 //
 // Run with:
 //   npx vitest run --config vitest.integration.config.ts tests/integration/multi-row-selection.test.ts
@@ -55,8 +46,11 @@ import { OpenPageOperation } from '../../src/operations/open-page.js';
 import { ReadDataOperation } from '../../src/operations/read-data.js';
 import { ExecuteActionOperation } from '../../src/operations/execute-action.js';
 import { RespondDialogOperation } from '../../src/operations/respond-dialog.js';
+import { actions as treeActions } from '../../src/protocol/form-views.js';
+import { resolveSection } from '../../src/protocol/section-resolver.js';
+import { SystemAction } from '../../src/protocol/types.js';
 import { loadConfig } from '../../src/core/config.js';
-import { ProtocolError, BusinessError, BusinessValidationError, InvalidBookmarkError } from '../../src/core/errors.js';
+import { ProtocolError, BusinessError, BusinessValidationError, InvalidBookmarkError, MultiRowActionUnavailableError } from '../../src/core/errors.js';
 import { isOk, isErr, unwrap } from '../../src/core/result.js';
 import { integrationPool, type PooledLease } from './helpers/session-pool.js';
 import { stubDownloadService } from './helpers/download-service.js';
@@ -75,6 +69,7 @@ describe('Multi-row selection via ExecuteActionOperation.bookmarks[] (integratio
   let repo: PageContextRepository;
   let pageService: PageService;
   let dataService: DataService;
+  let navigationService: NavigationService;
   let openPageOp: OpenPageOperation;
   let readDataOp: ReadDataOperation;
   let executeActionOp: ExecuteActionOperation;
@@ -93,7 +88,7 @@ describe('Multi-row selection via ExecuteActionOperation.bookmarks[] (integratio
     pageService = new PageService(session, repo, logger);
     dataService = new DataService(session, repo, logger);
     const actionService = new ActionService(session, repo, logger);
-    const navigationService = new NavigationService(session, repo, logger);
+    navigationService = new NavigationService(session, repo, logger);
     const filterService = new FilterService(session, repo, logger);
     const sortService = new SortService(session, repo, logger);
 
@@ -126,7 +121,7 @@ describe('Multi-row selection via ExecuteActionOperation.bookmarks[] (integratio
     return { pageContextId: ctx.pageContextId, rows };
   }
 
-  it('multi-row Delete(bookmarks=[3 rows]) reaches BC without corrupting data -- documents the confirmed no-dialog/no-error/no-op behavior (see file header)', async () => {
+  it('multi-row Delete(bookmarks=[3 rows]) on a page that forbids it returns MULTI_ROW_ACTION_UNAVAILABLE (not a silent no-op) and deletes nothing', async () => {
     const { pageContextId, rows } = await openCustomerListAndReadRows(3);
     const [b0, b1, b2] = [rows[0]!.bookmark, rows[1]!.bookmark, rows[2]!.bookmark];
     console.error(`[MRS1] Selecting bookmarks: ${b0}, ${b1}, ${b2}`);
@@ -137,32 +132,24 @@ describe('Multi-row selection via ExecuteActionOperation.bookmarks[] (integratio
       bookmarks: [b0, b1, b2],
     });
 
-    expect(isOk(result), isOk(result) ? '' : `unexpected protocol-level failure: ${(result as { error: Error }).error.message}`).toBe(true);
-    if (!isOk(result)) return;
-    const out = result.value;
-    console.error(`[MRS1] executeAction ok: requiresDialogResponse=${out.requiresDialogResponse}, dialogsOpened=${out.dialogsOpened.length}`);
+    // The Customer list disables Delete once 2+ rows are selected (BC pushes
+    // Enabled=false). ActionService now detects that and fails loudly instead
+    // of returning a lying success. See file header (RESOLVED) + probe.
+    expect(isErr(result), isErr(result) ? '' : 'expected MULTI_ROW_ACTION_UNAVAILABLE, got success').toBe(true);
+    if (!isErr(result)) return;
+    expect(result.error).toBeInstanceOf(MultiRowActionUnavailableError);
+    expect(result.error.code).toBe('MULTI_ROW_ACTION_UNAVAILABLE');
+    expect((result.error as MultiRowActionUnavailableError).selectionCount).toBe(3);
+    console.error(`[MRS1] Rejected as expected: "${result.error.message}"`);
 
-    if (out.requiresDialogResponse || out.dialogsOpened.length > 0) {
-      // The originally-intended path: BC showed a Yes/No confirmation for the
-      // 3-row selection. Abort -- do NOT actually delete anything.
-      const dialog = out.dialogsOpened[0]!;
-      console.error(`[MRS1] Dialog formId=${dialog.formId}, message="${dialog.message ?? '(none)'}"`);
-      const respondResult = await respondDialogOp.execute({ pageContextId, dialogFormId: dialog.formId, response: 'no' });
-      expect(isOk(respondResult), respondResult.ok ? '' : `respond 'no' failed: ${(respondResult as { error: Error }).error.message}`).toBe(true);
-      console.error('[MRS1] BEHAVIOR: confirmation dialog opened for the 3-row selection; responded "no" to abort.');
-    } else {
-      // CONFIRMED live behavior on this environment (see file header "KNOWN
-      // GAP"): no dialog, no error -- the call silently does nothing. Verify
-      // the critical safety property directly: nothing was actually deleted.
-      console.error('[MRS1] BEHAVIOR (KNOWN GAP): no confirmation dialog and no error for a 3-row bookmarks Delete -- BC silently no-op\'d. Verifying no data was mutated...');
-      const reread = await readDataOp.execute({ pageContextId });
-      expect(isOk(reread)).toBe(true);
-      const bookmarksAfter = (unwrap(reread).section.rows ?? []).map(r => r.bookmark);
-      for (const bk of [b0, b1, b2]) {
-        expect(bookmarksAfter, `bookmark ${bk} must still be present -- the no-op must not have silently deleted anything`).toContain(bk);
-      }
-      console.error('[MRS1] Confirmed: all 3 selected rows are still present. No silent deletion occurred.');
+    // Safety: prove BC deleted nothing -- the disabled action was a no-op.
+    const reread = await readDataOp.execute({ pageContextId });
+    expect(isOk(reread)).toBe(true);
+    const bookmarksAfter = (unwrap(reread).section.rows ?? []).map(r => r.bookmark);
+    for (const bk of [b0, b1, b2]) {
+      expect(bookmarksAfter, `bookmark ${bk} must still be present -- nothing must have been deleted`).toContain(bk);
     }
+    console.error('[MRS1] Confirmed: all 3 selected rows still present. No deletion occurred.');
   }, 60_000);
 
   it('bookmarks[] on a current-row-only action (Edit) is rejected client-side -- no BC round trip', async () => {
@@ -221,6 +208,40 @@ describe('Multi-row selection via ExecuteActionOperation.bookmarks[] (integratio
       expect(isBusiness, `expected a business/validation error, got ${err.code}: ${err.message}`).toBe(true);
       console.error(`[MRS3] BEHAVIOR: BC rejected the single-row Delete with a business error: "${err.message}"`);
     }
+  }, 60_000);
+
+  it('multi-row selection on a delete-CAPABLE page (Payment Terms) keeps Delete enabled -- the gate must not false-fire', async () => {
+    // Counterpart to MRS1: on the Customer list BC disables Delete for 2+ rows,
+    // but setup lists like Payment Terms (page 4) keep it enabled (verified by
+    // scripts/probe-action-enabled.ts). This asserts the enabled side of the
+    // gate WITHOUT invoking Delete -- selecting rows never mutates data, so
+    // there is zero risk to Cronus setup data. Combined with decompiled
+    // DeleteAction.InvokeCore (loops SelectedRows) this establishes that the
+    // same frames delete for real where BC permits it.
+    const openResult = await openPageOp.execute({ pageId: '4' });
+    expect(isOk(openResult)).toBe(true);
+    const ctx0 = unwrap(openResult);
+    openedPages.push(ctx0.pageContextId);
+
+    const readResult = await readDataOp.execute({ pageContextId: ctx0.pageContextId });
+    expect(isOk(readResult)).toBe(true);
+    const rows = unwrap(readResult).section.rows ?? [];
+    expect(rows.length, 'expected at least 3 rows on Payment Terms').toBeGreaterThanOrEqual(3);
+    const bookmarks = rows.slice(0, 3).map(r => r.bookmark);
+
+    const sel = await navigationService.selectRows(ctx0.pageContextId, bookmarks);
+    expect(isOk(sel), sel.ok ? '' : `selectRows failed: ${(sel as { error: Error }).error.message}`).toBe(true);
+
+    const ctx = repo.get(ctx0.pageContextId)!;
+    const resolved = resolveSection(ctx, undefined);
+    expect('error' in resolved).toBe(false);
+    if ('error' in resolved) return;
+    const del = treeActions(resolved.form.root).find(a => a.systemAction === SystemAction.Delete);
+    expect(del, 'Payment Terms should expose a Delete action').toBeDefined();
+    // Stays enabled under a 3-row selection => the multi-row gate would NOT fire
+    // here, so a real Delete would proceed to BC's confirmation.
+    expect(del!.properties.enabled).not.toBe(false);
+    console.error(`[MRS4] Payment Terms Delete enabled under 3-row selection: ${del!.properties.enabled ?? '(unset=enabled)'}`);
   }, 60_000);
 
   // SKIPPED: cannot reliably force a stale-anchor condition on this

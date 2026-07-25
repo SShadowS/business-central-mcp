@@ -412,6 +412,86 @@ describe('ActionService.executeAction — selection descriptor (atomic path)', (
   });
 });
 
+describe('ActionService.executeAction — multi-row selection gate (BC-disabled action)', () => {
+  const logger: any = { info() {}, debug() {}, warn() {}, error() {} };
+
+  function invokeCompletedEvents(): BCEvent[] {
+    return [{
+      type: 'InvokeCompleted',
+      sequenceNumber: 1,
+      completedInteractions: [{ invocationId: 'cb1', durationMs: 0 }],
+    } as BCEvent];
+  }
+
+  function makeSession() {
+    return {
+      invoke: vi.fn(async () => ok(invokeCompletedEvents())),
+      invokeSequence: vi.fn(async () => ok(invokeCompletedEvents())),
+    };
+  }
+
+  // Seed a list form whose Delete toolbar action carries a fixed Enabled flag.
+  // BC serializes Enabled=false when a multi-row selection makes the action
+  // non-invokable (verified live on the Customer list). The mocked session
+  // returns no further changes, so the seeded flag is what the gate reads.
+  function makeRepoWithDelete(enabled: boolean) {
+    const repo = new PageContextRepository();
+    repo.create('pc:1', 'F1', { isModal: false, wizardState: null });
+    repo.applyEvents([{
+      type: 'FormCreated',
+      formId: 'F1',
+      controlTree: {
+        t: 'lf', ServerId: 'F1', PageType: 1,
+        Children: [{ t: 'ac', SystemAction: 20, Caption: 'Delete', Enabled: enabled }],
+      },
+    } as BCEvent]);
+    return repo;
+  }
+
+  it('returns MULTI_ROW_ACTION_UNAVAILABLE when BC disables the action under a multi-row selection', async () => {
+    const session = makeSession();
+    const svc = new ActionService(session as any, makeRepoWithDelete(false), logger);
+
+    const result = await svc.executeAction('pc:1', 'Delete', 'header', {
+      formId: 'F1', controlPath: 'server:c[0]', bookmarks: ['A', 'B', 'C'],
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('MULTI_ROW_ACTION_UNAVAILABLE');
+    expect((result.error as any).selectionCount).toBe(3);
+    expect((result.error as any).actionName).toBe('Delete');
+    // The atomic select+delete still fired -- invoking a BC-disabled action is a
+    // server-side no-op; detection is post-hoc from the applied Enabled=false.
+    expect(session.invokeSequence).toHaveBeenCalledTimes(1);
+  });
+
+  it('proceeds to invoke when the action stays enabled under a multi-row selection', async () => {
+    const session = makeSession();
+    const svc = new ActionService(session as any, makeRepoWithDelete(true), logger);
+
+    const result = await svc.executeAction('pc:1', 'Delete', 'header', {
+      formId: 'F1', controlPath: 'server:c[0]', bookmarks: ['A', 'B', 'C'],
+    });
+
+    expect(result.ok).toBe(true);
+    expect(session.invokeSequence).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not gate a single-bookmark selection (Delete stays enabled for one row)', async () => {
+    // Even if the seeded flag were false, a length-1 selection must not trip the
+    // multi-row gate -- single-row Delete is always allowed where Delete exists.
+    const session = makeSession();
+    const svc = new ActionService(session as any, makeRepoWithDelete(false), logger);
+
+    const result = await svc.executeAction('pc:1', 'Delete', 'header', {
+      formId: 'F1', controlPath: 'server:c[0]', bookmarks: ['A'],
+    });
+
+    expect(result.ok).toBe(true);
+  });
+});
+
 describe('ActionService.isCurrentRowOnlyAction', () => {
   const logger: any = { info() {}, debug() {}, warn() {}, error() {} };
   const svc = new ActionService({} as any, new PageContextRepository(), logger);
