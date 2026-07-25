@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { existsSync, readFileSync, rmSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, rmSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { join, dirname, basename } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DownloadService } from '../../src/services/download-service.js';
 import type { BCEvent } from '../../src/protocol/types.js';
@@ -111,5 +111,25 @@ describe('DownloadService.capture', () => {
     expect(r.downloads[1]!.error?.code).toBe('TOO_LARGE');
     expect(r.downloads[1]!.error?.message).toMatch(/aggregate|exceeded/i);
     expect(r.downloads[1]!.bytes).toBeUndefined();
+  });
+
+  it('sanitizes a path-traversal filename so the write stays inside the download dir', async () => {
+    const testDir = mkdtempSync(join(tmpdir(), 'dl-test-'));
+    try {
+      const payload = Buffer.from('evil-payload');
+      // Both the Content-Disposition-derived filename and the URL fname query param are
+      // server/AL-controlled; a malicious BC extension (or a compromised server) could
+      // set either to a traversal path like this.
+      const svc = new DownloadService(fakeHttp(async () => ({ bytes: payload, contentType: 'text/plain', fileName: '../../evil.txt' })), BASE, { ...LIMITS, dir: testDir }, logger);
+      const r = await svc.capture([dl('evil.txt')]);
+      const saved = r.downloads[0]!.savedPath!;
+
+      expect(dirname(saved)).toBe(testDir);
+      expect(basename(saved)).not.toMatch(/\.\.|[\\/]/);
+      expect(readFileSync(saved)).toEqual(payload); // proves the file exists at the sanitized path
+      expect(r.downloads[0]!.fileName).toBe(basename(saved)); // reported name matches the on-disk name
+    } finally {
+      rmSync(testDir, { recursive: true, force: true });
+    }
   });
 });

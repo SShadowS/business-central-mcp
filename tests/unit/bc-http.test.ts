@@ -51,4 +51,22 @@ describe('BCHttpClient.get', () => {
     const c = new BCHttpClient(BASE, AUTH, logger);
     await expect(c.get('x', { maxBytes: 1000 })).rejects.toThrow(/redirect|302|SignIn/i);
   });
+
+  it('redacts sessionid and fid query values from the thrown error and the debug log', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce(new Response('nope', { status: 404, statusText: 'Not Found' }));
+    const c = new BCHttpClient(BASE, AUTH, logger);
+    let thrown: Error | undefined;
+    try {
+      await c.get('DynamicFileHandler.axd?sessionid=SECRETSESS&fid=SECRETFID', { maxBytes: 1000 });
+    } catch (e) {
+      thrown = e as Error;
+    }
+    expect(thrown).toBeDefined();
+    expect(thrown!.message).not.toContain('SECRETSESS');
+    expect(thrown!.message).not.toContain('SECRETFID');
+    expect(thrown!.message).toContain('***');
+
+    expect(logger.debug).not.toHaveBeenCalledWith(expect.anything(), expect.stringContaining('SECRETSESS'));
+    expect(logger.debug).not.toHaveBeenCalledWith(expect.anything(), expect.stringContaining('SECRETFID'));
+  });
 });

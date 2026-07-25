@@ -24,6 +24,21 @@ const EXT_BY_TYPE: Record<string, string> = {
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
 };
 
+/**
+ * Reduce a (possibly server/AL-controlled) filename to a safe basename before it
+ * touches the filesystem: strip directory separators (both slash styles), collapse
+ * ".." traversal sequences, and drop control characters. Returns '' if nothing
+ * usable survives (empty, or only dots), so the caller can fall back to a
+ * synthetic name.
+ */
+function sanitizeFileName(name: string): string {
+  const cleaned = name
+    .replace(/[\\/]+/g, '_')
+    .replace(/\.\.+/g, '_')
+    .replace(/[\x00-\x1f]/g, '');
+  return cleaned === '' || /^\.+$/.test(cleaned) ? '' : cleaned;
+}
+
 export class DownloadService {
   constructor(
     private readonly http: BCHttpClient,
@@ -53,7 +68,7 @@ export class DownloadService {
             error: { code: 'TOO_LARGE', message: `Dropped: operation exceeded the aggregate cap of ${this.limits.maxTotalBytes} bytes.` } });
           continue;
         }
-        downloads.push(this.finish({ fileName, contentType: payload.contentType, sizeBytes: payload.bytes.byteLength, style: ref.style }, payload.bytes));
+        downloads.push(this.finish({ fileName, contentType: payload.contentType, sizeBytes: payload.bytes.byteLength, style: ref.style }, payload.bytes, i));
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         const fileName = ref.suggestedFileName ?? `download-${i}`;
@@ -70,14 +85,18 @@ export class DownloadService {
   }
 
   /** Encode inline and/or write to disk per BC_DOWNLOAD_DIR. */
-  private finish(base: Omit<Download, 'bytes' | 'savedPath' | 'error'>, bytes: Buffer): Download {
+  private finish(base: Omit<Download, 'bytes' | 'savedPath' | 'error'>, bytes: Buffer, index: number): Download {
     // Compute final filename with extension once; use for both disk and reported fileName.
     const finalFileName = extname(base.fileName) ? base.fileName : `${base.fileName}${EXT_BY_TYPE[base.contentType] ?? '.bin'}`;
-    const d: Download = { ...base, fileName: finalFileName };
+    // The filename may originate from a Content-Disposition header or URL query param set
+    // by the BC/AL server -- sanitize to a safe basename before it ever touches the
+    // filesystem or the reported result (disk name and reported name must stay equal).
+    const safeFileName = sanitizeFileName(finalFileName) || `download-${index}.bin`;
+    const d: Download = { ...base, fileName: safeFileName };
     if (this.limits.dir) {
       try {
         if (!existsSync(this.limits.dir)) mkdirSync(this.limits.dir, { recursive: true });
-        d.savedPath = join(this.limits.dir, finalFileName);
+        d.savedPath = join(this.limits.dir, safeFileName);
         writeFileSync(d.savedPath, bytes);
       } catch (e) {
         this.logger.warn(`download disk write failed: ${e instanceof Error ? e.message : String(e)}`);

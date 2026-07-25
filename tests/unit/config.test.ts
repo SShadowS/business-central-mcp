@@ -67,7 +67,7 @@ describe('loadConfig', () => {
 });
 
 describe('download limits', () => {
-  const KEYS = ['BC_MAX_DOWNLOAD_BYTES', 'BC_MAX_DOWNLOAD_TOTAL_BYTES', 'BC_MAX_DOWNLOADS', 'BC_DOWNLOAD_DIR', 'BC_REPORT_DIR'];
+  const KEYS = ['BC_MAX_DOWNLOAD_BYTES', 'BC_MAX_DOWNLOAD_TOTAL_BYTES', 'BC_MAX_DOWNLOADS', 'BC_DOWNLOAD_DIR', 'BC_REPORT_DIR', 'BC_BASE_URL', 'BC_USERNAME', 'BC_PASSWORD'];
   let saved: Record<string, string | undefined>;
   beforeEach(() => { saved = Object.fromEntries(KEYS.map(k => [k, process.env[k]])); KEYS.forEach(k => delete process.env[k]); });
   afterEach(() => { KEYS.forEach(k => { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }); });
