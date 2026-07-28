@@ -116,6 +116,7 @@ Restart Claude Desktop.
 | `BC_PROFILE` | No | server default | Profile id, e.g. `BUSINESS MANAGER`. Affects which Role Center loads and which pages Tell Me indexes. |
 | `BC_TENANT_ID` | No | `default` | Multi-tenant deployments only. |
 | `BC_CLIENT_VERSION` | No | `27.0.0.0` | Version reported to BC during session open. |
+| `BC_APPLICATION_ID` | No | `FIN` | `navigationContext.applicationId` sent at session open. SaaS and cronus images expect `FIN`; some on-prem containers expect `NAV` (see below). |
 | `PORT` | No | `3000` | HTTP transport port (stdio transport ignores this). |
 | `LOG_LEVEL` | No | `info` | `debug` / `info` / `warn` / `error`. |
 | `LOG_DIR` | No | `./logs` | Directory for log files. |
@@ -123,6 +124,20 @@ Restart Claude Desktop.
 | `BC_INVOKE_TIMEOUT` | No | `30000` | Per-invoke timeout in ms. Kills hung sessions. |
 | `BC_RECONNECT_MAX_RETRIES` | No | `4` | Reconnect attempts after session death. |
 | `BC_RECONNECT_BASE_DELAY` | No | `1000` | Base delay (ms) for exponential reconnect backoff. |
+
+### On-prem containers: set `BC_APPLICATION_ID=NAV`
+
+If sign-in and the WebSocket upgrade both succeed but the session dies at `OpenSession` with
+`NavCancelCredentialPromptException`, the server is rejecting the default `applicationId` (`FIN`).
+On-prem BcContainerHelper containers (the `onprem` artifact type) generally expect `NAV`:
+
+```
+BC_APPLICATION_ID=NAV
+```
+
+The failure is misleading because authentication and the `/csh` upgrade complete first (you get a
+101); BC only rejects the `applicationId` inside the `OpenSession` RPC body. SaaS and cronus images
+keep the `FIN` default. Verified against BC 27.1 `onprem` (see issue #10).
 
 ## What can it do?
 
