@@ -9,7 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **OAuth / Microsoft Entra ID authentication.** `BC_AUTH=OAuth` (or a
+  `https://businesscentral.dynamics.com/{aadTenant}/{environment}` URL, which
+  auto-selects OAuth) acquires an access token via device-code (delegated) or
+  client-credentials (S2S) and uses it as `Authorization: Bearer` for the
+  Standard API (`bc_query`). Refresh tokens are cached under `STATE_DIR`.
+  `BC_USERNAME` / `BC_PASSWORD` are not required in this mode.
+- **SaaS URL parsing.** A portal URL such as
+  `https://businesscentral.dynamics.com/7bcb54ae-…/DEV` is split into Entra
+  tenant + environment. OData is derived as
+  `https://api.businesscentral.dynamics.com/v2.0/{tenant}/{environment}`.
+- **`bc_query` no longer opens a `/csh` session.** The OData tool is
+  independent of the web-client WebSocket, so SaaS OAuth works for bulk reads
+  even when the first-party web-client cookie session cannot be established.
+
 ### Changed
+
+- Config: new `BC_AUTH`, `BC_CLIENT_ID`, `BC_CLIENT_SECRET`, `BC_AAD_TENANT_ID`,
+  `BC_ENVIRONMENT`, `BC_ACCESS_TOKEN`, `BC_OAUTH_SCOPE`. `BC_USERNAME` /
+  `BC_PASSWORD` are required only for `NavUserPassword`.
 
 ### Fixed
 

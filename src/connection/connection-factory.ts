@@ -65,6 +65,7 @@ export class ConnectionFactory {
     queryParams['ackseqnb'] = '-1';
 
     const queryString = Object.entries(queryParams)
+      .filter(([, v]) => v !== '')
       .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
       .join('&');
 

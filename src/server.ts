@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { loadConfig } from './core/config.js';
 import { createLogger } from './core/logger.js';
-import { NTLMAuthProvider } from './connection/auth/ntlm-provider.js';
+import { createAuthProvider } from './connection/auth/create-auth-provider.js';
 import { ConnectionFactory } from './connection/connection-factory.js';
 import { EventDecoder } from './protocol/event-decoder.js';
 import { InteractionEncoder } from './protocol/interaction-encoder.js';
@@ -31,7 +31,7 @@ import { WizardNavigateOperation } from './operations/wizard-navigate.js';
 import { DownloadService } from './services/download-service.js';
 import { LookupService } from './services/lookup-service.js';
 import { LookupOperation } from './operations/lookup.js';
-import { QueryOperation } from './operations/query.js';
+import { QueryOperation, createQueryOperation } from './operations/query.js';
 import { buildToolRegistry, type Operations } from './mcp/tool-registry.js';
 import { MCPHandler } from './mcp/handler.js';
 import { PROMPTS } from './mcp/prompts.js';
@@ -46,13 +46,9 @@ async function main() {
   logger.info('Starting BC MCP Server v2...');
 
   // Infrastructure
-  const authProvider = new NTLMAuthProvider({
-    baseUrl: config.bc.baseUrl,
-    username: config.bc.username,
-    password: config.bc.password,
-    tenantId: config.bc.tenantId,
-  }, logger);
+  const authProvider = createAuthProvider(config, logger);
   const connectionFactory = new ConnectionFactory(authProvider, config.bc, logger);
+  const queryOperation = createQueryOperation(config, authProvider);
 
   // Protocol
   const decoder = new EventDecoder();
@@ -95,31 +91,46 @@ async function main() {
       runReport: new RunReportOperation(s, pageContextRepo, downloadService),
       wizardNavigate: new WizardNavigateOperation(actionService, pageContextRepo, downloadService),
       lookup: new LookupOperation(lookupService),
-      query: new QueryOperation({
-        odataUrl: config.bc.odataUrl,
-        tenantId: config.bc.tenantId,
-        username: config.bc.username,
-        password: config.bc.password,
-        defaultCompanyName: config.bc.odataCompanyName,
-      }),
+      query: queryOperation,
     };
 
     return { operations, tools: buildToolRegistry(operations) };
   }
 
-  let mcpHandler: MCPHandler | null = null;
+  let realTools: ReturnType<typeof buildToolRegistry> | null = null;
   let apiRoutes: ReturnType<typeof createApiRoutes> | null = null;
 
-  async function ensureReady(): Promise<void> {
+  async function ensureSessionTools(): Promise<ReturnType<typeof buildToolRegistry>> {
     const s = await sessionManager.getSession();
-    // Rebuild services if session was recreated or first call
-    if (mcpHandler === null || sessionManager.needsServiceRebuild) {
-      const { operations, tools } = buildServices(s);
-      mcpHandler = new MCPHandler(tools, logger, PROMPTS);
-      apiRoutes = createApiRoutes(operations, logger);
+    if (realTools === null || sessionManager.needsServiceRebuild) {
+      const built = buildServices(s);
+      realTools = built.tools;
+      apiRoutes = createApiRoutes(built.operations, logger);
       sessionManager.markServicesRebuilt();
     }
+    return realTools;
   }
+
+  async function ensureReady(): Promise<void> {
+    await ensureSessionTools();
+  }
+
+  // MCP tools/list and bc_query must work before a /csh session exists
+  // (SaaS OAuth can serve OData without the first-party web-client cookie).
+  const staticTools = buildServices({} as BCSession).tools;
+  const lazyTools = staticTools.map(toolDef => ({
+    ...toolDef,
+    execute: async (input: unknown) => {
+      if (toolDef.name === 'bc_query') {
+        return queryOperation.execute(input as Parameters<QueryOperation['execute']>[0]);
+      }
+      const tools = await ensureSessionTools();
+      const resolved = tools.find(t => t.name === toolDef.name);
+      if (!resolved) throw new Error(`Tool not found after session init: ${toolDef.name}`);
+      return resolved.execute(input);
+    },
+  }));
+  const mcpHandler = new MCPHandler(lazyTools, logger, PROMPTS);
 
   // HTTP Server
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
@@ -139,16 +150,20 @@ async function main() {
         res.end(JSON.stringify({
           status: sessionManager.currentSession !== null ? 'healthy' : 'starting',
           version: '2.0.0',
-          bc: { baseUrl: config.bc.baseUrl, tenantId: config.bc.tenantId },
+          bc: {
+            baseUrl: config.bc.baseUrl,
+            tenantId: config.bc.tenantId,
+            authMode: config.bc.authMode,
+            environment: config.bc.environmentName,
+          },
         }));
         return;
       }
 
       // MCP endpoint
       if (url === '/mcp' && method === 'POST') {
-        await ensureReady();
         const body = await parseJsonBody(req) as Parameters<MCPHandler['handleRequest']>[0];
-        const response = await mcpHandler!.handleRequest(body);
+        const response = await mcpHandler.handleRequest(body);
         // JSON-RPC notifications have no id; per spec they must not receive a
         // response body (stdio-server.ts suppresses these the same way).
         if (response.id == null) {

@@ -15,4 +15,9 @@ export interface IBCAuthProvider {
    * Called when a WebSocket connect fails (cookies may be stale after a BC
    * restart or cookie expiry). */
   invalidate(): void;
+  /**
+   * Entra access token for HTTP APIs (OData / Standard API). Cookie-only
+   * providers (NavUserPassword) leave this unimplemented.
+   */
+  getAccessToken?(): Promise<string | undefined>;
 }

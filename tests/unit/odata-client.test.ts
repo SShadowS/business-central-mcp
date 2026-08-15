@@ -68,6 +68,12 @@ describe('deriveODataUrl', () => {
     expect(deriveODataUrl('http://cronus28/BC/')).toBe('http://cronus28:7048/BC');
   });
 
+  it('maps a SaaS portal URL to api.businesscentral.dynamics.com', () => {
+    expect(
+      deriveODataUrl('https://businesscentral.dynamics.com/7bcb54ae-6d5e-43c7-9402-928aed68ad00/DEV'),
+    ).toBe('https://api.businesscentral.dynamics.com/v2.0/7bcb54ae-6d5e-43c7-9402-928aed68ad00/DEV');
+  });
+
   it('respects BC_ODATA_URL env var over derivation', () => {
     process.env.BC_ODATA_URL = 'http://custom-odata:9999/BC';
     expect(deriveODataUrl('http://cronus28/BC')).toBe('http://custom-odata:9999/BC');
@@ -336,6 +342,49 @@ describe('ODataClient.query — URL construction', () => {
     expect(url).toContain('tenant=mytenant');
   });
 
+  it('does not fall back to empty Basic when getAuthorization returns undefined and username is empty', async () => {
+    const client = new ODataClient(makeConfig({
+      username: '',
+      password: '',
+      getAuthorization: async () => undefined,
+    }));
+    await expect(client.query('customers')).rejects.toSatisfy(
+      (e: unknown) => e instanceof ODataError && e.statusCode === 401 && e.message.includes('No OData credentials'),
+    );
+  });
+
+  it('sends Bearer when getAuthorization is provided', async () => {
+    const fetchMock = mockFetch([
+      companiesResponse([{ id: 'co-id', name: 'Co' }]),
+      rowsResponse([]),
+    ]);
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    await new ODataClient(makeConfig({
+      getAuthorization: async () => 'Bearer tok-1',
+    })).query('items');
+
+    const callArgs = fetchMock.mock.calls[1]! as [string, RequestInit];
+    const headers = callArgs[1]?.headers as Record<string, string>;
+    expect(headers['Authorization']).toBe('Bearer tok-1');
+  });
+
+  it('omits tenant query when appendTenantQuery is false', async () => {
+    const fetchMock = mockFetch([
+      companiesResponse([{ id: 'co-id', name: 'Co' }]),
+      rowsResponse([]),
+    ]);
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    await new ODataClient(makeConfig({
+      tenantId: '7bcb54ae-6d5e-43c7-9402-928aed68ad00',
+      appendTenantQuery: false,
+    })).query('customers');
+
+    const url: string = fetchMock.mock.calls[1]![0] as string;
+    expect(url).not.toContain('tenant=');
+  });
+
   it('sends Basic auth header', async () => {
     const fetchMock = mockFetch([
       companiesResponse([{ id: 'co-id', name: 'Co' }]),
@@ -377,7 +426,7 @@ describe('ODataClient — error handling', () => {
     global.fetch = fetchMock as unknown as typeof fetch;
 
     await expect(new ODataClient(makeConfig()).query('customers')).rejects.toSatisfy(
-      (e: unknown) => e instanceof ODataError && e.statusCode === 401 && e.message.includes('Basic auth'),
+      (e: unknown) => e instanceof ODataError && e.statusCode === 401 && e.message.includes('BC_USERNAME'),
     );
   });
 

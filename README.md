@@ -23,7 +23,7 @@
 | Language | TypeScript / Node 20+ |
 | npm package | [`business-central-mcp`](https://www.npmjs.com/package/business-central-mcp) |
 | BC versions | BC27, BC28 (wire-compatible) |
-| Auth | NavUserPassword (OAuth on roadmap) |
+| Auth | NavUserPassword + OAuth (Entra ID). SaaS `/csh` web-client session is still limited — see below. |
 | Tools | 12 |
 | Tests | 284 unit/protocol + 111 integration |
 | License | MIT |
@@ -110,11 +110,18 @@ Restart Claude Desktop.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `BC_BASE_URL` | Yes | — | BC server base URL, e.g. `http://your-bc-server/BC` |
-| `BC_USERNAME` | Yes | — | NavUserPassword username |
-| `BC_PASSWORD` | Yes | — | NavUserPassword password |
+| `BC_BASE_URL` | Yes | — | BC server base URL, e.g. `http://your-bc-server/BC`, or a SaaS portal URL `https://businesscentral.dynamics.com/{aadTenant}/{environment}` |
+| `BC_USERNAME` | NavUserPassword | — | NavUserPassword username (not required for OAuth) |
+| `BC_PASSWORD` | NavUserPassword | — | NavUserPassword password (not required for OAuth) |
+| `BC_AUTH` | No | `auto` | `auto` (SaaS URL → OAuth, otherwise NavUserPassword), `OAuth`, or `NavUserPassword` |
+| `BC_CLIENT_ID` | OAuth | — | Entra app (application) id |
+| `BC_CLIENT_SECRET` | OAuth S2S | — | Client secret. When set, the client-credentials grant is used; when omitted, device-code (delegated) is used |
+| `BC_AAD_TENANT_ID` | OAuth (if not in URL) | — | Entra tenant GUID. Taken from a SaaS `BC_BASE_URL` when present |
+| `BC_ENVIRONMENT` | No | from URL | SaaS environment name (`DEV`, `sandbox`, `production`) |
+| `BC_ACCESS_TOKEN` | No | — | Pre-acquired Bearer token (skips device-code / client-credentials) |
+| `BC_OAUTH_SCOPE` | No | see README | Override the Entra scope |
 | `BC_PROFILE` | No | server default | Profile id, e.g. `BUSINESS MANAGER`. Affects which Role Center loads and which pages Tell Me indexes. |
-| `BC_TENANT_ID` | No | `default` | Multi-tenant deployments only. |
+| `BC_TENANT_ID` | No | `default` | On-prem multi-tenant id. SaaS uses the Entra tenant from the URL. |
 | `BC_CLIENT_VERSION` | No | `27.0.0.0` | Version reported to BC during session open. |
 | `BC_APPLICATION_ID` | No | `FIN` | `navigationContext.applicationId` sent at session open. SaaS and cronus images expect `FIN`; some on-prem containers expect `NAV` (see below). |
 | `PORT` | No | `3000` | HTTP transport port (stdio transport ignores this). |
@@ -138,6 +145,27 @@ BC_APPLICATION_ID=NAV
 The failure is misleading because authentication and the `/csh` upgrade complete first (you get a
 101); BC only rejects the `applicationId` inside the `OpenSession` RPC body. SaaS and cronus images
 keep the `FIN` default. Verified against BC 27.1 `onprem` (see issue #10).
+
+### BC Online (SaaS) and OAuth
+
+A portal URL is enough to select OAuth and derive the API endpoint:
+
+```
+BC_BASE_URL=https://businesscentral.dynamics.com/7bcb54ae-6d5e-43c7-9402-928aed68ad00/DEV
+BC_CLIENT_ID=<entra-app-id>
+```
+
+Register an Entra app in the same tenant:
+
+1. Azure portal → App registrations → New registration.
+2. **Device code (delegated, recommended for MCP / Claude Desktop):** Authentication → allow public client flows. API permissions → Dynamics 365 Business Central → delegated `user_impersonation` (or `Financials.ReadWrite.All`). Grant admin consent.
+3. **Client credentials (unattended S2S):** Certificates & secrets → client secret. API permissions → application `API.ReadWrite.All`. Grant admin consent. In BC, open **Microsoft Entra Applications**, add the app id, and assign a permission set.
+
+On first `bc_query` (device code) the server prints a `https://microsoft.com/devicelogin` prompt on **stderr**. Complete it in a browser. The refresh token is stored in `STATE_DIR/oauth-tokens.json` (mode 0600).
+
+`bc_query` talks to `https://api.businesscentral.dynamics.com/v2.0/{tenant}/{environment}/api/v2.0` with the Bearer token and does **not** open a `/csh` session.
+
+The other tools (`bc_open_page`, `bc_write_data`, …) speak the web-client WebSocket (`/csh`). On SaaS that upgrade is fronted by Microsoft's first-party OpenID Connect client (`996def3d-b36c-4153-8607-a6fd3c01b89f` → `/remote-sign-in`). An API access token does not produce that cookie session; unauthenticated `{portal}/{env}/csh` returns 404 (`x-servicefabric: ResourceNotFound`). Those tools still work against on-prem NavUserPassword. SaaS `/csh` is tracked on the roadmap.
 
 ## What can it do?
 
@@ -242,7 +270,7 @@ npm run test:integration     # 111 integration tests against real BC (requires r
 
 ## Roadmap
 
-OAuth, Cursor support, an interactive `init` wizard, and a few protocol gaps.
+SaaS `/csh` web-client session, Cursor support, an interactive `init` wizard, and a few protocol gaps.
 See [ROADMAP.md](ROADMAP.md) for the full list and priorities.
 
 ---

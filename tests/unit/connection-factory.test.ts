@@ -70,4 +70,27 @@ describe('ConnectionFactory WebSocket Origin (BC 28.3 origin validation)', () =>
 
     expect(captured?.headers.Origin).toBe('https://bc.example.com:8443');
   });
+
+  it('omits empty query params such as a missing csrftoken', async () => {
+    let captured: BCWebSocketConfig | undefined;
+    vi.spyOn(BCWebSocket.prototype, 'connect').mockImplementation(async function (
+      this: BCWebSocket,
+      config: BCWebSocketConfig,
+    ) {
+      captured = config;
+      return ok(undefined);
+    });
+
+    const noCsrf: IBCAuthProvider = {
+      ...auth,
+      getWebSocketQueryParams: () => ({}),
+    };
+    const factory = new ConnectionFactory(noCsrf, makeConfig('https://businesscentral.dynamics.com/t/DEV'), createNullLogger());
+    await factory.create();
+
+    expect(captured?.url).toContain('/csh?');
+    expect(captured?.url).not.toContain('csrftoken=');
+    expect(captured?.url).toContain('ackseqnb=-1');
+    expect(captured?.headers.Origin).toBe('https://businesscentral.dynamics.com');
+  });
 });

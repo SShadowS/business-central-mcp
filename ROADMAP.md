@@ -4,7 +4,14 @@ Future work, ordered by priority within each section. Open an issue or PR if you
 
 ## Auth
 
-- **OAuth / AAD authentication.** Currently NavUserPassword only. OAuth unlocks BC Online (SaaS) and modern on-prem deployments. Largest gap.
+- **OAuth / AAD authentication.** Device-code and client-credentials grants
+  are implemented for the official Standard API (`bc_query`) and SaaS portal
+  URLs are parsed. The native `/csh` WebSocket on BC Online still needs the
+  first-party web-client OpenID Connect cookie session
+  (`996def3d-…` → `/remote-sign-in`); an API Bearer token does not establish
+  that session. Remaining work: a legitimate way to obtain that cookie
+  session (or Microsoft documenting a token-accepted `/csh` upgrade) so
+  `bc_open_page` and the other UI tools work against SaaS sandboxes.
 - **Windows authentication.** For domain-joined on-prem deployments where NavUserPassword is not enabled.
 
 ## Install ergonomics

@@ -1,7 +1,8 @@
 // src/odata/odata-client.ts
 //
-// Thin OData v4 client for the BC Standard API v2.0 (port 7048).
-// Completely independent of the WebSocket session — uses HTTP Basic auth.
+// Thin OData v4 client for the BC Standard API v2.0.
+// Completely independent of the WebSocket session.
+// Auth: HTTP Basic (on-prem NavUserPassword) or Bearer (Entra / SaaS).
 // Entry point: ODataClient.query(entity, opts).
 
 import { ProtocolError } from '../core/errors.js';
@@ -38,10 +39,14 @@ export interface ODataQueryResult {
 }
 
 export interface ODataClientConfig {
-  odataUrl: string;   // e.g. http://cronus28:7048/BC
-  tenantId: string;   // appended as ?tenant=<id>
-  username: string;
-  password: string;
+  odataUrl: string;   // e.g. http://cronus28:7048/BC or SaaS api.businesscentral.dynamics.com/v2.0/{tenant}/{env}
+  tenantId: string;   // appended as ?tenant=<id> when appendTenantQuery is true
+  username?: string;
+  password?: string;
+  /** Returns a full Authorization header value (e.g. "Bearer …"). Preferred over Basic. */
+  getAuthorization?: () => Promise<string | undefined>;
+  /** When false, skip ?tenant= (SaaS encodes tenant in the path). Default true. */
+  appendTenantQuery?: boolean;
   defaultCompanyName?: string; // optional; if omitted, first company is used
   defaultTop?: number;         // cap applied when caller omits top (default: 100)
   requestTimeoutMs?: number;   // per-request timeout (default: 30 000 ms)
@@ -63,7 +68,10 @@ const DEFAULT_TOP = 100;
 export class ODataClient {
   private readonly baseApiUrl: string; // e.g. http://cronus28:7048/BC/api/v2.0
   private readonly tenantId: string;
-  private readonly authHeader: string;
+  private readonly username: string | undefined;
+  private readonly password: string | undefined;
+  private readonly getAuthorization: (() => Promise<string | undefined>) | undefined;
+  private readonly appendTenantQuery: boolean;
   private readonly defaultCompanyName: string | undefined;
   private readonly defaultTop: number;
   private cachedCompanyId: string | null = null;
@@ -73,10 +81,28 @@ export class ODataClient {
   constructor(config: ODataClientConfig) {
     this.baseApiUrl = `${config.odataUrl.replace(/\/+$/, '')}/api/v2.0`;
     this.tenantId = config.tenantId;
-    this.authHeader = `Basic ${Buffer.from(`${config.username}:${config.password}`).toString('base64')}`;
+    this.username = config.username;
+    this.password = config.password;
+    this.getAuthorization = config.getAuthorization;
+    this.appendTenantQuery = config.appendTenantQuery !== false;
     this.defaultCompanyName = config.defaultCompanyName;
     this.defaultTop = config.defaultTop ?? DEFAULT_TOP;
     this.requestTimeoutMs = config.requestTimeoutMs ?? 30_000;
+  }
+
+  private async resolveAuthorization(): Promise<string> {
+    if (this.getAuthorization) {
+      const header = await this.getAuthorization();
+      if (header) return header;
+    }
+    // Empty username (OAuth mode) must not silently become Basic ":".
+    if (this.username) {
+      return `Basic ${Buffer.from(`${this.username}:${this.password ?? ''}`).toString('base64')}`;
+    }
+    throw new ODataError(
+      'No OData credentials configured. Set BC_USERNAME/BC_PASSWORD or configure OAuth (BC_CLIENT_ID).',
+      401,
+    );
   }
 
   /**
@@ -164,7 +190,10 @@ export class ODataClient {
     // breaks OData param names, and encodes spaces as '+' instead of '%20'.
     // We percent-encode values ourselves so OData operators ($filter etc.) are
     // preserved literally while user-supplied values are safely encoded.
-    const parts: string[] = [`tenant=${encodeURIComponent(this.tenantId)}`];
+    const parts: string[] = [];
+    if (this.appendTenantQuery) {
+      parts.push(`tenant=${encodeURIComponent(this.tenantId)}`);
+    }
 
     const effectiveTop = opts.top ?? this.defaultTop;
     parts.push(`$top=${String(effectiveTop)}`);
@@ -213,6 +242,7 @@ export class ODataClient {
   }
 
   private _addTenant(url: string): string {
+    if (!this.appendTenantQuery) return url;
     const sep = url.includes('?') ? '&' : '?';
     return `${url}${sep}tenant=${encodeURIComponent(this.tenantId)}`;
   }
@@ -220,14 +250,16 @@ export class ODataClient {
   private async _fetch<T>(url: string): Promise<T> {
     let response: Response;
     try {
+      const authorization = await this.resolveAuthorization();
       response = await fetch(url, {
         headers: {
-          Authorization: this.authHeader,
+          Authorization: authorization,
           Accept: 'application/json',
         },
         signal: AbortSignal.timeout(this.requestTimeoutMs),
       });
     } catch (e) {
+      if (e instanceof ODataError) throw e;
       throw new ODataError(
         `Network error reaching BC OData endpoint: ${e instanceof Error ? e.message : String(e)}`,
         0,
@@ -250,9 +282,11 @@ export class ODataClient {
     }
 
     if (response.status === 401) {
+      const oauthHint = this.getAuthorization
+        ? 'The OAuth access token was rejected. Check BC_CLIENT_ID, API permissions (user_impersonation or API.ReadWrite.All), admin consent, and that the Entra app is registered in BC (Microsoft Entra Applications page) for S2S.'
+        : 'Check BC_USERNAME and BC_PASSWORD. Cloud/SaaS BC requires OAuth — set BC_AUTH=OAuth and BC_CLIENT_ID, or pass a businesscentral.dynamics.com URL.';
       throw new ODataError(
-        'BC OData authentication failed (401). Check BC_USERNAME and BC_PASSWORD. ' +
-        'Note: cloud/SaaS BC requires OAuth — Basic auth only works in on-premise NavUserPassword environments.',
+        `BC OData authentication failed (401). ${oauthHint}`,
         401,
         bcCode,
       );
@@ -298,8 +332,17 @@ export function deriveODataUrl(bcBaseUrl: string): string {
   const explicit = process.env.BC_ODATA_URL;
   if (explicit) return explicit.replace(/\/+$/, '');
 
+  // Imported lazily via a relative import at the top would create a cycle
+  // (config -> odata-client -> saas-url; config already imports saas-url).
+  // Inline the SaaS host check so this function stays a pure URL rewrite.
   try {
     const parsed = new URL(bcBaseUrl);
+    if (/^(?:[a-z0-9-]+\.)?businesscentral\.dynamics\.com$/i.test(parsed.hostname)) {
+      const parts = parsed.pathname.split('/').filter(Boolean);
+      if (parts.length >= 2) {
+        return `https://api.businesscentral.dynamics.com/v2.0/${parts[0]}/${parts[1]}`;
+      }
+    }
     // Only inject 7048 if the port is NOT already 7048
     if (parsed.port !== '7048') {
       parsed.port = '7048';

@@ -24,6 +24,8 @@
         "BC_BASE_URL": "${user_config.bc_base_url}",
         "BC_USERNAME": "${user_config.bc_username}",
         "BC_PASSWORD": "${user_config.bc_password}",
+        "BC_CLIENT_ID": "${user_config.bc_client_id}",
+        "BC_CLIENT_SECRET": "${user_config.bc_client_secret}",
         "BC_PROFILE": "${user_config.bc_profile}"
       }
     }
@@ -32,21 +34,34 @@
     "bc_base_url": {
       "type": "string",
       "title": "BC base URL",
-      "description": "Business Central server base URL, e.g. http://your-bc-server/BC",
+      "description": "On-prem URL (http://server/BC) or SaaS portal URL (https://businesscentral.dynamics.com/{tenant}/{environment}).",
       "required": true
     },
     "bc_username": {
       "type": "string",
       "title": "BC username",
-      "description": "NavUserPassword username for the BC server.",
-      "required": true
+      "description": "NavUserPassword username. Leave empty for SaaS / OAuth.",
+      "required": false
     },
     "bc_password": {
       "type": "string",
       "title": "BC password",
-      "description": "NavUserPassword password for the BC server.",
+      "description": "NavUserPassword password. Leave empty for SaaS / OAuth.",
       "sensitive": true,
-      "required": true
+      "required": false
+    },
+    "bc_client_id": {
+      "type": "string",
+      "title": "Entra client ID",
+      "description": "Required for SaaS / OAuth. Application (client) ID of an Entra app with Dynamics 365 Business Central API permissions.",
+      "required": false
+    },
+    "bc_client_secret": {
+      "type": "string",
+      "title": "Entra client secret",
+      "description": "Optional. When set, client-credentials (S2S) is used instead of device-code login.",
+      "sensitive": true,
+      "required": false
     },
     "bc_profile": {
       "type": "string",
