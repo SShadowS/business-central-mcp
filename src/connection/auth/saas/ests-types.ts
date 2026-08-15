@@ -35,3 +35,11 @@ export const SAAS_BROWSER_UA =
 
 export const SAAS_PORTAL_ORIGIN = 'https://businesscentral.dynamics.com';
 export const SAAS_PORTAL_HOST = 'businesscentral.dynamics.com';
+
+export interface PreparedConnection {
+  tabId: string;
+  tabBaseUrl: string;
+  clusterHost: string;
+  runtimeId: string;
+  csrfToken: string;
+}
