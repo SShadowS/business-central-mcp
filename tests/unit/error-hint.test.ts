@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { errorHint } from '../../src/core/errors.js';
+import { errorHint, SignInRequiredError } from '../../src/core/errors.js';
 
 describe('errorHint', () => {
   it('maps VALIDATION_ERROR', () => {
@@ -42,6 +42,16 @@ describe('errorHint', () => {
     expect(errorHint('STALE_CONTEXT')).toBe(
       'The page changed since you last read it (stateVersion mismatch). Re-read with bc_read_data to get the current stateVersion, then retry.',
     );
+  });
+
+  it('maps SIGN_IN_REQUIRED and constructs SignInRequiredError with that code', () => {
+    expect(errorHint('SIGN_IN_REQUIRED')).toMatch(/sign-in window/i);
+    const e = new SignInRequiredError('need sign-in', { openedWindow: false, reason: 'no_display' });
+    expect(e.code).toBe('SIGN_IN_REQUIRED');
+  });
+
+  it('maps OAUTH_NOT_CONFIGURED', () => {
+    expect(errorHint('OAUTH_NOT_CONFIGURED')).toMatch(/BC_CLIENT_ID|token/i);
   });
 
   it('returns undefined for unknown codes', () => {

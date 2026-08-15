@@ -1,7 +1,7 @@
 import { deriveODataUrl } from '../odata/odata-client.js';
 import { parseSaasUrl } from '../connection/saas-url.js';
 
-export type AuthMode = 'NavUserPassword' | 'OAuth';
+export type AuthMode = 'NavUserPassword' | 'OAuth' | 'SaasWeb';
 
 export interface OAuthConfig {
   aadTenantId: string;
@@ -153,13 +153,31 @@ export function loadConfig(): AppConfig {
 const DELEGATED_SCOPE = 'https://api.businesscentral.dynamics.com/user_impersonation offline_access';
 const APP_SCOPE = 'https://api.businesscentral.dynamics.com/.default';
 
+function optionalOAuthConfig(saas: ReturnType<typeof parseSaasUrl>): OAuthConfig | undefined {
+  const clientId = process.env.BC_CLIENT_ID ?? '';
+  const accessToken = process.env.BC_ACCESS_TOKEN || undefined;
+  if (!clientId && !accessToken) return undefined;
+  const aadTenantId = process.env.BC_AAD_TENANT_ID || saas?.aadTenantId || process.env.BC_TENANT_ID || '';
+  if (!aadTenantId && !accessToken) return undefined;
+  const clientSecret = process.env.BC_CLIENT_SECRET || undefined;
+  const defaultScope = clientSecret ? APP_SCOPE : DELEGATED_SCOPE;
+  return {
+    aadTenantId,
+    clientId,
+    clientSecret,
+    scope: process.env.BC_OAUTH_SCOPE || defaultScope,
+    accessToken,
+  };
+}
+
 function resolveAuthMode(raw: string | undefined, isSaas: boolean): AuthMode {
   const value = (raw ?? 'auto').trim().toLowerCase();
   if (value === 'oauth' || value === 'aad' || value === 'entra') return 'OAuth';
   if (value === 'navuserpassword' || value === 'userpassword' || value === 'password') {
     return 'NavUserPassword';
   }
-  return isSaas ? 'OAuth' : 'NavUserPassword';
+  if (value === 'saasweb' || value === 'saas' || value === 'web') return 'SaasWeb';
+  return isSaas ? 'SaasWeb' : 'NavUserPassword';
 }
 
 function resolveAuth(saas: ReturnType<typeof parseSaasUrl>): {
@@ -174,6 +192,18 @@ function resolveAuth(saas: ReturnType<typeof parseSaasUrl>): {
   const authMode = resolveAuthMode(process.env.BC_AUTH, saas !== undefined);
   const environmentName = process.env.BC_ENVIRONMENT || saas?.environmentName;
   const tenantId = process.env.BC_TENANT_ID || saas?.aadTenantId || 'default';
+
+  if (authMode === 'SaasWeb') {
+    return {
+      authMode,
+      username: optionalEnv('BC_USERNAME', ''),
+      password: '',
+      tenantId,
+      environmentName,
+      oauth: optionalOAuthConfig(saas),
+      appendTenantQuery: false,
+    };
+  }
 
   if (authMode === 'NavUserPassword') {
     return {

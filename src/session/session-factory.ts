@@ -5,6 +5,7 @@ import { EventDecoder } from '../protocol/event-decoder.js';
 import { InteractionEncoder } from '../protocol/interaction-encoder.js';
 import { BCSession } from './bc-session.js';
 import type { Logger } from '../core/logger.js';
+import type { SessionCreateError } from './session-create-error.js';
 
 export class SessionFactory {
   constructor(
@@ -15,24 +16,26 @@ export class SessionFactory {
     private readonly tenantId: string,
     private readonly timeoutMs: number = 30000,
     private readonly profile: string = '',
+    private readonly resolveTenantId: () => string = () => this.tenantId,
   ) {}
 
-  async create(): Promise<Result<BCSession, ConnectionError>> {
+  async create(): Promise<Result<BCSession, SessionCreateError>> {
     const wsResult = await this.connectionFactory.create();
     if (isErr(wsResult)) return wsResult;
 
+    const tenantId = this.resolveTenantId();
     const session = new BCSession(
       wsResult.value,
       this.decoder,
       this.encoder,
       this.logger,
-      this.tenantId,
+      tenantId,
       this.timeoutMs,
       this.profile,
     );
 
     try {
-      const initResult = await session.initialize(this.tenantId);
+      const initResult = await session.initialize(tenantId);
       if (isErr(initResult)) {
         session.close();
         return err(new ConnectionError(`Session initialization failed: ${initResult.error.message}`));

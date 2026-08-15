@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { ConnectionFactory } from '../../src/connection/connection-factory.js';
 import { BCWebSocket } from '../../src/connection/bc-websocket.js';
-import { ok } from '../../src/core/result.js';
+import { ok, err } from '../../src/core/result.js';
+import { ConnectionError, SignInRequiredError } from '../../src/core/errors.js';
 import { createNullLogger } from '../../src/core/logger.js';
 import type { BCWebSocketConfig } from '../../src/connection/bc-websocket.js';
 import type { IBCAuthProvider } from '../../src/connection/auth/auth-provider.js';
@@ -92,5 +93,69 @@ describe('ConnectionFactory WebSocket Origin (BC 28.3 origin validation)', () =>
     expect(captured?.url).not.toContain('csrftoken=');
     expect(captured?.url).toContain('ackseqnb=-1');
     expect(captured?.headers.Origin).toBe('https://businesscentral.dynamics.com');
+  });
+
+  it('uses getOrigin and getWebSocketUrl from a SaaS provider', async () => {
+    let captured: BCWebSocketConfig | undefined;
+    vi.spyOn(BCWebSocket.prototype, 'connect').mockImplementation(async function (
+      this: BCWebSocket,
+      config: BCWebSocketConfig,
+    ) {
+      captured = config;
+      return ok(undefined);
+    });
+
+    const prepares = vi.fn(async () => ok({
+      tabId: 'TAB',
+      tabBaseUrl: 'https://cluster.example/tenant/msft1/tab/TAB',
+      clusterHost: 'cluster.example',
+      runtimeId: 'msft1',
+      csrfToken: 'csrf',
+    }));
+    const saasAuth: IBCAuthProvider = {
+      ...auth,
+      getWebSocketHeaders: () => ({ Cookie: 'c=1', 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36', Referer: 'https://businesscentral.dynamics.com/t/DEV' }),
+      getWebSocketQueryParams: () => ({ csrftoken: 'csrf' }),
+      getOrigin: () => 'https://businesscentral.dynamics.com',
+      getWebSocketUrl: () => 'wss://cluster.example/tenant/msft1/tab/TAB/csh',
+      prepareConnection: prepares,
+    };
+    const factory = new ConnectionFactory(saasAuth, makeConfig('https://businesscentral.dynamics.com/t/DEV'), createNullLogger());
+    await factory.create();
+    await factory.create();
+    expect(prepares).toHaveBeenCalledTimes(2);
+    expect(captured?.headers.Origin).toBe('https://businesscentral.dynamics.com');
+    expect(captured?.headers.Origin).not.toBe('https://cluster.example');
+    expect(captured?.url).toContain('wss://cluster.example/tenant/msft1/tab/TAB/csh');
+    expect(captured?.url).toContain('ackseqnb=-1');
+    expect(captured?.url).toContain('csrftoken=csrf');
+    expect(captured?.headers['User-Agent']).toMatch(/Chrome/);
+    expect(captured?.headers.Referer).toContain('businesscentral.dynamics.com');
+  });
+
+  it('calls invalidate when the WebSocket connect fails', async () => {
+    vi.spyOn(BCWebSocket.prototype, 'connect').mockResolvedValue(err(new ConnectionError('upgrade failed')));
+    const invalidate = vi.fn();
+    const failing: IBCAuthProvider = { ...auth, invalidate };
+    const factory = new ConnectionFactory(failing, makeConfig('http://cronus28/BC'), createNullLogger());
+    const result = await factory.create();
+    expect(result.ok).toBe(false);
+    expect(invalidate).toHaveBeenCalledOnce();
+  });
+
+  it('passes SignInRequiredError through unwrapped', async () => {
+    const signIn = new SignInRequiredError('need sign-in', { openedWindow: false, reason: 'no_display' });
+    const saasAuth: IBCAuthProvider = {
+      ...auth,
+      isAuthenticated: () => false,
+      authenticate: async () => err(signIn),
+    };
+    const factory = new ConnectionFactory(saasAuth, makeConfig('https://businesscentral.dynamics.com/t/DEV'), createNullLogger());
+    const result = await factory.create();
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toBe(signIn);
+      expect(result.error.code).toBe('SIGN_IN_REQUIRED');
+    }
   });
 });

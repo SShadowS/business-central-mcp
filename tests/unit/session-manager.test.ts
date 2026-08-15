@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SessionManager } from '../../src/session/session-manager.js';
-import { SessionLostError } from '../../src/core/errors.js';
+import { SessionLostError, SignInRequiredError, AuthenticationError } from '../../src/core/errors.js';
 import { ok, err } from '../../src/core/result.js';
 import { ConnectionError } from '../../src/core/errors.js';
 
@@ -175,13 +175,44 @@ describe('SessionManager', () => {
     }
   });
 
-  it('throws regular error if initial creation fails after retries', async () => {
+  it('throws ConnectionError if initial creation fails after retries', async () => {
     const factory = {
       create: vi.fn().mockResolvedValue(err(new ConnectionError('connection refused'))),
     };
     const mgr = new TestSessionManager(factory as any, repo as any, logger as any, { maxRetries: 1, baseDelayMs: 100 });
 
+    await expect(mgr.getSession()).rejects.toBeInstanceOf(ConnectionError);
     await expect(mgr.getSession()).rejects.toThrow('Session creation failed after all retry attempts');
+  });
+
+  it('does not retry SignInRequiredError and throws it as-is', async () => {
+    const signIn = new SignInRequiredError('need sign-in', { openedWindow: false, reason: 'no_display' });
+    const factory = {
+      create: vi.fn().mockResolvedValue(err(signIn)),
+    };
+    const mgr = new TestSessionManager(factory as any, repo as any, logger as any, { maxRetries: 4, baseDelayMs: 100 });
+    await expect(mgr.getSession()).rejects.toBe(signIn);
+    expect(factory.create).toHaveBeenCalledOnce();
+  });
+
+  it('does not retry AuthenticationError with nonRetryable context', async () => {
+    const authErr = new AuthenticationError('bad password', { nonRetryable: true });
+    const factory = {
+      create: vi.fn().mockResolvedValue(err(authErr)),
+    };
+    const mgr = new TestSessionManager(factory as any, repo as any, logger as any, { maxRetries: 4, baseDelayMs: 100 });
+    await expect(mgr.getSession()).rejects.toBe(authErr);
+    expect(factory.create).toHaveBeenCalledOnce();
+  });
+
+  it('retries bare AuthenticationError (NTLM transport)', async () => {
+    const authErr = new AuthenticationError('network blip');
+    const factory = {
+      create: vi.fn().mockResolvedValue(err(authErr)),
+    };
+    const mgr = new TestSessionManager(factory as any, repo as any, logger as any, { maxRetries: 2, baseDelayMs: 1 });
+    await expect(mgr.getSession()).rejects.toBeInstanceOf(ConnectionError);
+    expect(factory.create).toHaveBeenCalledTimes(3);
   });
 
   it('close() closes the session', async () => {

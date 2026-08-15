@@ -93,12 +93,12 @@ describe('loadConfig OAuth / SaaS', () => {
     process.env = originalEnv;
   });
 
-  it('auto-selects OAuth for a businesscentral.dynamics.com URL and parses tenant/env', () => {
+  it('auto-selects SaasWeb for a businesscentral.dynamics.com URL and parses tenant/env', () => {
     process.env.BC_BASE_URL = `https://businesscentral.dynamics.com/${TENANT}/DEV`;
     process.env.BC_CLIENT_ID = 'app-id';
     process.env.BC_CLIENT_SECRET = 'app-secret';
     const c = loadConfig();
-    expect(c.bc.authMode).toBe('OAuth');
+    expect(c.bc.authMode).toBe('SaasWeb');
     expect(c.bc.tenantId).toBe(TENANT);
     expect(c.bc.environmentName).toBe('DEV');
     expect(c.bc.baseUrl).toBe(`https://businesscentral.dynamics.com/${TENANT}/DEV`);
@@ -111,7 +111,7 @@ describe('loadConfig OAuth / SaaS', () => {
     expect(c.bc.password).toBe('');
   });
 
-  it('does not require BC_USERNAME/BC_PASSWORD for SaaS OAuth', () => {
+  it('does not require BC_USERNAME/BC_PASSWORD for SaaS', () => {
     process.env.BC_BASE_URL = `https://businesscentral.dynamics.com/${TENANT}/DEV`;
     process.env.BC_CLIENT_ID = 'app-id';
     expect(() => loadConfig()).not.toThrow();
@@ -124,9 +124,18 @@ describe('loadConfig OAuth / SaaS', () => {
     expect(loadConfig().bc.oauth?.clientSecret).toBeUndefined();
   });
 
-  it('throws when a SaaS URL is used without BC_CLIENT_ID or BC_ACCESS_TOKEN', () => {
+  it('does not throw when a SaaS URL has no BC_CLIENT_ID or BC_ACCESS_TOKEN', () => {
     process.env.BC_BASE_URL = `https://businesscentral.dynamics.com/${TENANT}/DEV`;
-    expect(() => loadConfig()).toThrow('BC_CLIENT_ID');
+    const c = loadConfig();
+    expect(c.bc.authMode).toBe('SaasWeb');
+    expect(c.bc.oauth).toBeUndefined();
+    expect(c.bc.password).toBe('');
+  });
+
+  it('ignores BC_PASSWORD on a SaaS URL', () => {
+    process.env.BC_BASE_URL = `https://businesscentral.dynamics.com/${TENANT}/DEV`;
+    process.env.BC_PASSWORD = 'leak';
+    expect(loadConfig().bc.password).toBe('');
   });
 
   it('accepts a pre-acquired BC_ACCESS_TOKEN without BC_CLIENT_ID', () => {

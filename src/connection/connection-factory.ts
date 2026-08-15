@@ -1,8 +1,7 @@
-import { ok, err, isErr, type Result } from '../core/result.js';
-import { ConnectionError } from '../core/errors.js';
+import { ok, isErr, type Result } from '../core/result.js';
 import { BCWebSocket } from './bc-websocket.js';
 import { BCHttpClient } from './bc-http.js';
-import type { IBCAuthProvider } from './auth/auth-provider.js';
+import type { AuthFailure, IBCAuthProvider } from './auth/auth-provider.js';
 import type { BCConfig } from '../core/config.js';
 import type { Logger } from '../core/logger.js';
 
@@ -13,12 +12,15 @@ export class ConnectionFactory {
     private readonly logger: Logger,
   ) {}
 
-  async create(): Promise<Result<BCWebSocket, ConnectionError>> {
+  async create(): Promise<Result<BCWebSocket, AuthFailure>> {
     if (!this.authProvider.isAuthenticated()) {
       const authResult = await this.authProvider.authenticate();
-      if (isErr(authResult)) {
-        return err(new ConnectionError(`Authentication failed: ${authResult.error.message}`));
-      }
+      if (isErr(authResult)) return authResult;
+    }
+
+    if (this.authProvider.prepareConnection) {
+      const prepared = await this.authProvider.prepareConnection();
+      if (isErr(prepared)) return prepared;
     }
 
     const wsUrl = this.buildWebSocketUrl();
@@ -29,10 +31,11 @@ export class ConnectionFactory {
     // upgrade whose Origin header is missing/empty or cross-origin is rejected
     // with a bare 403 before the app handler. A same-origin upgrade is always
     // allowed, so send Origin = scheme+host+port of the base URL (no path).
-    // BC 28.0 did not enforce this; adding the header is a no-op there.
-    // Verified: decompiled 28.3 RequestOriginValidationMiddleware.IsSameOrigin
-    // + live cronus28 (403 without Origin -> 101 with it).
-    headers['Origin'] = new URL(this.bcConfig.baseUrl).origin;
+    // SaaS providers override via getOrigin() — the cluster host must NOT be
+    // used (verified: cluster Origin → HTTP 500).
+    // Do NOT put Origin in getWebSocketHeaders() — BCHttpClient reuses those
+    // headers for downloads.
+    headers['Origin'] = this.authProvider.getOrigin?.() ?? new URL(this.bcConfig.baseUrl).origin;
 
     const ws = new BCWebSocket(this.logger);
     const connectResult = await ws.connect({
@@ -53,17 +56,26 @@ export class ConnectionFactory {
 
   createHttpClient(): BCHttpClient {
     return new BCHttpClient(
-      this.bcConfig.baseUrl,
+      this.authProvider.getHttpBaseUrl?.() ?? this.bcConfig.baseUrl,
       () => this.authProvider.getWebSocketHeaders(),
       this.logger,
     );
   }
 
   private buildWebSocketUrl(): string {
-    const base = this.bcConfig.baseUrl.replace(/^http/, 'ws');
     const queryParams = this.authProvider.getWebSocketQueryParams();
     queryParams['ackseqnb'] = '-1';
 
+    const custom = this.authProvider.getWebSocketUrl?.();
+    if (custom) {
+      const u = new URL(custom);
+      for (const [k, v] of Object.entries(queryParams)) {
+        if (v !== '') u.searchParams.set(k, v);
+      }
+      return u.toString();
+    }
+
+    const base = this.bcConfig.baseUrl.replace(/^http/, 'ws');
     const queryString = Object.entries(queryParams)
       .filter(([, v]) => v !== '')
       .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)

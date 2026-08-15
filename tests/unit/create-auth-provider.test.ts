@@ -42,6 +42,13 @@ describe('createAuthProvider', () => {
     expect(p).toBeInstanceOf(NTLMAuthProvider);
   });
 
+  it('throws a complete error for SaasWeb without SaasWebDeps', () => {
+    expect(() => createAuthProvider(app({
+      authMode: 'SaasWeb',
+      baseUrl: 'https://businesscentral.dynamics.com/t/DEV',
+    }), createNullLogger())).toThrow(/SaasWebDeps/);
+  });
+
   it('returns OAuthAuthProvider for OAuth', () => {
     const p = createAuthProvider(app({
       authMode: 'OAuth',

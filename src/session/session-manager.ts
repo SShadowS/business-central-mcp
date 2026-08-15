@@ -1,5 +1,6 @@
 import { isErr } from '../core/result.js';
-import { SessionLostError } from '../core/errors.js';
+import { ConnectionError, SessionLostError } from '../core/errors.js';
+import { isNonRetryableSessionCreateError } from './session-create-error.js';
 import type { BCSession } from './bc-session.js';
 import type { SessionFactory } from './session-factory.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
@@ -129,7 +130,7 @@ export class SessionManager {
     // No session yet -- create one (first call), also with backoff for LogicalModalityViolation
     const newSession = await this.createWithBackoff();
     if (newSession === null) {
-      throw new Error('Session creation failed after all retry attempts');
+      throw new ConnectionError('Session creation failed after all retry attempts');
     }
 
     this.session = newSession;
@@ -155,6 +156,10 @@ export class SessionManager {
 
       if (!isErr(result)) {
         return result.value;
+      }
+
+      if (isNonRetryableSessionCreateError(result.error)) {
+        throw result.error;
       }
 
       const errorMsg = result.error.message;

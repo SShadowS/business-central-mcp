@@ -20,6 +20,37 @@ export class ConnectionError extends BCError {
 export class AuthenticationError extends BCError {
   constructor(message: string, context?: Record<string, unknown>) { super(message, 'AUTHENTICATION_ERROR', context); }
 }
+
+export class SignInRequiredError extends BCError {
+  public readonly openedWindow: boolean;
+  public readonly reason: string;
+  constructor(message: string, opts: { openedWindow: boolean; reason: string }) {
+    super(message, 'SIGN_IN_REQUIRED', opts);
+    this.openedWindow = opts.openedWindow;
+    this.reason = opts.reason;
+  }
+}
+
+export interface UrlElicitation {
+  mode: 'url';
+  elicitationId: string;
+  url: string;
+  message: string;
+}
+
+export class UrlElicitationRequiredError extends BCError {
+  public readonly elicitations: UrlElicitation[];
+  constructor(elicitations: UrlElicitation[], message = 'This request requires more information.') {
+    super(message, 'URL_ELICITATION_REQUIRED');
+    this.elicitations = elicitations;
+  }
+}
+
+export class OAuthNotConfiguredError extends BCError {
+  constructor(message: string, context?: Record<string, unknown>) {
+    super(message, 'OAUTH_NOT_CONFIGURED', context);
+  }
+}
 export class TimeoutError extends BCError {
   constructor(message: string, context?: Record<string, unknown>) { super(message, 'TIMEOUT_ERROR', context); }
 }
@@ -182,6 +213,9 @@ const ERROR_HINTS: Record<string, string> = {
   STALE_CONTEXT: 'The page changed since you last read it (stateVersion mismatch). Re-read with bc_read_data to get the current stateVersion, then retry.',
   INVALID_BOOKMARK: 'The anchor bookmark is no longer loaded in BC. Re-read the section with bc_read_data and retry with a current bookmark.',
   MULTI_ROW_ACTION_UNAVAILABLE: 'This page disables the action for multiple selected rows. Retry with a single bookmark, or repeat the action per row.',
+  SIGN_IN_REQUIRED: 'A Business Central sign-in window should have opened. Complete sign-in there, then retry the tool.',
+  OAUTH_NOT_CONFIGURED: 'bc_query needs an Entra token. Set BC_CLIENT_ID (device code) or BC_ACCESS_TOKEN.',
+  URL_ELICITATION_REQUIRED: 'The host must open the sign-in page. Retry the tool after completing sign-in.',
 };
 
 /**
