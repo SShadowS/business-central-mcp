@@ -49,6 +49,9 @@ export class ConnectionFactory {
       // so the next create() re-authenticates instead of reusing dead cookies on
       // every backoff retry, which would otherwise brick recovery permanently.
       this.authProvider.invalidate();
+      if (looksLikeDeadCluster(connectResult.error.message)) {
+        this.authProvider.markClusterUnbound?.();
+      }
       return connectResult;
     }
     return ok(ws);
@@ -83,4 +86,9 @@ export class ConnectionFactory {
 
     return `${base}/csh?${queryString}`;
   }
+}
+
+function looksLikeDeadCluster(message: string): boolean {
+  return /Unexpected server response:\s*(401|403|500)\b/i.test(message)
+    || /HTTP (401|403|500)\b/.test(message);
 }

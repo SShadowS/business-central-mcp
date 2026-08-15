@@ -29,6 +29,13 @@ describe('formatBcError', () => {
     expect(text).toContain('BC rejected the operation');
   });
 
+  it('includes the SIGN_IN_REQUIRED hint', () => {
+    const text = formatBcError({ code: 'SIGN_IN_REQUIRED', message: 'need sign-in' });
+    expect(text).toContain('Error [SIGN_IN_REQUIRED]: need sign-in');
+    expect(text).toContain('Hint:');
+    expect(text).toMatch(/login|window/i);
+  });
+
   it('includes the SESSION_LOST hint', () => {
     const text = formatBcError({ code: 'SESSION_LOST', message: 'Session lost.' });
     expect(text).toContain('Error [SESSION_LOST]: Session lost.');

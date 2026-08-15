@@ -4,7 +4,9 @@
 // Mocks global fetch — no real BC connection required.
 
 import { describe, it, expect, vi } from 'vitest';
-import { QueryOperation } from '../../src/operations/query.js';
+import { QueryOperation, createQueryOperation } from '../../src/operations/query.js';
+import type { AppConfig } from '../../src/core/config.js';
+import type { IBCAuthProvider } from '../../src/connection/auth/auth-provider.js';
 import { QuerySchema } from '../../src/mcp/schemas.js';
 
 function makeConfig(overrides?: object) {
@@ -115,6 +117,79 @@ describe('QueryOperation', () => {
     expect(decoded).toContain("$filter=displayName eq 'Test'");
     expect(decoded).toContain('$select=number,displayName');
     expect(decoded).toContain('$orderby=number asc');
+  });
+});
+
+describe('QueryOperation requireBearer', () => {
+  it('returns OAUTH_NOT_CONFIGURED with no getAuthorization and does not fetch', async () => {
+    const fetchMock = vi.fn();
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const op = new QueryOperation({
+      odataUrl: 'https://api.businesscentral.dynamics.com/v2.0/t/DEV',
+      tenantId: 't',
+      username: 'user@t.com',
+      password: '',
+    }, { requireBearer: true });
+    const result = await op.execute({ entity: 'customers' });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe('OAUTH_NOT_CONFIGURED');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('returns OAUTH_NOT_CONFIGURED when getAuthorization yields undefined (no Basic)', async () => {
+    const fetchMock = vi.fn();
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const op = new QueryOperation({
+      odataUrl: 'https://api.businesscentral.dynamics.com/v2.0/t/DEV',
+      tenantId: 't',
+      username: 'user@t.com',
+      password: '',
+      getAuthorization: async () => undefined,
+    }, { requireBearer: true });
+    const result = await op.execute({ entity: 'customers' });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe('OAUTH_NOT_CONFIGURED');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('requireBearer false still uses Basic (on-prem)', async () => {
+    global.fetch = mockFetch(companiesOk, { ok: true, status: 200, body: { value: [] } }) as unknown as typeof fetch;
+    const op = new QueryOperation(makeConfig({ username: 'user', password: 'pass' }), { requireBearer: false });
+    const result = await op.execute({ entity: 'customers' });
+    expect(result.ok).toBe(true);
+  });
+});
+
+describe('createQueryOperation requireBearer on SaasWeb', () => {
+  it('does not call uiAuth.prepareConnection and rejects without a Bearer', async () => {
+    const fetchMock = vi.fn();
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const prepareConnection = vi.fn();
+    const uiAuth = {
+      authenticate: async () => ({ ok: true, value: { cookies: '', csrfToken: '' } }),
+      getWebSocketHeaders: () => ({}),
+      getWebSocketQueryParams: () => ({}),
+      isAuthenticated: () => false,
+      invalidate: () => {},
+      prepareConnection,
+    } as unknown as IBCAuthProvider;
+    const config = {
+      bc: {
+        odataUrl: 'https://api.businesscentral.dynamics.com/v2.0/t/DEV',
+        tenantId: 't',
+        username: 'user@t.com',
+        password: '',
+        odataCompanyName: undefined,
+        appendTenantQuery: false,
+        authMode: 'SaasWeb',
+      },
+    } as AppConfig;
+    const op = createQueryOperation(config, uiAuth);
+    const result = await op.execute({ entity: 'customers' });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe('OAUTH_NOT_CONFIGURED');
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(prepareConnection).not.toHaveBeenCalled();
   });
 });
 

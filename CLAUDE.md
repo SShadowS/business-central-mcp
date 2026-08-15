@@ -107,6 +107,20 @@ The `/csh` upgrade MUST carry an `Origin` header of the form `<scheme>://<host>[
 
 Reference: decompiled `RequestOriginValidationMiddleware.IsSameOrigin` / `IsOriginAllowedForWebSocket` (28.3 `Prod.Client.WebCoreApp.dll`); `docs/investigations/2026-07-24-bc283-csh-403.md`; live cronus28 (403 without Origin -> 101 with it).
 
+### SaaS / BC Online web-client session (`SaasWeb`)
+
+A `businesscentral.dynamics.com/{aadTenant}/{env}` URL selects `authMode: 'SaasWeb'`. UI tools use `SaasWebSessionProvider` (ESTS cookie session, no `BC_PASSWORD`). `bc_query` uses a separate `OAuthAuthProvider` when `BC_CLIENT_ID` / `BC_ACCESS_TOKEN` is set; otherwise it returns `OAUTH_NOT_CONFIGURED` and never sends Basic.
+
+- First UI tool opens a loopback window (`127.0.0.1` + `xdg-open` / `open` / `start`). Password and MFA stay there. Optional `npx business-central-mcp login` (or `npx tsx src/stdio-server.ts login`).
+- Portal cookies: `STATE_DIR/saas-web-cookies.json` mode 0600. `isAuthenticated()` = `{tid}.auth` present. `invalidate()` drops the tab only.
+- `/csh` is `wss://{cluster}/tenant/{runtimeId}/tab/{tabId}/csh`. `Origin` is always `https://businesscentral.dynamics.com` (cluster Origin → HTTP 500). New tab every WebSocket.
+- OpenSession `tenantId` is the cluster runtime id (`msft1…`) from `/api/deployment`, via `getSessionTenantId()`. Config `bc.tenantId` stays the AAD GUID.
+- Downloads use the tab HTTPS base (`getHttpBaseUrl()`), same-session cookies.
+- `SessionManager` does not retry `SIGN_IN_REQUIRED` / `URL_ELICITATION_REQUIRED`.
+- Do not import `scripts/proto-saas-*` or `ensure-chromium.ts` from `src/`.
+
+Reference: `docs/superpowers/specs/2026-08-15-saas-web-session-design.md`.
+
 ### Parameter Case Sensitivity
 BC uses case-INSENSITIVE parameter matching. Verified from decompiled `InteractionParameterHelper.TryGetValueIgnoreCase` which uses `StringComparison.OrdinalIgnoreCase`. Both camelCase and PascalCase work.
 

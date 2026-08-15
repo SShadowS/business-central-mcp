@@ -1,7 +1,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { loadConfig } from './core/config.js';
 import { createLogger } from './core/logger.js';
-import { createAuthProvider } from './connection/auth/create-auth-provider.js';
+import { composeAuthProviders } from './connection/auth/create-auth-provider.js';
+import { ClientElicitationPort } from './mcp/elicitation-port.js';
 import { ConnectionFactory } from './connection/connection-factory.js';
 import { EventDecoder } from './protocol/event-decoder.js';
 import { InteractionEncoder } from './protocol/interaction-encoder.js';
@@ -46,9 +47,10 @@ async function main() {
   logger.info('Starting BC MCP Server v2...');
 
   // Infrastructure
-  const authProvider = createAuthProvider(config, logger);
-  const connectionFactory = new ConnectionFactory(authProvider, config.bc, logger);
-  const queryOperation = createQueryOperation(config, authProvider);
+  const elicitationPort = new ClientElicitationPort();
+  const { uiAuth, apiAuth } = composeAuthProviders(config, logger, elicitationPort);
+  const connectionFactory = new ConnectionFactory(uiAuth, config.bc, logger);
+  const queryOperation = createQueryOperation(config, apiAuth);
 
   // Protocol
   const decoder = new EventDecoder();
@@ -58,6 +60,7 @@ async function main() {
   // Session — created lazily on first request, with automatic recovery
   const sessionFactory = new SessionFactory(
     connectionFactory, decoder, encoder, logger, config.bc.tenantId, config.bc.invokeTimeoutMs, config.bc.profile,
+    () => uiAuth.getSessionTenantId?.() ?? config.bc.tenantId,
   );
   const sessionManager = new SessionManager(sessionFactory, pageContextRepo, logger, {
     maxRetries: config.bc.reconnectMaxRetries,
@@ -130,7 +133,7 @@ async function main() {
       return resolved.execute(input);
     },
   }));
-  const mcpHandler = new MCPHandler(lazyTools, logger, PROMPTS);
+  const mcpHandler = new MCPHandler(lazyTools, logger, PROMPTS, { elicitationPort });
 
   // HTTP Server
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
@@ -155,6 +158,7 @@ async function main() {
             tenantId: config.bc.tenantId,
             authMode: config.bc.authMode,
             environment: config.bc.environmentName,
+            webSession: uiAuth.isAuthenticated(),
           },
         }));
         return;

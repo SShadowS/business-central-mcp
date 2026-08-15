@@ -4,7 +4,7 @@
 // (OData, port 7048). Completely independent of the WebSocket session.
 
 import { ok, err, type Result } from '../core/result.js';
-import { ProtocolError } from '../core/errors.js';
+import { OAuthNotConfiguredError, ProtocolError } from '../core/errors.js';
 import { ODataClient, type ODataClientConfig } from '../odata/odata-client.js';
 import type { AppConfig } from '../core/config.js';
 import type { IBCAuthProvider } from '../connection/auth/auth-provider.js';
@@ -42,19 +42,34 @@ export function createQueryOperation(config: AppConfig, authProvider: IBCAuthPro
       const token = await authProvider.getAccessToken();
       return token ? `Bearer ${token}` : undefined;
     },
+  }, {
+    requireBearer: config.bc.authMode === 'SaasWeb',
   });
 }
 
 export class QueryOperation {
   private readonly client: ODataClient;
   private readonly defaultTop: number;
+  private readonly requireBearer: boolean;
+  private readonly getAuthorization: ODataClientConfig['getAuthorization'];
 
-  constructor(config: ODataClientConfig) {
+  constructor(config: ODataClientConfig, opts: { requireBearer?: boolean } = {}) {
     this.defaultTop = config.defaultTop ?? 100;
+    this.requireBearer = opts.requireBearer ?? false;
+    this.getAuthorization = config.getAuthorization;
     this.client = new ODataClient(config);
   }
 
-  async execute(input: QueryInput): Promise<Result<QueryOutput, ProtocolError>> {
+  async execute(input: QueryInput): Promise<Result<QueryOutput, ProtocolError | OAuthNotConfiguredError>> {
+    if (this.requireBearer) {
+      const header = this.getAuthorization ? await this.getAuthorization() : undefined;
+      if (!header) {
+        return err(new OAuthNotConfiguredError(
+          'bc_query on BC Online requires an Entra app. Set BC_CLIENT_ID (device code), '
+          + 'BC_CLIENT_SECRET (S2S), or BC_ACCESS_TOKEN.',
+        ));
+      }
+    }
     const callerSuppliedTop = input.top !== undefined;
 
     try {

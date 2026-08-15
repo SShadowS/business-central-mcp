@@ -2,7 +2,8 @@
 import { createInterface } from 'node:readline';
 import { loadConfig } from './core/config.js';
 import { createLogger } from './core/logger.js';
-import { createAuthProvider } from './connection/auth/create-auth-provider.js';
+import { composeAuthProviders } from './connection/auth/create-auth-provider.js';
+import { ClientElicitationPort } from './mcp/elicitation-port.js';
 import { ConnectionFactory } from './connection/connection-factory.js';
 import { EventDecoder } from './protocol/event-decoder.js';
 import { InteractionEncoder } from './protocol/interaction-encoder.js';
@@ -39,6 +40,12 @@ import { PROMPTS } from './mcp/prompts.js';
 // isErr no longer needed — SessionManager handles session creation errors internally
 
 async function main() {
+  if (process.argv[2] === 'login') {
+    const { runLoginCli } = await import('./cli/login.js');
+    await runLoginCli(loadConfig());
+    process.exit(process.exitCode ?? 0);
+  }
+
   const config = loadConfig();
   // Logger already writes to stderr (via writeStderr in logger.ts) — stdout is sacred (JSON-RPC only)
   const logger = createLogger(config.logging);
@@ -46,9 +53,10 @@ async function main() {
   logger.info('BC MCP Server v2 (stdio) starting...');
 
   // Infrastructure
-  const authProvider = createAuthProvider(config, logger);
-  const connectionFactory = new ConnectionFactory(authProvider, config.bc, logger);
-  const queryOperation = createQueryOperation(config, authProvider);
+  const elicitationPort = new ClientElicitationPort();
+  const { uiAuth, apiAuth } = composeAuthProviders(config, logger, elicitationPort);
+  const connectionFactory = new ConnectionFactory(uiAuth, config.bc, logger);
+  const queryOperation = createQueryOperation(config, apiAuth);
 
   // Protocol
   const decoder = new EventDecoder();
@@ -58,6 +66,7 @@ async function main() {
   // Session — created lazily on first tools/call, with automatic recovery
   const sessionFactory = new SessionFactory(
     connectionFactory, decoder, encoder, logger, config.bc.tenantId, config.bc.invokeTimeoutMs, config.bc.profile,
+    () => uiAuth.getSessionTenantId?.() ?? config.bc.tenantId,
   );
   const sessionManager = new SessionManager(sessionFactory, pageContextRepo, logger, {
     maxRetries: config.bc.reconnectMaxRetries,
@@ -134,7 +143,7 @@ async function main() {
     },
   }));
 
-  const mcpHandler = new MCPHandler(lazyTools, logger, PROMPTS);
+  const mcpHandler = new MCPHandler(lazyTools, logger, PROMPTS, { elicitationPort });
 
   // Read JSON-RPC from stdin, write responses to stdout
   const rl = createInterface({ input: process.stdin, terminal: false });

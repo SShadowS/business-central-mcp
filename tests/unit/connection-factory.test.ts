@@ -143,6 +143,19 @@ describe('ConnectionFactory WebSocket Origin (BC 28.3 origin validation)', () =>
     expect(invalidate).toHaveBeenCalledOnce();
   });
 
+  it('calls markClusterUnbound on Unexpected server response: 500', async () => {
+    vi.spyOn(BCWebSocket.prototype, 'connect').mockResolvedValue(
+      err(new ConnectionError('Unexpected server response: 500')),
+    );
+    const invalidate = vi.fn();
+    const markClusterUnbound = vi.fn();
+    const failing: IBCAuthProvider = { ...auth, invalidate, markClusterUnbound };
+    const factory = new ConnectionFactory(failing, makeConfig('https://businesscentral.dynamics.com/t/DEV'), createNullLogger());
+    await factory.create();
+    expect(invalidate).toHaveBeenCalledOnce();
+    expect(markClusterUnbound).toHaveBeenCalledOnce();
+  });
+
   it('passes SignInRequiredError through unwrapped', async () => {
     const signIn = new SignInRequiredError('need sign-in', { openedWindow: false, reason: 'no_display' });
     const saasAuth: IBCAuthProvider = {

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { err, ok, type Result } from '../../../core/result.js';
 import { AuthenticationError, ConnectionError } from '../../../core/errors.js';
 import type { Logger } from '../../../core/logger.js';
-import type { SaasTarget } from '../../saas-url.js';
+import { isEntraLoginUrl, type SaasTarget } from '../../saas-url.js';
 import { CookieJar } from './cookie-jar.js';
 import { extractFceToken, extractFixedEndPointAuth, parseDeploymentJson, parseFixedEndPoint } from './html-extract.js';
 import { redactLog } from './redact.js';
@@ -48,6 +48,12 @@ export class SaasClusterSession {
     const page = await this.request(jar, saas.portalUrl, {
       headers: { Origin: SAAS_PORTAL_ORIGIN, Referer: saas.portalUrl },
     });
+    if (page.res.status >= 300 && page.res.status < 400) {
+      const location = page.res.headers.get('location') ?? '';
+      if (isEntraLoginUrl(location)) {
+        return err(new AuthenticationError('Portal redirected to Entra sign-in'));
+      }
+    }
     const fp = parseFixedEndPoint(page.html);
     const auth = fp ? extractFixedEndPointAuth(fp) : {
       accessToken: '', authorizationCode: '', homeAccountId: '', sharedAuthCookieName: '',

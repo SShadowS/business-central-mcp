@@ -35,6 +35,20 @@ export function isSaasHost(hostname: string): boolean {
   return SAAS_HOST.test(hostname);
 }
 
+export function isEntraLoginUrl(urlOrHost: string): boolean {
+  let host = urlOrHost;
+  try {
+    if (urlOrHost.includes('://')) host = new URL(urlOrHost).hostname;
+  } catch {
+    return false;
+  }
+  const h = host.toLowerCase();
+  return h === 'login.microsoftonline.com'
+    || h === 'login.windows.net'
+    || h === 'login.microsoft.com'
+    || h.endsWith('.microsoftonline.com');
+}
+
 export function parseSaasUrl(raw: string): SaasTarget | undefined {
   let url: URL;
   try {

@@ -156,6 +156,17 @@ describe('SaasClusterSession', () => {
     expect(calls[0]!.headers['origin']).toBe(SAAS_PORTAL_ORIGIN);
   });
 
+  it('readPortalShell returns AuthenticationError on Entra 302', async () => {
+    const { fetchFn } = recordFetch(() => new Response('', {
+      status: 302,
+      headers: { Location: 'https://login.microsoftonline.com/common/oauth2/authorize' },
+    }));
+    const session = new SaasClusterSession(fetchFn, capturingLogger().logger);
+    const result = await session.readPortalShell(new CookieJar(), saas);
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) expect(result.error.code).toBe('AUTHENTICATION_ERROR');
+  });
+
   it('readPortalShell parses FixedEndPoint auth and never logs the JWT', async () => {
     const cap = capturingLogger();
     const html = [

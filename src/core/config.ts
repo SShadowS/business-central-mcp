@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { deriveODataUrl } from '../odata/odata-client.js';
 import { parseSaasUrl } from '../connection/saas-url.js';
 
@@ -146,7 +147,10 @@ export function loadConfig(): AppConfig {
       apiToken,
     },
     port: optionalEnvInt('PORT', 3000),
-    stateDir: optionalEnv('STATE_DIR', './.state'),
+    // Auth cookies / OAuth tokens are per working directory (the AL repo
+    // Grok was started in). Relative STATE_DIR is resolved against cwd so
+    // two repos never share a login. Sessions in the same repo share the file.
+    stateDir: resolve(optionalEnv('STATE_DIR', '.state')),
   };
 }
 
@@ -194,6 +198,11 @@ function resolveAuth(saas: ReturnType<typeof parseSaasUrl>): {
   const tenantId = process.env.BC_TENANT_ID || saas?.aadTenantId || 'default';
 
   if (authMode === 'SaasWeb') {
+    if (process.env.BC_PASSWORD) {
+      process.stderr.write(
+        '[config] BC_PASSWORD is ignored for BC Online. Sign in via the local window or `npx business-central-mcp login`.\n',
+      );
+    }
     return {
       authMode,
       username: optionalEnv('BC_USERNAME', ''),

@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { createAuthProvider } from '../../src/connection/auth/create-auth-provider.js';
 import { NTLMAuthProvider } from '../../src/connection/auth/ntlm-provider.js';
 import { OAuthAuthProvider } from '../../src/connection/auth/oauth-provider.js';
+import { SaasWebSessionProvider } from '../../src/connection/auth/saas-web-session-provider.js';
+import { err } from '../../src/core/result.js';
+import { SignInRequiredError } from '../../src/core/errors.js';
 import { createNullLogger } from '../../src/core/logger.js';
 import type { AppConfig } from '../../src/core/config.js';
 
@@ -47,6 +50,20 @@ describe('createAuthProvider', () => {
       authMode: 'SaasWeb',
       baseUrl: 'https://businesscentral.dynamics.com/t/DEV',
     }), createNullLogger())).toThrow(/SaasWebDeps/);
+  });
+
+  it('returns SaasWebSessionProvider when SaasWebDeps are passed', () => {
+    const p = createAuthProvider(app({
+      authMode: 'SaasWeb',
+      baseUrl: 'https://businesscentral.dynamics.com/7bcb54ae-6d5e-43c7-9402-928aed68ad00/DEV',
+    }), createNullLogger(), {
+      opener: { open: () => false },
+      ensurePortalSession: async () => err(new SignInRequiredError(
+        'A display is required to sign in to Business Central Online.',
+        { openedWindow: false, reason: 'no_display' },
+      )),
+    });
+    expect(p).toBeInstanceOf(SaasWebSessionProvider);
   });
 
   it('returns OAuthAuthProvider for OAuth', () => {

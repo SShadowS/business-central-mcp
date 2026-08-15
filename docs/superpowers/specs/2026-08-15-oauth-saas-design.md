@@ -1,7 +1,7 @@
 # OAuth + BC Online (SaaS) — design
 
 **Date:** 2026-08-15
-**Status:** Implemented for the official API (`bc_query`). `/csh` on SaaS remains blocked by first-party OIDC.
+**Status:** Implemented for the official API (`bc_query`). `/csh` on SaaS is implemented separately — see [2026-08-15-saas-web-session-design.md](2026-08-15-saas-web-session-design.md).
 
 ## Problem
 
