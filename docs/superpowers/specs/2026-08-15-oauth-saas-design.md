@@ -36,7 +36,7 @@ So: **OAuth unlocks the official API immediately. It does not, by itself, unlock
 1. **Auto-detect SaaS URLs.** `parseSaasUrl` extracts Entra tenant + environment. `BC_AUTH` defaults to `auto` (SaaS → `SaasWeb`, else NavUserPassword).
 2. **No MSAL.** Device-code and refresh against the v2.0 token endpoint are small enough to implement and unit-test with mocked `fetch`.
 3. **Built-in public client.** Device-code uses Azure PowerShell `1950a258-227b-4e31-a9cf-717495945fc2` (`oauth-defaults.ts`). Scope `user_impersonation` + `offline_access`.
-4. **Device-code on stderr.** First `bc_query` prints `https://microsoft.com/devicelogin` and a user code. Incomplete sign-in returns `OAUTH_NOT_CONFIGURED`.
+4. **Device-code in the tool result.** First `bc_query` returns `DEVICE_LOGIN_REQUIRED` carrying `https://microsoft.com/devicelogin` and a user code; a retry resumes the pending sign-in (persisted in `STATE_DIR/oauth-pending.json`).
 5. **Refresh cache** at `STATE_DIR/oauth-tokens.json` (mode 0600), keyed by clientId + tenant.
 6. **`bc_query` must not open `/csh`.** Previously `ensureSession()` ran for every tool, so a SaaS `/csh` 404 would have blocked the one tool OAuth can serve.
 7. **OAuth provider still implements `IBCAuthProvider`.** It sends Bearer + any cookies a Bearer GET of the portal produced. A 302 to `login.microsoftonline.com` is treated as "no web session" (cookies cleared), not as success. `invalidate()` drops cookies only, so reconnect does not force another device-code prompt.

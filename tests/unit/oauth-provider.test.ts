@@ -296,6 +296,16 @@ describe('OAuthAuthProvider device-code state machine (fail-fast)', () => {
     expect(pendingCache().load(CLIENT, TENANT)?.userCode).toBe('KEEP-CODE');
   });
 
+  it('pending + token-endpoint 5xx on poll: keeps the pending code (transient, no churn)', async () => {
+    const provider = makeProvider(stubClient({
+      pollDeviceCodeOnce: async () => err(new AuthenticationError('Token request failed: HTTP 503', { oauthError: 'http_503' })),
+    }));
+    seedPending('KEEP-CODE');
+
+    expect(await provider.getAccessToken()).toBeUndefined();
+    expect(pendingCache().load(CLIENT, TENANT)?.userCode).toBe('KEEP-CODE');
+  });
+
   it('authenticate() surfaces DEVICE_LOGIN_REQUIRED as a Result error (non-retryable for SessionManager)', async () => {
     const provider = makeProvider(stubClient());
     const result = await provider.authenticate();

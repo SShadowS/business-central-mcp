@@ -39,7 +39,7 @@ This document is the production plan: re-implement the proven path as proper mod
 
 `SessionFactory` (`src/session/session-factory.ts`) passes `config.bc.tenantId` — the AAD GUID parsed from the URL — into `BCSession.initialize` → `InteractionEncoder.encodeOpenSession`. SaaS OpenSession requires the **internal runtime id** (`msft1a6720t30818544`), not that GUID.
 
-`stdio-server.ts` treats stdin as JSON-RPC. There is no TTY. A device-code prompt on stderr is acceptable for `bc_query`; it cannot collect a password or an Authenticator number for `/csh`.
+`stdio-server.ts` treats stdin as JSON-RPC. There is no TTY, and stderr never reaches the chat user — `bc_query` surfaces its device-code URL + user code in the tool result (`DEVICE_LOGIN_REQUIRED`). Neither channel can collect a password or an Authenticator number for `/csh`.
 
 ### Pain
 
@@ -1241,7 +1241,7 @@ Factory test: captured WS headers use the Chrome constant and `Referer` of the p
 }
 ```
 
-No `BC_PASSWORD`. First `bc_query` prints a device-code prompt on stderr.
+No `BC_PASSWORD`. First `bc_query` returns `DEVICE_LOGIN_REQUIRED` with the devicelogin URL + user code; retry after signing in.
 
 ---
 

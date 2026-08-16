@@ -192,8 +192,9 @@ export class OAuthAuthProvider implements IBCAuthProvider {
       if (oauthError === 'authorization_pending' || oauthError === 'slow_down') {
         return err(new DeviceLoginRequiredError(pending.verificationUri, pending.userCode, pending.expiresAt));
       }
-      if (oauthError === undefined) {
-        // Network failure — keep the pending code; the user may be mid-sign-in.
+      if (oauthError === undefined || String(oauthError).startsWith('http_5')) {
+        // Network or transient token-endpoint failure — keep the pending
+        // code; the user may be mid-sign-in.
         return polled;
       }
       this.pending.clear();
