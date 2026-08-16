@@ -249,6 +249,67 @@ describe('LoginWindow', () => {
     void first;
   });
 
+  it('bind failure returns err (not throw) and a later run() re-attempts the bind', async () => {
+    const { createServer } = await import('node:http');
+    const { EventEmitter } = await import('node:events');
+    let binds = 0;
+    const failingOnce: typeof createServer = ((...args: Parameters<typeof createServer>) => {
+      binds += 1;
+      if (binds > 1) return createServer(...args);
+      const fake = new EventEmitter() as ReturnType<typeof createServer>;
+      fake.listen = ((..._a: unknown[]) => {
+        setImmediate(() => fake.emit('error', new Error('listen EACCES 127.0.0.1')));
+        return fake;
+      }) as typeof fake.listen;
+      fake.close = ((cb?: (err?: Error) => void) => { cb?.(); return fake; }) as typeof fake.close;
+      fake.address = () => null;
+      return fake;
+    }) as typeof createServer;
+
+    const dir = mkdtempSync(join(tmpdir(), 'bc-login-bind-'));
+    dirs.push(dir);
+    let opened = '';
+    const window = new LoginWindow({
+      opener: {
+        open: (url) => {
+          opened = url;
+          return true;
+        },
+      },
+      portalUrl: PORTAL,
+      stateDir: dir,
+      aadTenantId: TENANT,
+      environmentName: 'DEV',
+      timeoutMs: 8_000,
+      closeDelayMs: 100,
+      logger: createNullLogger(),
+      createServerFn: failingOnce,
+      loginFn: async () => ok(undefined),
+    });
+    windows.push(window);
+
+    const first = await window.run();
+    expect(isErr(first)).toBe(true);
+    if (isErr(first)) {
+      expect(first.error).toBeInstanceOf(SignInRequiredError);
+      expect((first.error as SignInRequiredError).reason).toBe('bind_failed');
+      expect((first.error as SignInRequiredError).openedWindow).toBe(false);
+    }
+    expect(opened).toBe('');
+
+    // The failed bind must not poison the singleton: the next run() rebinds
+    // for real and completes a sign-in.
+    const secondP = window.run();
+    await vi.waitFor(() => expect(opened).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/\?k=/));
+    const href = new URL(opened);
+    await fetch(`${href.origin}/login${href.search}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'u@t.com', password: 'x' }),
+    });
+    expect(isOk(await secondP)).toBe(true);
+  });
+
   it('close() rejects an in-flight OTP wait', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'bc-login-otp-'));
     dirs.push(dir);

@@ -44,6 +44,8 @@ export interface LoginWindowOptions {
   fetchFn?: typeof fetch;
   logger: Logger;
   loginFn?: LoginFn;
+  /** Test seam: inject a failing/observable HTTP server factory. */
+  createServerFn?: typeof createServer;
   jar?: CookieJar;
   store?: FileCookieStore;
 }
@@ -96,7 +98,8 @@ export class LoginWindow {
 
   async run(): Promise<LoginWindowResult> {
     if (this.completed) return this.completed;
-    await this.ensureListening();
+    const bindFailure = await this.ensureListening();
+    if (bindFailure) return bindFailure;
     if (this.completed) return this.completed;
 
     if (!this.openAttempted) {
@@ -155,11 +158,28 @@ export class LoginWindow {
     });
   }
 
-  private async ensureListening(): Promise<void> {
-    if (this.server) return;
-    if (this.listening) return this.listening;
-    this.listening = this.listen();
-    await this.listening;
+  /**
+   * Returns undefined when the loopback server is (now) listening, or an err
+   * Result when the bind failed. A failed bind leaves NO state behind
+   * (`server`/`listening` stay unset), so the next run() re-attempts it —
+   * assigning `this.server` before the bind resolved used to poison the
+   * singleton: every later run() skipped listening, opened an empty href,
+   * and parked in waitForDone() with no timeout armed.
+   */
+  private async ensureListening(): Promise<LoginWindowResult | undefined> {
+    if (this.server) return undefined;
+    if (!this.listening) this.listening = this.listen();
+    try {
+      await this.listening;
+      return undefined;
+    } catch (e) {
+      this.listening = undefined;
+      const detail = e instanceof Error ? e.message : String(e);
+      return err(new SignInRequiredError(
+        `Could not start the local sign-in window (${detail}).`,
+        { openedWindow: false, reason: 'bind_failed' },
+      ));
+    }
   }
 
   private async listen(): Promise<void> {
@@ -168,7 +188,7 @@ export class LoginWindow {
     this.openAttempted = false;
     this.completed = undefined;
     this.status = { phase: 'signing-in', message: 'Waiting for sign-in…', busy: false };
-    const server = createServer((req, res) => {
+    const server = (this.opts.createServerFn ?? createServer)((req, res) => {
       this.handle(req, res).catch(() => {
         if (!res.headersSent) {
           res.writeHead(500);
@@ -176,15 +196,16 @@ export class LoginWindow {
         }
       });
     });
-    this.server = server;
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject);
       server.listen(0, '127.0.0.1', () => resolve());
     });
     const addr = server.address();
     if (!addr || typeof addr === 'string') {
+      server.close();
       throw new Error('login window failed to bind 127.0.0.1');
     }
+    this.server = server;
     this.href = `http://127.0.0.1:${addr.port}/?k=${this.k}`;
     const timeoutMs = this.opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.timeout = setTimeout(() => {
