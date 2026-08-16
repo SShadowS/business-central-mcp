@@ -353,6 +353,52 @@ describe('EstsLoginClient', () => {
     expect(jar.hasPortalAuth()).toBe(true);
   });
 
+  it('TOTP sign-in proceeds to the code prompt even when BeginAuth stays throttled', async () => {
+    // The OTP EndAuth body carries no SessionId, so a failed/throttled
+    // BeginAuth must not dead-end the flow — the code prompt plus EndAuth can
+    // still complete it, exactly as the pre-gate flow did.
+    const throttled = JSON.stringify({ Success: false, Retry: true });
+    const steps: Step[] = [
+      { urlMatch: PORTAL, status: 302, location: AUTHORIZE },
+      { urlMatch: AUTHORIZE, status: 200, body: $config() },
+      { urlMatch: 'GetCredentialType', method: 'POST', status: 200, body: '{}' },
+      {
+        urlMatch: LOGIN,
+        method: 'POST',
+        status: 200,
+        body: $config({
+          pgid: 'ConvergedTFA',
+          arrUserProofs: [{ authMethodId: 'PhoneAppOTP' }],
+          urlBeginAuth: BEGIN,
+          urlEndAuth: END,
+          urlPost: PROCESS,
+        }),
+      },
+      { urlMatch: 'BeginAuth', method: 'POST', status: 200, body: throttled },
+      { urlMatch: 'BeginAuth', method: 'POST', status: 200, body: throttled },
+      { urlMatch: 'BeginAuth', method: 'POST', status: 200, body: throttled },
+      { urlMatch: 'EndAuth', method: 'POST', status: 200, body: JSON.stringify({ Success: true, ResultValue: 'Success' }) },
+      { urlMatch: 'ProcessAuth', method: 'POST', status: 200, body: formPostHtml() },
+      {
+        urlMatch: 'remote-sign-in',
+        method: 'POST',
+        status: 302,
+        location: PORTAL,
+        setCookie: [`${TENANT}.auth=ok; Path=/; Secure`],
+      },
+      { urlMatch: PORTAL, status: 200, body: 'ok' },
+    ];
+    const { ests, jar } = client(scriptedFetch(steps));
+    const result = await ests.login({
+      username: 'u@t.com',
+      password: PASSWORD,
+      portalUrl: PORTAL,
+      waitForOtp: async () => '123456',
+    });
+    expect(isOk(result)).toBe(true);
+    expect(jar.hasPortalAuth()).toBe(true);
+  });
+
   it('MFA push tolerates a non-JSON BeginAuth body and still completes via EndAuth', async () => {
     const steps: Step[] = [
       { urlMatch: PORTAL, status: 302, location: AUTHORIZE },

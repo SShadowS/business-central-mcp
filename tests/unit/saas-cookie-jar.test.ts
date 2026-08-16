@@ -127,6 +127,17 @@ describe('CookieJar', () => {
     expect(jar.persistable().some((c) => c.name === '.AspNetCore.Cookies')).toBe(false);
   });
 
+  it('load() rejects records scoped to a bare public suffix', () => {
+    // parseSetCookie guards absorb(); load() must apply the same guard, or a
+    // hand-edited/legacy store record with domain "com" counts as portal auth
+    // and is sent to every .com host contacted.
+    const jar = new CookieJar();
+    jar.load([{ name: `${TENANT}.auth`, value: 'x', domain: 'com', path: '/', secure: true }]);
+    expect(jar.hasPortalAuth()).toBe(false);
+    expect(jar.headerFor('https://evil.example.com/')).toBe('');
+    expect(jar.headerFor(PORTAL)).toBe('');
+  });
+
   it('round-trips persistable records through load', () => {
     const jar = new CookieJar();
     jar.absorb(response([`${TENANT}.auth=keep; Path=/; Secure`]), PORTAL);

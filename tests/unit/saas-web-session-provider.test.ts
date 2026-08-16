@@ -282,6 +282,51 @@ describe('SaasWebSessionProvider', () => {
     if (isErr(auth2)) expect(auth2.error.code).toBe('SIGN_IN_REQUIRED');
   });
 
+  it('escalation cleanses the persisted store — a canceled sign-in is re-offered immediately', async () => {
+    // Clearing only the in-memory jar let loadStoredCookies() resurrect the
+    // proven-dead cookies from disk on every authenticate(), forcing the user
+    // through fresh retryable cycles after canceling the sign-in window.
+    seedCookies();
+    const { fetchFn } = recordFetch(() => new Response('<html>one moment</html>', { status: 200 }));
+    const provider = makeProvider(fetchFn);
+    await provider.authenticate();
+    await provider.prepare();
+    await provider.prepare();
+    const offered = await provider.authenticate();
+    expect(isErr(offered)).toBe(true);
+    if (isErr(offered)) expect(offered.error.code).toBe('SIGN_IN_REQUIRED');
+    // Sign-in was canceled (no display); the NEXT attempt must offer sign-in
+    // again immediately, not resurrect dead cookies into more retry cycles.
+    const again = await provider.authenticate();
+    expect(isErr(again)).toBe(true);
+    if (isErr(again)) expect(again.error.code).toBe('SIGN_IN_REQUIRED');
+  });
+
+  it('unclassifiable shells accumulate across interleaved network failures without either resetting the other', async () => {
+    seedCookies();
+    let mode: 'shell' | 'net' = 'shell';
+    const { fetchFn } = recordFetch(() => {
+      if (mode === 'net') throw new Error('ECONNRESET');
+      return new Response('<html>one moment</html>', { status: 200 });
+    });
+    const provider = makeProvider(fetchFn);
+    const s1 = await provider.authenticate();
+    expect(isErr(s1) && s1.error.code === 'CONNECTION_ERROR').toBe(true);
+    mode = 'net';
+    const n1 = await provider.authenticate();
+    expect(isErr(n1) && n1.error.code === 'CONNECTION_ERROR').toBe(true);
+    expect(provider.isAuthenticated()).toBe(true);
+    mode = 'shell';
+    await provider.authenticate();
+    mode = 'net';
+    await provider.authenticate();
+    expect(provider.isAuthenticated()).toBe(true);
+    mode = 'shell';
+    const third = await provider.authenticate();
+    expect(isErr(third)).toBe(true);
+    if (isErr(third)) expect(third.error.code).toBe('SIGN_IN_REQUIRED');
+  });
+
   it('network failures do not count toward escalation — cookies survive an outage of any length', async () => {
     seedCookies();
     const { fetchFn } = recordFetch(() => { throw new Error('ECONNREFUSED'); });

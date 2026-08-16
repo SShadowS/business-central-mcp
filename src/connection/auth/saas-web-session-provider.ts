@@ -106,10 +106,7 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
         this.authenticated = true;
         return ok(this.authResult());
       }
-      this.noteShellFailure(probe.error);
-      const sessionDead = probe.error instanceof AuthenticationError
-        || this.shellUnclassifiableStreak >= SHELL_UNCLASSIFIABLE_ESCALATION;
-      if (!sessionDead) {
+      if (!this.shellFailureIsFatal(probe.error)) {
         // Transient network/portal failure with stored cookies present:
         // fail retryably instead of popping a sign-in window for a session
         // that is probably still valid.
@@ -117,13 +114,7 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
           'BC Online portal is unreachable (network or portal error); retrying',
         ));
       }
-      // The portal redirected to Entra (session no longer honored), or the
-      // unclassifiable-shell streak hit the escalation limit (a persistent
-      // state the probe cannot classify must not wedge retryable forever).
-      // Drop the stale auth cookies so a fresh sign-in replaces them.
-      this.shellUnclassifiableStreak = 0;
-      this.jar.clearPortalAuth();
-      this.authenticated = false;
+      this.markSessionDead();
     }
 
     const signedIn = await this.login.run();
@@ -180,24 +171,11 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
     // authenticateToken chain that follows.
     const shell = await this.cluster.readPortalShell(this.jar, this.opts.saas);
     if (isErr(shell)) {
-      if (shell.error instanceof AuthenticationError) {
-        // Portal redirected to Entra: the stored session is dead. Clear the
-        // stale auth cookies too, or isAuthenticated() stays true forever and
-        // ConnectionFactory never re-runs authenticate() (sign-in window
-        // could never reopen for the lifetime of the process).
-        this.authenticated = false;
-        this.jar.clearPortalAuth();
-      } else {
-        // ConnectionFactory.create skips authenticate() while
-        // isAuthenticated() is true, so unclassifiable shells seen HERE must
-        // count toward escalation too — otherwise a persistent state wedges
-        // retryable forever with the sign-in window never reopening.
-        this.noteShellFailure(shell.error);
-        if (this.shellUnclassifiableStreak >= SHELL_UNCLASSIFIABLE_ESCALATION) {
-          this.authenticated = false;
-          this.jar.clearPortalAuth();
-        }
-      }
+      // ConnectionFactory.create skips authenticate() while isAuthenticated()
+      // is true, so fatal shell outcomes seen HERE must tear the session down
+      // too — otherwise the sign-in window could never reopen for the
+      // lifetime of the process.
+      if (this.shellFailureIsFatal(shell.error)) this.markSessionDead();
       return shell;
     }
     this.shellUnclassifiableStreak = 0;
@@ -331,8 +309,34 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
     }
   }
 
-  private noteShellFailure(e: unknown): void {
-    if (e instanceof ShellUnclassifiableError) this.shellUnclassifiableStreak++;
+  /**
+   * Classify a readPortalShell failure, updating the escalation streak.
+   * True means the stored session must be treated as dead (Entra redirect,
+   * or the CURRENT failure is an unclassifiable shell and the streak hit the
+   * limit). Network/HTTP failures never return true and never touch the
+   * streak — a stale streak alone must not let an outage kill a session.
+   */
+  private shellFailureIsFatal(e: unknown): boolean {
+    if (e instanceof AuthenticationError) return true;
+    if (e instanceof ShellUnclassifiableError) {
+      this.shellUnclassifiableStreak++;
+      return this.shellUnclassifiableStreak >= SHELL_UNCLASSIFIABLE_ESCALATION;
+    }
+    return false;
+  }
+
+  /**
+   * Tear down a proven-dead session: reset the streak, drop the auth cookies,
+   * and PERSIST the cleared jar — otherwise loadStoredCookies() resurrects
+   * the dead cookies from disk on every authenticate() and a canceled
+   * sign-in is followed by fresh retryable cycles instead of being
+   * re-offered immediately.
+   */
+  private markSessionDead(): void {
+    this.shellUnclassifiableStreak = 0;
+    this.authenticated = false;
+    this.jar.clearPortalAuth();
+    this.persistPortalCookies();
   }
 }
 

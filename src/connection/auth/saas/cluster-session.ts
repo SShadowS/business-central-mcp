@@ -46,10 +46,12 @@ export class SaasClusterSession {
     // flow must follow cross-origin hops to Entra and back, exactly what this
     // read must fail closed on.
     let url = saas.portalUrl;
-    let page = await this.request(jar, url, {
-      headers: { Origin: SAAS_PORTAL_ORIGIN, Referer: saas.portalUrl },
-    });
-    for (let hop = 0; page.res.status >= 300 && page.res.status < 400; hop++) {
+    let page: { res: Response; html: string };
+    for (let hop = 0; ; hop++) {
+      page = await this.request(jar, url, {
+        headers: { Origin: SAAS_PORTAL_ORIGIN, Referer: saas.portalUrl },
+      });
+      if (page.res.status < 300 || page.res.status >= 400) break;
       const location = page.res.headers.get('location') ?? '';
       // Entra classification outranks the hop cap: a sign-in redirect arriving
       // exactly at the cap must still surface as auth-required, or the stale
@@ -73,9 +75,6 @@ export class SaasClusterSession {
         return err(new ConnectionError(`Portal redirected off-origin to ${next.host}`));
       }
       url = next.href;
-      page = await this.request(jar, url, {
-        headers: { Origin: SAAS_PORTAL_ORIGIN, Referer: saas.portalUrl },
-      });
     }
     if (page.res.status >= 400) {
       // An error/maintenance page carries no FixedEndPoint auth; it must fail

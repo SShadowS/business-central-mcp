@@ -67,7 +67,14 @@ export class CookieJar {
   }
 
   load(records: CookieRecord[]): void {
-    for (const rec of records) this.upsert({ ...rec });
+    for (const rec of records) {
+      // Same guard absorb() applies at parse time: a stored record scoped to
+      // a bare public suffix ("com") would count as portal auth and be sent
+      // to every host under that suffix. FileCookieStore validates types
+      // only, so the domain guard must hold here too.
+      if (isBarePublicSuffix(rec.domain)) continue;
+      this.upsert({ ...rec });
+    }
   }
 
   /**
@@ -212,5 +219,5 @@ function isPersistableDomain(domain: string): boolean {
   // auth cookie is sent to the portal and counted by isPortalAuthCookie, so
   // persistence must agree or every restart loses a "persisted" session).
   // ESTS/cluster domains match none of these.
-  return hostInDomain(SAAS_PORTAL_HOST, d) || d.endsWith(`.${SAAS_PORTAL_HOST}`);
+  return hostInDomain(SAAS_PORTAL_HOST, d) || hostInDomain(d, SAAS_PORTAL_HOST);
 }

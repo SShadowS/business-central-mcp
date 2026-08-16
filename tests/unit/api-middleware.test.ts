@@ -181,4 +181,18 @@ describe('bcErrorToHttp', () => {
     expect(body.openedWindow).toBe(false);
     expect(body.reason).toBe('no_display');
   });
+
+  it('carries SessionLostError payload (impactedPageContextIds/reconnectFailed) in the 503 body', () => {
+    const { status, body } = bcErrorToHttp(new SessionLostError('gone', ['pc1', 'pc2'], { reconnectFailed: true }));
+    expect(status).toBe(503);
+    expect(body.impactedPageContextIds).toEqual(['pc1', 'pc2']);
+    expect(body.reconnectFailed).toBe(true);
+  });
+
+  it('does not expose arbitrary error context to REST clients — the wire body is an explicit projection', () => {
+    const { body } = bcErrorToHttp(new ConnectionError('down', { internalUrl: 'https://backend.internal/x' }));
+    expect(body.internalUrl).toBeUndefined();
+    expect(body.error).toBe('down');
+    expect(body.code).toBe('CONNECTION_ERROR');
+  });
 });

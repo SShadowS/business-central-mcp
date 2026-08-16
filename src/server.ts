@@ -143,12 +143,16 @@ async function main() {
     if (!checkApiToken(req, config.server.apiToken)) {
       // WWW-Authenticate marks this 401 as an API-token failure; BC-side
       // sign-in 401s from bcErrorToHttp carry a `code` field and no
-      // WWW-Authenticate, so clients/gateways can tell them apart and not
-      // rotate a perfectly valid API token over an expired BC session.
-      res.writeHead(401, {
-        'Content-Type': 'application/json',
-        'WWW-Authenticate': 'Bearer realm="bc-mcp-api-token"',
-      });
+      // WWW-Authenticate, so REST clients/gateways can tell them apart and
+      // not rotate a valid API token over an expired BC session. NOT sent on
+      // /mcp: MCP streamable-HTTP clients treat 401 + WWW-Authenticate as
+      // the trigger for RFC 9728 OAuth discovery, which this server does not
+      // serve.
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (!(req.url ?? '').startsWith('/mcp')) {
+        headers['WWW-Authenticate'] = 'Bearer realm="bc-mcp-api-token"';
+      }
+      res.writeHead(401, headers);
       res.end(JSON.stringify({ error: 'Unauthorized' }));
       return;
     }
