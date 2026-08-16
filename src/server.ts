@@ -37,7 +37,7 @@ import { buildToolRegistry, type Operations } from './mcp/tool-registry.js';
 import { MCPHandler } from './mcp/handler.js';
 import { PROMPTS } from './mcp/prompts.js';
 import { createApiRoutes } from './api/routes.js';
-import { parseJsonBody, checkApiToken } from './api/middleware.js';
+import { parseJsonBody, checkApiToken, bcErrorToHttp } from './api/middleware.js';
 // isErr no longer needed — SessionManager handles session creation errors internally
 
 async function main() {
@@ -200,8 +200,9 @@ async function main() {
     } catch (e) {
       logger.error(`Request error: ${e instanceof Error ? e.message : String(e)}`);
       if (!res.headersSent) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: e instanceof Error ? e.message : 'Internal error' }));
+        const { status, body } = bcErrorToHttp(e);
+        res.writeHead(status, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(body));
       } else {
         res.destroy();
       }
