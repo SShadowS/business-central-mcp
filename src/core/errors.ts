@@ -2,6 +2,11 @@ export abstract class BCError extends Error {
   public readonly code: string;
   public readonly timestamp: Date;
   public readonly context?: Record<string, unknown>;
+  /** True when resolving this error requires the user to complete a sign-in
+   * flow. Set on the subclass, so a new sign-in-flow error class carries its
+   * own HTTP-401 classification instead of needing registration in a
+   * hand-maintained code list elsewhere. */
+  public readonly authRequired: boolean = false;
   protected constructor(message: string, code: string, context?: Record<string, unknown>) {
     super(message);
     this.name = this.constructor.name;
@@ -22,10 +27,12 @@ export class ConnectionError extends BCError {
   }
 }
 export class AuthenticationError extends BCError {
+  public override readonly authRequired = true;
   constructor(message: string, context?: Record<string, unknown>) { super(message, 'AUTHENTICATION_ERROR', context); }
 }
 
 export class SignInRequiredError extends BCError {
+  public override readonly authRequired = true;
   public readonly openedWindow: boolean;
   public readonly reason: string;
   constructor(message: string, opts: { openedWindow: boolean; reason: string }) {
@@ -43,6 +50,7 @@ export interface UrlElicitation {
 }
 
 export class UrlElicitationRequiredError extends BCError {
+  public override readonly authRequired = true;
   public readonly elicitations: UrlElicitation[];
   constructor(elicitations: UrlElicitation[], message = 'This request requires sign-in in the browser window.') {
     super(message, 'URL_ELICITATION_REQUIRED');
@@ -51,6 +59,7 @@ export class UrlElicitationRequiredError extends BCError {
 }
 
 export class OAuthNotConfiguredError extends BCError {
+  public override readonly authRequired = true;
   constructor(message: string, context?: Record<string, unknown>) {
     super(message, 'OAUTH_NOT_CONFIGURED', context);
   }
@@ -63,6 +72,7 @@ export class OAuthNotConfiguredError extends BCError {
  * interactive terminal, so stderr never reaches the user.
  */
 export class DeviceLoginRequiredError extends BCError {
+  public override readonly authRequired = true;
   public readonly verificationUri: string;
   public readonly userCode: string;
   public readonly expiresAt: number;

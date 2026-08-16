@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { Readable } from 'node:stream';
 import { parseJsonBody, checkApiToken, bcErrorToHttp } from '../../src/api/middleware.js';
 import {
+  AuthenticationError,
   ConnectionError,
   DeviceLoginRequiredError,
   ProtocolError,
@@ -142,6 +143,10 @@ describe('bcErrorToHttp', () => {
     expect(status).toBe(401);
     expect(body.code).toBe('URL_ELICITATION_REQUIRED');
     expect(body.elicitations).toEqual(elicitations);
+  });
+
+  it('maps any authRequired BCError to 401 (classification lives on the class, not a code list)', () => {
+    expect(bcErrorToHttp(new AuthenticationError('bad session')).status).toBe(401);
   });
 
   it('maps ConnectionError and SessionLostError to 503', () => {

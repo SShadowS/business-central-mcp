@@ -32,13 +32,6 @@ export function parseJsonBody(req: IncomingMessage): Promise<unknown> {
   });
 }
 
-const AUTH_REQUIRED_CODES = new Set([
-  'SIGN_IN_REQUIRED',
-  'DEVICE_LOGIN_REQUIRED',
-  'URL_ELICITATION_REQUIRED',
-  'AUTHENTICATION_ERROR',
-  'OAUTH_NOT_CONFIGURED',
-]);
 const UNAVAILABLE_CODES = new Set(['CONNECTION_ERROR', 'TIMEOUT_ERROR', 'SESSION_LOST']);
 
 /**
@@ -63,7 +56,7 @@ export function bcErrorToHttp(e: unknown): { status: number; body: Record<string
   if (e instanceof UrlElicitationRequiredError) {
     body['elicitations'] = e.elicitations;
   }
-  const status = AUTH_REQUIRED_CODES.has(e.code) ? 401
+  const status = e.authRequired ? 401
     : UNAVAILABLE_CODES.has(e.code) ? 503
     : 500;
   return { status, body };
