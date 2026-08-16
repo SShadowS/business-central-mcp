@@ -23,18 +23,20 @@
 | Language | TypeScript / Node 20+ |
 | npm package | [`business-central-mcp`](https://www.npmjs.com/package/business-central-mcp) |
 | BC versions | BC27, BC28 (wire-compatible) |
-| Auth | NavUserPassword (OAuth on roadmap) |
+| Auth | On-prem NavUserPassword. BC Online: ESTS cookie session for `/csh` (no password in env) + device-code for `bc_query`. |
 | Tools | 12 |
-| Tests | 284 unit/protocol + 111 integration |
+| Tests | 901 unit/protocol + 111 integration |
 | License | MIT |
 
 ## Install
+
+**BC Online (sandbox / production):** do not put a password in env. Copy the portal URL from your browser and follow [SaaS sandbox setup](#saas-sandbox-setup). The snippets below are for on-prem NavUserPassword.
 
 ### VSCode
 
 [![Install in VSCode](https://img.shields.io/badge/VSCode-Install-007ACC?logo=visualstudiocode)](vscode:mcp/install?%7B%22name%22%3A%22business-central%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22business-central-mcp%22%5D%2C%22inputs%22%3A%5B%7B%22id%22%3A%22bc_base_url%22%2C%22type%22%3A%22promptString%22%2C%22description%22%3A%22BC%20base%20URL%20%28e.g.%20http%3A%2F%2Fyour-bc-server%2FBC%29%22%7D%2C%7B%22id%22%3A%22bc_username%22%2C%22type%22%3A%22promptString%22%2C%22description%22%3A%22BC%20username%22%7D%2C%7B%22id%22%3A%22bc_password%22%2C%22type%22%3A%22promptString%22%2C%22description%22%3A%22BC%20password%22%2C%22password%22%3Atrue%7D%5D%2C%22env%22%3A%7B%22BC_BASE_URL%22%3A%22%24%7Binput%3Abc_base_url%7D%22%2C%22BC_USERNAME%22%3A%22%24%7Binput%3Abc_username%7D%22%2C%22BC_PASSWORD%22%3A%22%24%7Binput%3Abc_password%7D%22%7D%7D)
 
-Click the badge. VSCode opens and prompts for your BC URL, username, and password, then writes the configured entry to your user `mcp.json`.
+Click the badge. VSCode opens and prompts for your BC URL, username, and password (on-prem), then writes the configured entry to your user `mcp.json`. For BC Online, skip the badge and use the [SaaS sandbox](#saas-sandbox-setup) env (URL + optional email only).
 
 <details>
 <summary><strong>Manual install</strong></summary>
@@ -57,6 +59,23 @@ Workspace: create `.vscode/mcp.json`:
 }
 ```
 
+BC Online — same file, no password:
+
+```json
+{
+  "servers": {
+    "business-central": {
+      "command": "npx",
+      "args": ["-y", "business-central-mcp"],
+      "env": {
+        "BC_BASE_URL": "https://businesscentral.dynamics.com/<aad-tenant-id>/DEV",
+        "BC_USERNAME": "you@tenant.com"
+      }
+    }
+  }
+}
+```
+
 </details>
 
 ### Claude Code
@@ -71,10 +90,20 @@ claude mcp add business-central \
 
 Scope it to the current project with `--scope project`. See `claude mcp --help` for scoping options.
 
+BC Online (no password):
+
+```bash
+claude mcp add business-central \
+  -e BC_BASE_URL=https://businesscentral.dynamics.com/<aad-tenant-id>/DEV \
+  -e BC_USERNAME=you@tenant.com \
+  --scope project \
+  -- npx -y business-central-mcp
+```
+
 ### Claude Desktop
 
 1. Download the latest `.dxt` from [Releases](https://github.com/SShadowS/business-central-mcp/releases/latest).
-2. Double-click. Claude Desktop opens Settings → Extensions and prompts for BC URL, username, and password.
+2. Double-click. Claude Desktop opens Settings → Extensions and prompts for BC URL, username, and password (on-prem). For BC Online, use the [manual snippet](#saas-sandbox-setup) instead — do not store a SaaS password.
 3. Restart Claude Desktop.
 
 <details>
@@ -110,17 +139,22 @@ Restart Claude Desktop.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `BC_BASE_URL` | Yes | — | BC server base URL, e.g. `http://your-bc-server/BC` |
-| `BC_USERNAME` | Yes | — | NavUserPassword username |
-| `BC_PASSWORD` | Yes | — | NavUserPassword password |
+| `BC_BASE_URL` | Yes | — | BC server base URL, e.g. `http://your-bc-server/BC`, or a SaaS portal URL `https://businesscentral.dynamics.com/{aadTenant}/{environment}` |
+| `BC_USERNAME` | NavUserPassword | — | On-prem username. On SaaS this is only an email prefill for the local sign-in window. |
+| `BC_PASSWORD` | NavUserPassword | — | On-prem password. **Ignored on SaaS** (never put a SaaS password in env). |
+| `BC_AUTH` | No | `auto` | `auto` (SaaS URL → `SaasWeb`, otherwise NavUserPassword), `OAuth`, `SaasWeb`, or `NavUserPassword` |
+| `BC_AAD_TENANT_ID` | OAuth (if not in URL) | — | Entra tenant GUID. Taken from a SaaS `BC_BASE_URL` when present |
+| `BC_ENVIRONMENT` | No | from URL | SaaS environment name (`DEV`, `sandbox`, `production`) |
+| `BC_CLIENT_ID` | `bc_query` on SaaS | — | Multi-tenant public Entra app for device-code sign-in (see [bc_query on SaaS](#which-client-id-signs-in-bc_client_id)). UI tools do not need it |
+| `BC_OAUTH_SCOPE` | No | `user_impersonation` + `offline_access` | Override the Entra scope for `bc_query` device-code |
 | `BC_PROFILE` | No | server default | Profile id, e.g. `BUSINESS MANAGER`. Affects which Role Center loads and which pages Tell Me indexes. |
-| `BC_TENANT_ID` | No | `default` | Multi-tenant deployments only. |
+| `BC_TENANT_ID` | No | `default` | On-prem multi-tenant id. SaaS uses the Entra tenant from the URL. |
 | `BC_CLIENT_VERSION` | No | `27.0.0.0` | Version reported to BC during session open. |
 | `BC_APPLICATION_ID` | No | `FIN` | `navigationContext.applicationId` sent at session open. SaaS and cronus images expect `FIN`; some on-prem containers expect `NAV` (see below). |
 | `PORT` | No | `3000` | HTTP transport port (stdio transport ignores this). |
 | `LOG_LEVEL` | No | `info` | `debug` / `info` / `warn` / `error`. |
 | `LOG_DIR` | No | `./logs` | Directory for log files. |
-| `STATE_DIR` | No | `./.state` | Directory for session state. |
+| `STATE_DIR` | No | `{cwd}/.state` | Per-repo directory for `saas-web-cookies.json` and `oauth-tokens.json` (mode 0600). Relative paths resolve against the MCP process working directory (the project you started the agent in). Sessions in the same repo share the file; different repos never share a login. |
 | `BC_INVOKE_TIMEOUT` | No | `30000` | Per-invoke timeout in ms. Kills hung sessions. |
 | `BC_RECONNECT_MAX_RETRIES` | No | `4` | Reconnect attempts after session death. |
 | `BC_RECONNECT_BASE_DELAY` | No | `1000` | Base delay (ms) for exponential reconnect backoff. |
@@ -138,6 +172,91 @@ BC_APPLICATION_ID=NAV
 The failure is misleading because authentication and the `/csh` upgrade complete first (you get a
 101); BC only rejects the `applicationId` inside the `OpenSession` RPC body. SaaS and cronus images
 keep the `FIN` default. Verified against BC 27.1 `onprem` (see issue #10).
+
+### SaaS sandbox setup
+
+You only need the URL from the browser address bar — the same one you use to open Business Central Online:
+
+```
+https://businesscentral.dynamics.com/<aad-tenant-id>/<environment>
+```
+
+`<environment>` is usually `DEV`, `sandbox`, or `production`. **Do not set `BC_PASSWORD`.** Company policy and this server both treat a SaaS password in env as wrong.
+
+1. Copy that portal URL into `BC_BASE_URL` (no extra path, no query string).
+2. Optionally set `BC_USERNAME` to your work email — that only prefills the sign-in form.
+3. Point the MCP at this project (stdio, Grok `.grok/config.toml`, Claude `--scope project`, or a workspace `mcp.json`). Leave `STATE_DIR` unset so cookies land in `{project}/.state/`.
+4. Start the agent on a machine **with a display** (Linux needs `DISPLAY` or `WAYLAND_DISPLAY`). Headless CI cannot complete MFA.
+5. Ask the agent to open a page (`bc_open_page`, e.g. Customer List = 22). A local window (`127.0.0.1`) opens. Sign in with Microsoft and complete Authenticator there. Do not paste the password into chat or tool arguments.
+6. Retry the tool. Cookies are saved as `{project}/.state/saas-web-cookies.json` (mode 0600). Later sessions in the **same repo** reuse them; another repo needs its own sign-in.
+
+Human shortcut (same working directory as the MCP):
+
+```bash
+npx business-central-mcp login
+# from a source checkout:
+npx tsx src/stdio-server.ts login
+```
+
+**Grok** (project-scoped, no password):
+
+```toml
+# .grok/config.toml  — not committed if it holds a tenant URL you do not want shared
+[mcp_servers.business-central]
+command = "npx"
+args = ["-y", "business-central-mcp"]
+
+[mcp_servers.business-central.env]
+BC_BASE_URL = "https://businesscentral.dynamics.com/<aad-tenant-id>/DEV"
+BC_USERNAME = "you@tenant.com"
+```
+
+From a source checkout, point `command` / `args` at `node` + `node_modules/tsx/dist/cli.mjs` + `src/stdio-server.ts` instead of `npx`.
+
+**Claude Desktop / VS Code** (no `BC_PASSWORD`):
+
+```json
+{
+  "mcpServers": {
+    "business-central": {
+      "command": "npx",
+      "args": ["-y", "business-central-mcp"],
+      "env": {
+        "BC_BASE_URL": "https://businesscentral.dynamics.com/<aad-tenant-id>/DEV",
+        "BC_USERNAME": "you@tenant.com"
+      }
+    }
+  }
+}
+```
+
+The WebSocket is not on the portal host. After sign-in the server discovers the cluster and uses `Origin: https://businesscentral.dynamics.com`. You never put a cluster URL in config.
+
+### `bc_query` (OData) on SaaS
+
+`bc_query` does **not** use the `/csh` cookie session. When sign-in is needed the first call returns `DEVICE_LOGIN_REQUIRED` with a `https://microsoft.com/devicelogin` URL and user code — complete it in a browser and retry; the retry picks up the pending sign-in and runs the query. The refresh token is stored in `STATE_DIR/oauth-tokens.json` (mode 0600).
+
+`bc_query` talks to `https://api.businesscentral.dynamics.com/v2.0/{tenant}/{environment}/api/v2.0` with the Bearer token. If device-code is not completed it returns `OAUTH_NOT_CONFIGURED` and never sends Basic.
+
+#### Which client id signs in (`BC_CLIENT_ID`)
+
+`BC_CLIENT_ID` is required for `bc_query` on BC Online: a **multi-tenant public** Entra app with delegated `Dynamics 365 Business Central / user_impersonation`. The publisher registers it ONE time in their **own** tenant; customer tenants register nothing — each user consents at first sign-in (`user_impersonation` is user-consentable), and tenants that disable user consent need a one-time admin-consent click.
+
+Do not borrow a Microsoft first-party client (Azure PowerShell `1950a258-…` as `New-BcAuthContext` does, Azure CLI, …): on tenants with Entra first-party hardening the sign-in fails **in the browser** with `AADSTS65002` ("consent between first party application and first party resource must be configured via preauthorization"), which no tenant admin can consent around. Verified live 2026-08-16 — the same sign-in succeeds on one tenant and fails with 65002 on another. A third-party multi-tenant app is structurally immune (65002 only gates Microsoft-owned client/resource pairs).
+
+Create the app (once, in the publisher tenant):
+
+```bash
+az ad app create --display-name "business-central-mcp" \
+  --is-fallback-public-client true \
+  --sign-in-audience AzureADMultipleOrgs \
+  --required-resource-accesses '[{"resourceAppId":"996def3d-b36c-4153-8607-a6fd3c01b89f","resourceAccess":[{"id":"bce0976a-cb0b-473b-8800-84eda9f8e447","type":"Scope"}]}]' \
+  --query appId -o tsv
+```
+
+(`996def3d…` is the Dynamics 365 Business Central resource; `bce0976a…` is its delegated `user_impersonation` scope.) Put the printed appId in `BC_CLIENT_ID`.
+
+Known wart: when the browser sign-in fails (65002, blocked consent), Entra keeps the device code `authorization_pending`, so retries re-serve the same doomed code until it expires (~15 min). Fix the client id / consent, wait out or ignore the old code, and retry for a fresh one.
 
 ## What can it do?
 
@@ -227,7 +346,7 @@ Each section carries its own content shape:
 | `manifest.json` | Claude Desktop Extension manifest |
 | `scripts/build-dxt.ts` | Builds `.dxt` artifact for Claude Desktop |
 | `.github/workflows/release.yml` | Builds + attaches `.dxt` on `v*` tag pushes |
-| `ROADMAP.md` | Deferred work (OAuth, Cursor, init wizard) |
+| `ROADMAP.md` | Deferred work (Cursor, init wizard) |
 
 ## Development
 
@@ -236,13 +355,14 @@ git clone https://github.com/SShadowS/business-central-mcp
 cd business-central-mcp
 npm install
 npm run start:stdio-direct   # Run from source
-npm test                     # 284 unit + protocol tests
-npm run test:integration     # 111 integration tests against real BC (requires running BC server)
+npm test                     # unit + protocol tests
+npm run test:integration     # Cronus28 integration tests (requires running BC server)
+npm run test:saas            # BC Online smoke (needs a signed-in STATE_DIR cookie file)
 ```
 
 ## Roadmap
 
-OAuth, Cursor support, an interactive `init` wizard, and a few protocol gaps.
+Cursor support, an interactive `init` wizard, and a few protocol gaps.
 See [ROADMAP.md](ROADMAP.md) for the full list and priorities.
 
 ---

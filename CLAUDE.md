@@ -103,9 +103,23 @@ Every session starts with an `OpenSession` RPC that returns `ServerSessionId`, `
 Reference: `BCSessionManager.ts` (v1), `NsServiceJsonRpcHostFactory.cs` (decompiled)
 
 ### WebSocket `/csh` Upgrade Requires an `Origin` Header (BC 28.3+)
-The `/csh` upgrade MUST carry an `Origin` header of the form `<scheme>://<host>[:port]` (no path). BC 28.3's web server (`Prod.Client.WebCoreApp`) runs `RequestOriginValidationMiddleware`, which 403s any WebSocket upgrade whose Origin is empty or cross-origin (`DisableWebSocketOriginValidation` defaults to false). The `ws` npm client sends no Origin unless told to, so `ConnectionFactory.create()` sets `headers['Origin'] = new URL(baseUrl).origin`. Same-origin is always allowed; the header is a no-op on BC 28.0, which does not gate on origin. Do NOT put Origin in `getWebSocketHeaders()` — the HTTP report-download path reuses those headers and must not send it.
+The `/csh` upgrade MUST carry an `Origin` header of the form `<scheme>://<host>[:port]` (no path). BC 28.3's web server (`Prod.Client.WebCoreApp`) runs `RequestOriginValidationMiddleware`, which 403s any WebSocket upgrade whose Origin is empty or cross-origin (`DisableWebSocketOriginValidation` defaults to false). The `ws` npm client sends no Origin unless told to, so `ConnectionFactory.create()` sets `headers['Origin']` from `auth.prepare().origin` (on-prem: `new URL(baseUrl).origin`; SaaS: `https://businesscentral.dynamics.com` — a cluster Origin is HTTP 500). Same-origin is always allowed; the header is a no-op on BC 28.0, which does not gate on origin. Do NOT put Origin in `getWebSocketHeaders()` — the HTTP report-download path reuses those headers and must not send it.
 
 Reference: decompiled `RequestOriginValidationMiddleware.IsSameOrigin` / `IsOriginAllowedForWebSocket` (28.3 `Prod.Client.WebCoreApp.dll`); `docs/investigations/2026-07-24-bc283-csh-403.md`; live cronus28 (403 without Origin -> 101 with it).
+
+### SaaS / BC Online web-client session (`SaasWeb`)
+
+A `businesscentral.dynamics.com/{aadTenant}/{env}` URL selects `authMode: 'SaasWeb'`. UI tools use `SaasWebSessionProvider` (ESTS cookie session, no `BC_PASSWORD`). `bc_query` uses a separate `OAuthAuthProvider` (device-code) and requires `BC_CLIENT_ID`: a publisher-owned multi-tenant public Entra app with delegated `user_impersonation` — customers register nothing and consent per user. Missing sign-in fails fast with `DEVICE_LOGIN_REQUIRED` carrying the devicelogin URL + user code (pending sign-in persisted in `{stateDir}/oauth-pending.json`; retry polls once and resumes); without `BC_CLIENT_ID` it returns `OAUTH_NOT_CONFIGURED`; it never sends Basic. Do not borrow Microsoft first-party clients (Azure PowerShell `1950a258…` etc.): hardened tenants reject them at browser sign-in with `AADSTS65002` (tenant-dependent, verified live 2026-08-16), invisible to the tool — the code just stays pending.
+
+- First UI tool opens a loopback window (`127.0.0.1` + `xdg-open` / `open` / `start`). Password and MFA stay there. Optional `npx business-central-mcp login` (or `npx tsx src/stdio-server.ts login`).
+- Portal cookies: `{cwd}/.state/saas-web-cookies.json` (or `STATE_DIR` if set), mode 0600. Per-repo; sessions in the same repo share the file. `isAuthenticated()` = `{tid}.auth` present. `invalidate()` drops the tab only.
+- `/csh` is `wss://{cluster}/tenant/{runtimeId}/tab/{tabId}/csh` from `prepare()` (`ConnectionBinding.wsUrl`). `Origin` is `https://businesscentral.dynamics.com` (cluster Origin → HTTP 500). New tab every WebSocket.
+- OpenSession `tenantId` is the cluster runtime id (`msft1…`) from `/api/deployment`, via `ConnectionFactory.sessionTenantId` after `prepare()`. Config `bc.tenantId` stays the AAD GUID.
+- Downloads use the tab HTTPS base (`ConnectionBinding.httpBaseUrl` on the last `prepare()`), same-session cookies.
+- `SessionManager` does not retry `SIGN_IN_REQUIRED` / `URL_ELICITATION_REQUIRED`.
+- Do not import `scripts/proto-saas-*` or `ensure-chromium.ts` from `src/`.
+
+Reference: `docs/superpowers/specs/2026-08-15-saas-web-session-design.md`.
 
 ### Parameter Case Sensitivity
 BC uses case-INSENSITIVE parameter matching. Verified from decompiled `InteractionParameterHelper.TryGetValueIgnoreCase` which uses `StringComparison.OrdinalIgnoreCase`. Both camelCase and PascalCase work.

@@ -15,10 +15,69 @@ export abstract class BCError extends Error {
   }
 }
 export class ConnectionError extends BCError {
-  constructor(message: string, context?: Record<string, unknown>) { super(message, 'CONNECTION_ERROR', context); }
+  public readonly status?: number;
+  constructor(message: string, context?: Record<string, unknown>) {
+    super(message, 'CONNECTION_ERROR', context);
+    this.status = typeof context?.status === 'number' ? context.status : undefined;
+  }
 }
 export class AuthenticationError extends BCError {
   constructor(message: string, context?: Record<string, unknown>) { super(message, 'AUTHENTICATION_ERROR', context); }
+}
+
+export class SignInRequiredError extends BCError {
+  public readonly openedWindow: boolean;
+  public readonly reason: string;
+  constructor(message: string, opts: { openedWindow: boolean; reason: string }) {
+    super(message, 'SIGN_IN_REQUIRED', opts);
+    this.openedWindow = opts.openedWindow;
+    this.reason = opts.reason;
+  }
+}
+
+export interface UrlElicitation {
+  mode: 'url';
+  elicitationId: string;
+  url: string;
+  message: string;
+}
+
+export class UrlElicitationRequiredError extends BCError {
+  public readonly elicitations: UrlElicitation[];
+  constructor(elicitations: UrlElicitation[], message = 'This request requires sign-in in the browser window.') {
+    super(message, 'URL_ELICITATION_REQUIRED');
+    this.elicitations = elicitations;
+  }
+}
+
+export class OAuthNotConfiguredError extends BCError {
+  constructor(message: string, context?: Record<string, unknown>) {
+    super(message, 'OAUTH_NOT_CONFIGURED', context);
+  }
+}
+
+/**
+ * A device-code sign-in is in flight: the user must open the verification
+ * URL and enter the code, then retry the tool. The message carries the URL
+ * and code so the MCP client can show them in chat — the MCP server has no
+ * interactive terminal, so stderr never reaches the user.
+ */
+export class DeviceLoginRequiredError extends BCError {
+  public readonly verificationUri: string;
+  public readonly userCode: string;
+  public readonly expiresAt: number;
+  constructor(verificationUri: string, userCode: string, expiresAt: number) {
+    super(
+      `Sign in to Business Central: open ${verificationUri} and enter code ${userCode}. `
+      + `The code expires in about ${Math.max(1, Math.round((expiresAt - Date.now()) / 60_000))} minutes. `
+      + 'Retry this tool after signing in.',
+      'DEVICE_LOGIN_REQUIRED',
+      { verificationUri, userCode, expiresAt },
+    );
+    this.verificationUri = verificationUri;
+    this.userCode = userCode;
+    this.expiresAt = expiresAt;
+  }
 }
 export class TimeoutError extends BCError {
   constructor(message: string, context?: Record<string, unknown>) { super(message, 'TIMEOUT_ERROR', context); }
@@ -182,6 +241,10 @@ const ERROR_HINTS: Record<string, string> = {
   STALE_CONTEXT: 'The page changed since you last read it (stateVersion mismatch). Re-read with bc_read_data to get the current stateVersion, then retry.',
   INVALID_BOOKMARK: 'The anchor bookmark is no longer loaded in BC. Re-read the section with bc_read_data and retry with a current bookmark.',
   MULTI_ROW_ACTION_UNAVAILABLE: 'This page disables the action for multiple selected rows. Retry with a single bookmark, or repeat the action per row.',
+  SIGN_IN_REQUIRED: 'Complete Microsoft sign-in in the window that opened (Authenticator number matching), then retry this tool. If no window appeared, run the MCP on a machine with a display or run `npx business-central-mcp login` with the same `STATE_DIR`.',
+  OAUTH_NOT_CONFIGURED: 'bc_query on BC Online needs BC_CLIENT_ID set to a multi-tenant public Entra app (delegated user_impersonation). If it is set, check the server logs. UI tools do not need this.',
+  DEVICE_LOGIN_REQUIRED: 'Show the user the sign-in URL and code from this message. After they complete sign-in, retry this tool — it picks up the pending sign-in automatically.',
+  URL_ELICITATION_REQUIRED: 'The host must open the sign-in page. Retry the tool after completing sign-in.',
 };
 
 /**

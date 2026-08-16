@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { z } from 'zod';
-import { MCPHandler } from '../../src/mcp/handler.js';
+import { MCPHandler, URL_ELICITATION_JSONRPC_CODE } from '../../src/mcp/handler.js';
 import type { ToolDefinition } from '../../src/mcp/tool-registry.js';
-import { BCError, SessionLostError, BusinessError, BusinessValidationError } from '../../src/core/errors.js';
+import { BCError, SessionLostError, BusinessError, BusinessValidationError, SignInRequiredError, UrlElicitationRequiredError } from '../../src/core/errors.js';
+import { ClientElicitationPort } from '../../src/mcp/elicitation-port.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -55,6 +56,22 @@ describe('MCPHandler.handleRequest — initialize', () => {
     // The prompts capability is advertised only when the handler is given
     // prompts; this bare handler has none.
     expect((result.capabilities as Record<string, unknown>).prompts).toBeUndefined();
+  });
+
+  it('sets elicitationPort.url when the client advertises elicitation.url', async () => {
+    const port = new ClientElicitationPort();
+    const handler = new MCPHandler([], makeLogger(), [], { elicitationPort: port });
+    await handler.handleRequest(makeRequest('initialize', { capabilities: { elicitation: { url: {} } } }));
+    expect(port.url).toBe(true);
+    expect(port.form).toBe(true);
+  });
+
+  it('leaves elicitationPort.url false for omitted or form-only elicitation', async () => {
+    const port = new ClientElicitationPort();
+    const handler = new MCPHandler([], makeLogger(), [], { elicitationPort: port });
+    await handler.handleRequest(makeRequest('initialize', { capabilities: { elicitation: {} } }));
+    expect(port.url).toBe(false);
+    expect(port.form).toBe(true);
   });
 
   it('sets isInitialized to true after the call', async () => {
@@ -257,6 +274,36 @@ describe('MCPHandler.handleRequest — tools/call: err result', () => {
 // ---------------------------------------------------------------------------
 
 describe('MCPHandler.handleRequest — tools/call: thrown BCError', () => {
+  it('returns JSON-RPC -32042 when execute throws UrlElicitationRequiredError', async () => {
+    const elic = new UrlElicitationRequiredError([{
+      mode: 'url',
+      elicitationId: '00000000-0000-0000-0000-000000000001',
+      url: 'http://127.0.0.1:1/?k=test',
+      message: 'Sign in to Business Central in the window that opened.',
+    }]);
+    const execute = vi.fn().mockRejectedValue(elic);
+    const handler = new MCPHandler([makeTool('bc_open_page', z.object({}), execute)], makeLogger());
+    const res = await handler.handleRequest(makeRequest('tools/call', { name: 'bc_open_page', arguments: {} }));
+    expect(res.result).toBeUndefined();
+    expect(res.error?.code).toBe(URL_ELICITATION_JSONRPC_CODE);
+    expect(res.error?.data).toEqual({ elicitations: elic.elicitations });
+  });
+
+  it('returns result.isError for SignInRequiredError, not -32042', async () => {
+    const signIn = new SignInRequiredError('A display is required to sign in to Business Central Online.', {
+      openedWindow: false,
+      reason: 'no_display',
+    });
+    const execute = vi.fn().mockRejectedValue(signIn);
+    const handler = new MCPHandler([makeTool('bc_open_page', z.object({}), execute)], makeLogger());
+    const res = await handler.handleRequest(makeRequest('tools/call', { name: 'bc_open_page', arguments: {} }));
+    expect(res.error).toBeUndefined();
+    const result = res.result as { content: Array<{ text: string }>; isError: boolean };
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('Error [SIGN_IN_REQUIRED]:');
+    expect(result.content[0].text).toContain('Hint:');
+  });
+
   it('returns isError:true with formatBcError output when execute throws BCError subclass', async () => {
     const bcErr = new BusinessError({ bcText: 'Cannot post invoice.', severity: 'Error', source: 'message' });
     const execute = vi.fn().mockRejectedValue(bcErr);

@@ -1,7 +1,10 @@
 import type { ToolDefinition } from './tool-registry.js';
 import type { PromptDefinition } from './prompts.js';
 import type { Logger } from '../core/logger.js';
-import { SessionLostError, BCError, errorHint } from '../core/errors.js';
+import { SessionLostError, BCError, UrlElicitationRequiredError, errorHint } from '../core/errors.js';
+import { applyElicitationCapabilities, type ClientElicitationPort } from './elicitation-port.js';
+
+export const URL_ELICITATION_JSONRPC_CODE = -32042;
 
 interface JsonRpcRequest {
   jsonrpc: string;
@@ -40,6 +43,7 @@ export function formatBcError(e: { code?: string; message: string }): string {
 
 export class MCPHandler {
   private initialized = false;
+  private readonly elicitationPort: ClientElicitationPort | undefined;
 
   get isInitialized(): boolean {
     return this.initialized;
@@ -49,7 +53,10 @@ export class MCPHandler {
     private readonly tools: ToolDefinition[],
     private readonly logger: Logger,
     private readonly prompts: PromptDefinition[] = [],
-  ) {}
+    opts?: { elicitationPort?: ClientElicitationPort },
+  ) {
+    this.elicitationPort = opts?.elicitationPort;
+  }
 
   async handleRequest(request: JsonRpcRequest): Promise<JsonRpcResponse> {
     try {
@@ -84,6 +91,11 @@ export class MCPHandler {
 
   private handleInitialize(request: JsonRpcRequest): JsonRpcResponse {
     this.initialized = true;
+    if (this.elicitationPort) {
+      const elic = (request.params as { capabilities?: { elicitation?: unknown } } | undefined)
+        ?.capabilities?.elicitation;
+      applyElicitationCapabilities(this.elicitationPort, elic);
+    }
     return {
       jsonrpc: '2.0',
       id: request.id,
@@ -190,6 +202,9 @@ export class MCPHandler {
         };
       } else {
         const errObj = r.error as { code?: string; message?: string } | undefined;
+        if (errObj instanceof UrlElicitationRequiredError || errObj?.code === 'URL_ELICITATION_REQUIRED') {
+          return urlElicitationResponse(request.id, errObj as UrlElicitationRequiredError);
+        }
         const text = (errObj && typeof errObj.code === 'string')
           ? formatBcError(errObj as { code: string; message: string })
           : `Error: ${errObj?.message ?? 'Unknown error'}`;
@@ -203,6 +218,9 @@ export class MCPHandler {
         };
       }
     } catch (e) {
+      if (e instanceof UrlElicitationRequiredError) {
+        return urlElicitationResponse(request.id, e);
+      }
       // BCError subclasses (BusinessValidationError, BusinessError, SessionLostError, etc.)
       if (e instanceof BCError) {
         if (e instanceof SessionLostError) {
@@ -231,4 +249,16 @@ export class MCPHandler {
       };
     }
   }
+}
+
+function urlElicitationResponse(id: unknown, e: UrlElicitationRequiredError): JsonRpcResponse {
+  return {
+    jsonrpc: '2.0',
+    id,
+    error: {
+      code: URL_ELICITATION_JSONRPC_CODE,
+      message: e.message,
+      data: { elicitations: e.elicitations },
+    },
+  };
 }

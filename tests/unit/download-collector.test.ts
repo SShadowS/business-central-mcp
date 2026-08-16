@@ -49,6 +49,18 @@ describe('collectDownloads', () => {
     expect(r.external).toHaveLength(1);
   });
 
+  it('classifies cluster DynamicFileHandler as external against the portal base and fetchable against the tab base', () => {
+    const tab = 'https://cluster.appservices.us.businesscentral.dynamics.com/tenant/msft/tab/T/';
+    const file = `${tab}DynamicFileHandler.axd?fname=a.xlsx`;
+    const portal = 'https://businesscentral.dynamics.com/t/DEV';
+    const againstPortal = collectDownloads([dl(file)], { baseUrl: portal });
+    expect(againstPortal.refs).toEqual([]);
+    expect(againstPortal.external).toHaveLength(1);
+    const againstTab = collectDownloads([dl(file)], { baseUrl: tab });
+    expect(againstTab.refs).toHaveLength(1);
+    expect(againstTab.external).toEqual([]);
+  });
+
   it('preserves order across multiple FileDownloadReady events', () => {
     const r = collectDownloads([dl('DynamicFileHandler.axd?fname=1.pdf'), dl('DynamicFileHandler.axd?fname=2.pdf')], { baseUrl: BASE });
     expect(r.refs.map(x => x.suggestedFileName)).toEqual(['1.pdf', '2.pdf']);

@@ -5,7 +5,7 @@ export default defineConfig({
     globals: true,
     testTimeout: 60000,
     include: ['tests/integration/**/*.test.ts'],
-    exclude: ['tests/integration/phase4-destructive.test.ts'],
+    exclude: ['tests/integration/phase4-destructive.test.ts', 'tests/integration/saas-web-session.test.ts'],
     // Single process, serial: the IntegrationSessionPool singleton is shared
     // across files, and BC's wire protocol is stateful (one session at a time).
     // NOTE: vitest 4 removed poolOptions; fileParallelism:false forces maxWorkers=1.

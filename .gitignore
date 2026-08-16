@@ -8,3 +8,5 @@ reference/
 coverage/
 .worktrees/
 dist-dxt/
+
+.state*/

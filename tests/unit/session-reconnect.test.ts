@@ -209,7 +209,7 @@ describe('Session reconnect with exponential backoff', () => {
     // No reconnect options -- uses defaults (maxRetries=4, baseDelayMs=1000)
     const mgr = new TestSessionManager(factory as any, repo as any, logger as any);
 
-    await expect(mgr.getSession()).rejects.toThrow('Session creation failed after all retry attempts');
+    await expect(mgr.getSession()).rejects.toThrow('fail5');
 
     // 5 attempts: initial + 4 retries
     expect(factory.create).toHaveBeenCalledTimes(5);

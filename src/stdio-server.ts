@@ -2,7 +2,8 @@
 import { createInterface } from 'node:readline';
 import { loadConfig } from './core/config.js';
 import { createLogger } from './core/logger.js';
-import { NTLMAuthProvider } from './connection/auth/ntlm-provider.js';
+import { composeAuthProviders } from './connection/auth/create-auth-provider.js';
+import { ClientElicitationPort } from './mcp/elicitation-port.js';
 import { ConnectionFactory } from './connection/connection-factory.js';
 import { EventDecoder } from './protocol/event-decoder.js';
 import { InteractionEncoder } from './protocol/interaction-encoder.js';
@@ -32,13 +33,19 @@ import { WizardNavigateOperation } from './operations/wizard-navigate.js';
 import { DownloadService } from './services/download-service.js';
 import { LookupService } from './services/lookup-service.js';
 import { LookupOperation } from './operations/lookup.js';
-import { QueryOperation } from './operations/query.js';
+import { QueryOperation, createQueryOperation } from './operations/query.js';
 import { buildToolRegistry, type Operations } from './mcp/tool-registry.js';
 import { MCPHandler } from './mcp/handler.js';
 import { PROMPTS } from './mcp/prompts.js';
 // isErr no longer needed — SessionManager handles session creation errors internally
 
 async function main() {
+  if (process.argv[2] === 'login') {
+    const { runLoginCli } = await import('./cli/login.js');
+    await runLoginCli(loadConfig());
+    process.exit(process.exitCode ?? 0);
+  }
+
   const config = loadConfig();
   // Logger already writes to stderr (via writeStderr in logger.ts) — stdout is sacred (JSON-RPC only)
   const logger = createLogger(config.logging);
@@ -46,13 +53,10 @@ async function main() {
   logger.info('BC MCP Server v2 (stdio) starting...');
 
   // Infrastructure
-  const authProvider = new NTLMAuthProvider({
-    baseUrl: config.bc.baseUrl,
-    username: config.bc.username,
-    password: config.bc.password,
-    tenantId: config.bc.tenantId,
-  }, logger);
-  const connectionFactory = new ConnectionFactory(authProvider, config.bc, logger);
+  const elicitationPort = new ClientElicitationPort();
+  const { uiAuth, apiAuth } = composeAuthProviders(config, logger, elicitationPort);
+  const connectionFactory = new ConnectionFactory(uiAuth, config.bc, logger);
+  const queryOperation = createQueryOperation(config, apiAuth);
 
   // Protocol
   const decoder = new EventDecoder();
@@ -81,7 +85,10 @@ async function main() {
     const searchService = new SearchService(s, logger);
     const lookupService = new LookupService(s, pageContextRepo, logger);
     const httpClient = connectionFactory.createHttpClient();
-    const downloadService = new DownloadService(httpClient, config.bc.baseUrl, config.bc.downloadLimits, logger);
+    // Same-origin download guard must use the session's HTTP base (the tab
+    // base on SaaS), not the portal baseUrl, or cluster DynamicFileHandler
+    // URLs are misclassified as external and never fetched.
+    const downloadService = new DownloadService(httpClient, connectionFactory.httpBaseUrl, config.bc.downloadLimits, logger);
 
     const operations: Operations = {
       openPage: new OpenPageOperation(pageService),
@@ -97,13 +104,7 @@ async function main() {
       runReport: new RunReportOperation(s, pageContextRepo, downloadService),
       wizardNavigate: new WizardNavigateOperation(actionService, pageContextRepo, downloadService),
       lookup: new LookupOperation(lookupService),
-      query: new QueryOperation({
-        odataUrl: config.bc.odataUrl,
-        tenantId: config.bc.tenantId,
-        username: config.bc.username,
-        password: config.bc.password,
-        defaultCompanyName: config.bc.odataCompanyName,
-      }),
+      query: queryOperation,
     };
 
     return buildToolRegistry(operations);
@@ -131,6 +132,12 @@ async function main() {
   const lazyTools = staticTools.map(toolDef => ({
     ...toolDef,
     execute: async (input: unknown) => {
+      // bc_query talks to the OData API and must not require a /csh session.
+      // SaaS OAuth can obtain an API token even when the first-party web-client
+      // cookie session (needed for /csh) cannot be established.
+      if (toolDef.name === 'bc_query') {
+        return queryOperation.execute(input as Parameters<QueryOperation['execute']>[0]);
+      }
       const tools = await ensureSession();
       const resolved = tools.find(t => t.name === toolDef.name);
       if (!resolved) throw new Error(`Tool not found after session init: ${toolDef.name}`);
@@ -138,7 +145,7 @@ async function main() {
     },
   }));
 
-  const mcpHandler = new MCPHandler(lazyTools, logger, PROMPTS);
+  const mcpHandler = new MCPHandler(lazyTools, logger, PROMPTS, { elicitationPort });
 
   // Read JSON-RPC from stdin, write responses to stdout
   const rl = createInterface({ input: process.stdin, terminal: false });

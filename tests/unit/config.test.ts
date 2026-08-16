@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { loadConfig } from '../../src/core/config.js';
+import { BC_API_DELEGATED_SCOPE } from '../../src/connection/auth/oauth-defaults.js';
 
 describe('loadConfig', () => {
   const originalEnv = process.env;
@@ -63,6 +64,96 @@ describe('loadConfig', () => {
     expect(config.bc.tenantId).toBe('custom');
     expect(config.port).toBe(4000);
     expect(config.logging.level).toBe('debug');
+  });
+
+  it('defaults authMode to NavUserPassword for on-prem URLs', () => {
+    expect(loadConfig().bc.authMode).toBe('NavUserPassword');
+    expect(loadConfig().bc.appendTenantQuery).toBe(true);
+  });
+});
+
+describe('loadConfig OAuth / SaaS', () => {
+  const TENANT = '7bcb54ae-6d5e-43c7-9402-928aed68ad00';
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+    delete process.env.BC_USERNAME;
+    delete process.env.BC_PASSWORD;
+    delete process.env.BC_AAD_TENANT_ID;
+    delete process.env.BC_CLIENT_ID;
+    delete process.env.BC_AUTH;
+    delete process.env.BC_ODATA_URL;
+    delete process.env.BC_ENVIRONMENT;
+    delete process.env.BC_TENANT_ID;
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  it('auto-selects SaasWeb for a businesscentral.dynamics.com URL and parses tenant/env', () => {
+    process.env.BC_BASE_URL = `https://businesscentral.dynamics.com/${TENANT}/DEV`;
+    const c = loadConfig();
+    expect(c.bc.authMode).toBe('SaasWeb');
+    expect(c.bc.tenantId).toBe(TENANT);
+    expect(c.bc.environmentName).toBe('DEV');
+    expect(c.bc.baseUrl).toBe(`https://businesscentral.dynamics.com/${TENANT}/DEV`);
+    expect(c.bc.odataUrl).toBe(`https://api.businesscentral.dynamics.com/v2.0/${TENANT}/DEV`);
+    expect(c.bc.appendTenantQuery).toBe(false);
+    expect(c.bc.oauth).toBeUndefined();
+    expect(c.bc.username).toBe('');
+    expect(c.bc.password).toBe('');
+  });
+
+  it('populates oauth on SaaS when BC_CLIENT_ID is set', () => {
+    process.env.BC_BASE_URL = `https://businesscentral.dynamics.com/${TENANT}/DEV`;
+    process.env.BC_CLIENT_ID = '11111111-1111-1111-1111-111111111111';
+    expect(loadConfig().bc.oauth).toEqual({
+      aadTenantId: TENANT,
+      clientId: '11111111-1111-1111-1111-111111111111',
+      scope: BC_API_DELEGATED_SCOPE,
+    });
+  });
+
+  it('does not require BC_USERNAME/BC_PASSWORD for SaaS', () => {
+    process.env.BC_BASE_URL = `https://businesscentral.dynamics.com/${TENANT}/DEV`;
+    expect(() => loadConfig()).not.toThrow();
+  });
+
+  it('ignores BC_PASSWORD on a SaaS URL', () => {
+    process.env.BC_BASE_URL = `https://businesscentral.dynamics.com/${TENANT}/DEV`;
+    process.env.BC_PASSWORD = 'leak';
+    expect(loadConfig().bc.password).toBe('');
+  });
+
+  it('BC_AUTH=OAuth on an on-prem URL requires BC_AAD_TENANT_ID', () => {
+    process.env.BC_BASE_URL = 'http://cronus28/BC';
+    process.env.BC_AUTH = 'OAuth';
+    expect(() => loadConfig()).toThrow('BC_AAD_TENANT_ID');
+  });
+
+  it('BC_AUTH=OAuth requires BC_CLIENT_ID', () => {
+    process.env.BC_BASE_URL = 'http://cronus28/BC';
+    process.env.BC_AUTH = 'OAuth';
+    process.env.BC_AAD_TENANT_ID = TENANT;
+    expect(() => loadConfig()).toThrow('BC_CLIENT_ID');
+  });
+
+  it('BC_AUTH=OAuth uses BC_CLIENT_ID once tenant and client are set', () => {
+    process.env.BC_BASE_URL = 'http://cronus28/BC';
+    process.env.BC_AUTH = 'OAuth';
+    process.env.BC_AAD_TENANT_ID = TENANT;
+    process.env.BC_CLIENT_ID = '11111111-1111-1111-1111-111111111111';
+    const c = loadConfig();
+    expect(c.bc.authMode).toBe('OAuth');
+    expect(c.bc.oauth?.clientId).toBe('11111111-1111-1111-1111-111111111111');
+  });
+
+  it('BC_AUTH=NavUserPassword keeps requiring username/password even for a SaaS URL', () => {
+    process.env.BC_BASE_URL = `https://businesscentral.dynamics.com/${TENANT}/DEV`;
+    process.env.BC_AUTH = 'NavUserPassword';
+    expect(() => loadConfig()).toThrow('BC_USERNAME');
   });
 });
 

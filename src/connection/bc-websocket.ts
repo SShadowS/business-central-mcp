@@ -78,7 +78,11 @@ export class BCWebSocket {
       });
 
       ws.on('error', (e) => {
-        settle(err(new ConnectionError(`WebSocket connection failed: ${e.message}`)));
+        const status = httpStatusFromWsMessage(e.message);
+        settle(err(new ConnectionError(
+          `WebSocket connection failed: ${e.message}`,
+          status !== undefined ? { status } : undefined,
+        )));
       });
 
       signal.addEventListener(
@@ -298,4 +302,10 @@ export class BCWebSocket {
   get isConnected(): boolean {
     return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
   }
+}
+
+export function httpStatusFromWsMessage(message: string): number | undefined {
+  const match = /Unexpected server response:\s*(\d{3})\b/i.exec(message);
+  if (!match) return undefined;
+  return Number(match[1]);
 }

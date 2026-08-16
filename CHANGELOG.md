@@ -9,7 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **OAuth / Microsoft Entra ID authentication.** A SaaS portal URL (or
+  `BC_AUTH=OAuth`) acquires a Standard API token via device-code (built-in
+  public client) and uses it as `Authorization: Bearer` for `bc_query`.
+  Refresh tokens are cached under `STATE_DIR`. `BC_USERNAME` / `BC_PASSWORD`
+  are not required in this mode.
+- **SaaS URL parsing.** A portal URL such as
+  `https://businesscentral.dynamics.com/7bcb54ae-…/DEV` is split into Entra
+  tenant + environment. OData is derived as
+  `https://api.businesscentral.dynamics.com/v2.0/{tenant}/{environment}`.
+- **`bc_query` no longer opens a `/csh` session.** The OData tool is
+  independent of the web-client WebSocket, so SaaS OAuth works for bulk reads
+  even when the first-party web-client cookie session cannot be established.
+- **Device-code sign-in surfaces in chat.** When `bc_query` needs a sign-in it
+  fails fast with `DEVICE_LOGIN_REQUIRED` whose message carries the
+  https://microsoft.com/devicelogin URL and user code (instead of blocking the
+  tool call and printing the code on stderr, which MCP clients never show).
+  The pending sign-in is persisted in `STATE_DIR/oauth-pending.json`; retrying
+  the tool polls once and resumes — same code, no re-prompt — then runs the
+  query once sign-in is complete. `BC_CLIENT_ID` is required: a
+  publisher-owned multi-tenant public app (see README "bc_query on SaaS") —
+  customer tenants never register anything. Borrowed Microsoft first-party
+  clients fail at sign-in with `AADSTS65002` on hardened tenants.
+
 ### Changed
+
+- Config: new `BC_AUTH`, `BC_AAD_TENANT_ID`, `BC_ENVIRONMENT`, `BC_OAUTH_SCOPE`.
+  `BC_USERNAME` / `BC_PASSWORD` are required only for `NavUserPassword`.
 
 ### Fixed
 
