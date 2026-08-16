@@ -49,4 +49,28 @@ describe('parseDeploymentJson', () => {
     expect(parseDeploymentJson('not-json')).toBeUndefined();
     expect(parseDeploymentJson(JSON.stringify({ status: 'Ready' }))).toBeUndefined();
   });
+
+  it('rejects a cluster address whose host is not under dynamics.com', () => {
+    expect(parseDeploymentJson(JSON.stringify({
+      status: 'Ready',
+      runtimeId: RUNTIME,
+      data: `https://evil.example.com/?tenant=${RUNTIME}&tid=${TID}`,
+    }))).toBeUndefined();
+  });
+
+  it('rejects a look-alike suffix host (dynamics.com.evil.com)', () => {
+    expect(parseDeploymentJson(JSON.stringify({
+      status: 'Ready',
+      runtimeId: RUNTIME,
+      data: `https://dynamics.com.evil.com/?tenant=${RUNTIME}&tid=${TID}`,
+    }))).toBeUndefined();
+  });
+
+  it('rejects a non-https cluster address', () => {
+    expect(parseDeploymentJson(JSON.stringify({
+      status: 'Ready',
+      runtimeId: RUNTIME,
+      data: `http://${HOST}/?tenant=${RUNTIME}&tid=${TID}`,
+    }))).toBeUndefined();
+  });
 });
