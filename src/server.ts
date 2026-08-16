@@ -141,7 +141,14 @@ async function main() {
   // HTTP Server
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     if (!checkApiToken(req, config.server.apiToken)) {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
+      // WWW-Authenticate marks this 401 as an API-token failure; BC-side
+      // sign-in 401s from bcErrorToHttp carry a `code` field and no
+      // WWW-Authenticate, so clients/gateways can tell them apart and not
+      // rotate a perfectly valid API token over an expired BC session.
+      res.writeHead(401, {
+        'Content-Type': 'application/json',
+        'WWW-Authenticate': 'Bearer realm="bc-mcp-api-token"',
+      });
       res.end(JSON.stringify({ error: 'Unauthorized' }));
       return;
     }

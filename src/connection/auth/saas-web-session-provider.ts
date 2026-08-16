@@ -111,6 +111,7 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
       // Drop the stale auth cookies so a fresh sign-in replaces them.
       this.jar.clearPortalAuth();
       this.authenticated = false;
+      this.pendingShell = undefined;
     }
 
     const signedIn = await this.login.run();
@@ -171,6 +172,7 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
         // could never reopen for the lifetime of the process).
         this.authenticated = false;
         this.jar.clearPortalAuth();
+        this.pendingShell = undefined;
       }
       return shell;
     }
@@ -239,6 +241,7 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
   invalidate(): void {
     this.evictTabCookies();
     this.tab = undefined;
+    this.pendingShell = undefined;
   }
 
   unboundCluster(): void {
@@ -246,6 +249,7 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
     this.clusterBound = false;
     this.clusterMeta = undefined;
     this.tab = undefined;
+    this.pendingShell = undefined;
   }
 
   /** A new tab is minted per WebSocket; drop the dead tab's path-scoped cookies. */

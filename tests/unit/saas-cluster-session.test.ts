@@ -239,6 +239,34 @@ describe('SaasClusterSession', () => {
     expect(calls.length).toBe(6);
   });
 
+  it('readPortalShell treats a 2xx page without FixedEndPoint as retryable, not signed-out', async () => {
+    // An interstitial/consent/maintenance 200 has no FixedEndPoint.start at
+    // all; only a shell that renders FixedEndPoint WITHOUT an accessToken is
+    // proof of a signed-out session. The former must not clear cookies.
+    const { fetchFn } = recordFetch(() => new Response('<html>one moment…</html>', { status: 200 }));
+    const session = new SaasClusterSession(fetchFn, capturingLogger().logger);
+    const result = await session.readPortalShell(new CookieJar(), saas);
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) expect(result.error.code).toBe('CONNECTION_ERROR');
+  });
+
+  it('readPortalShell classifies an Entra redirect arriving at the hop cap as auth required', async () => {
+    const { fetchFn } = recordFetch((url) => {
+      const n = Number(new URL(url).searchParams.get('hop') ?? '0');
+      if (n < 5) {
+        return new Response('', { status: 302, headers: { Location: `${saas.portalUrl}?hop=${n + 1}` } });
+      }
+      return new Response('', {
+        status: 302,
+        headers: { Location: 'https://login.microsoftonline.com/common/oauth2/authorize' },
+      });
+    });
+    const session = new SaasClusterSession(fetchFn, capturingLogger().logger);
+    const result = await session.readPortalShell(new CookieJar(), saas);
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) expect(result.error.code).toBe('AUTHENTICATION_ERROR');
+  });
+
   it('readPortalShell returns a retryable ConnectionError on a portal 5xx, never an auth failure', async () => {
     // A maintenance/error page has no FixedEndPoint auth; without a status
     // guard it would fall through to the signed-out-shell classification and

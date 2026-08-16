@@ -51,7 +51,12 @@ function defaultRouter(opts?: { csrfStatus?: number; skipJwt?: boolean; entra?: 
       if (opts?.entra) {
         return new Response('', { status: 302, headers: { Location: 'https://login.microsoftonline.com/x' } });
       }
-      if (opts?.skipJwt) return new Response('no jwt', { status: 200 });
+      // A signed-out shell still renders FixedEndPoint.start — just without
+      // an accessToken. (A 200 with no FixedEndPoint at all is an
+      // interstitial and classifies as retryable, not signed-out.)
+      if (opts?.skipJwt) {
+        return new Response('FixedEndPoint.start({"authentication":{"type":"aad"}});', { status: 200 });
+      }
       return new Response(SHELL, { status: 200 });
     }
     if (u.pathname.includes('/api/deployment')) {
@@ -225,6 +230,19 @@ describe('SaasWebSessionProvider', () => {
     const prepared = await provider.prepare();
     expect(isOk(prepared)).toBe(true);
     expect(calls.filter((c) => c.url === PORTAL && c.method === 'GET').length).toBe(1);
+  });
+
+  it('unboundCluster clears the cached probe shell so the next prepare refetches it', async () => {
+    seedCookies();
+    const { fetchFn, calls } = recordFetch(defaultRouter());
+    const provider = makeProvider(fetchFn);
+    await provider.authenticate();
+    provider.unboundCluster();
+    const prepared = await provider.prepare();
+    expect(isOk(prepared)).toBe(true);
+    // The probe's cached shell (holding a time-limited JWT) must not survive
+    // an explicit unbind — prepare must fetch a fresh one.
+    expect(calls.filter((c) => c.url === PORTAL && c.method === 'GET').length).toBe(2);
   });
 
   it('missing cookies returns SignInRequiredError from the owned login window', async () => {

@@ -42,12 +42,15 @@ export class SaasClusterSession {
       headers: { Origin: SAAS_PORTAL_ORIGIN, Referer: saas.portalUrl },
     });
     for (let hop = 0; page.res.status >= 300 && page.res.status < 400; hop++) {
-      if (hop === MAX_SHELL_REDIRECTS) {
-        return err(new ConnectionError(`Portal redirect chain exceeded ${MAX_SHELL_REDIRECTS} hops`));
-      }
       const location = page.res.headers.get('location') ?? '';
+      // Entra classification outranks the hop cap: a sign-in redirect arriving
+      // exactly at the cap must still surface as auth-required, or the stale
+      // cookies are kept and retried forever.
       if (isEntraLoginUrl(location)) {
         return err(new AuthenticationError('Portal redirected to Entra sign-in'));
+      }
+      if (hop === MAX_SHELL_REDIRECTS) {
+        return err(new ConnectionError(`Portal redirect chain exceeded ${MAX_SHELL_REDIRECTS} hops`));
       }
       let next: URL | undefined;
       try {
@@ -73,14 +76,20 @@ export class SaasClusterSession {
       return err(new ConnectionError(`Portal shell HTTP ${page.res.status}`));
     }
     const fp = parseFixedEndPoint(page.html);
-    const auth = fp ? extractFixedEndPointAuth(fp) : {
-      accessToken: '', authorizationCode: '', homeAccountId: '', sharedAuthCookieName: '',
-    };
+    if (!fp) {
+      // No FixedEndPoint.start at all: an interstitial/consent/unknown page,
+      // not proof the session is signed out. Fail retryably — clearing valid
+      // cookies here would force interactive sign-in on a transient page.
+      return err(new ConnectionError(
+        'Portal 2xx response has no FixedEndPoint.start; not a portal shell',
+      ));
+    }
+    const auth = extractFixedEndPointAuth(fp);
     this.log.info('saas-web: portal shell', { hasAccess: Boolean(auth.accessToken), hasCode: Boolean(auth.authorizationCode) });
     if (!auth.accessToken) {
-      // A 2xx shell without FixedEndPoint auth is the client-rendered sign-in
-      // page: the portal is reachable but the session is signed out, so this
-      // must trigger re-sign-in, not a connection retry.
+      // A shell that renders FixedEndPoint WITHOUT an accessToken is the
+      // client-rendered sign-in page: the portal is reachable and the session
+      // is signed out, so this must trigger re-sign-in, not a retry.
       return err(new AuthenticationError(
         'FixedEndPoint.start has no accessToken; portal shell is not a signed-in session',
       ));

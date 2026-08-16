@@ -4,6 +4,7 @@ import { parseJsonBody, checkApiToken, bcErrorToHttp } from '../../src/api/middl
 import {
   AuthenticationError,
   ConnectionError,
+  OAuthNotConfiguredError,
   DeviceLoginRequiredError,
   ProtocolError,
   SessionLostError,
@@ -152,6 +153,12 @@ describe('bcErrorToHttp', () => {
   it('maps ConnectionError and SessionLostError to 503', () => {
     expect(bcErrorToHttp(new ConnectionError('portal unreachable')).status).toBe(503);
     expect(bcErrorToHttp(new SessionLostError('gone', [])).status).toBe(503);
+  });
+
+  it('maps OAuthNotConfiguredError to 500, not 401 — it is a server config problem, not a sign-in prompt', () => {
+    const { status, body } = bcErrorToHttp(new OAuthNotConfiguredError('BC_CLIENT_ID is not set'));
+    expect(status).toBe(500);
+    expect(body.code).toBe('OAUTH_NOT_CONFIGURED');
   });
 
   it('maps other BCErrors to 500 with their code preserved', () => {

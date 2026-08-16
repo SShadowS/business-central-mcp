@@ -58,8 +58,10 @@ export class UrlElicitationRequiredError extends BCError {
   }
 }
 
+// Deliberately NOT authRequired: OAUTH_NOT_CONFIGURED means BC_CLIENT_ID is
+// missing from the server environment — a config problem no user sign-in can
+// resolve, so an HTTP 401 would send clients into a pointless sign-in loop.
 export class OAuthNotConfiguredError extends BCError {
-  public override readonly authRequired = true;
   constructor(message: string, context?: Record<string, unknown>) {
     super(message, 'OAUTH_NOT_CONFIGURED', context);
   }
