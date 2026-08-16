@@ -30,11 +30,13 @@
 
 ## Install
 
+**BC Online (sandbox / production):** do not put a password in env. Copy the portal URL from your browser and follow [SaaS sandbox setup](#saas-sandbox-setup). The snippets below are for on-prem NavUserPassword.
+
 ### VSCode
 
 [![Install in VSCode](https://img.shields.io/badge/VSCode-Install-007ACC?logo=visualstudiocode)](vscode:mcp/install?%7B%22name%22%3A%22business-central%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22business-central-mcp%22%5D%2C%22inputs%22%3A%5B%7B%22id%22%3A%22bc_base_url%22%2C%22type%22%3A%22promptString%22%2C%22description%22%3A%22BC%20base%20URL%20%28e.g.%20http%3A%2F%2Fyour-bc-server%2FBC%29%22%7D%2C%7B%22id%22%3A%22bc_username%22%2C%22type%22%3A%22promptString%22%2C%22description%22%3A%22BC%20username%22%7D%2C%7B%22id%22%3A%22bc_password%22%2C%22type%22%3A%22promptString%22%2C%22description%22%3A%22BC%20password%22%2C%22password%22%3Atrue%7D%5D%2C%22env%22%3A%7B%22BC_BASE_URL%22%3A%22%24%7Binput%3Abc_base_url%7D%22%2C%22BC_USERNAME%22%3A%22%24%7Binput%3Abc_username%7D%22%2C%22BC_PASSWORD%22%3A%22%24%7Binput%3Abc_password%7D%22%7D%7D)
 
-Click the badge. VSCode opens and prompts for your BC URL, username, and password, then writes the configured entry to your user `mcp.json`.
+Click the badge. VSCode opens and prompts for your BC URL, username, and password (on-prem), then writes the configured entry to your user `mcp.json`. For BC Online, skip the badge and use the [SaaS sandbox](#saas-sandbox-setup) env (URL + optional email only).
 
 <details>
 <summary><strong>Manual install</strong></summary>
@@ -57,6 +59,23 @@ Workspace: create `.vscode/mcp.json`:
 }
 ```
 
+BC Online — same file, no password:
+
+```json
+{
+  "servers": {
+    "business-central": {
+      "command": "npx",
+      "args": ["-y", "business-central-mcp"],
+      "env": {
+        "BC_BASE_URL": "https://businesscentral.dynamics.com/<aad-tenant-id>/DEV",
+        "BC_USERNAME": "you@tenant.com"
+      }
+    }
+  }
+}
+```
+
 </details>
 
 ### Claude Code
@@ -71,10 +90,20 @@ claude mcp add business-central \
 
 Scope it to the current project with `--scope project`. See `claude mcp --help` for scoping options.
 
+BC Online (no password):
+
+```bash
+claude mcp add business-central \
+  -e BC_BASE_URL=https://businesscentral.dynamics.com/<aad-tenant-id>/DEV \
+  -e BC_USERNAME=you@tenant.com \
+  --scope project \
+  -- npx -y business-central-mcp
+```
+
 ### Claude Desktop
 
 1. Download the latest `.dxt` from [Releases](https://github.com/SShadowS/business-central-mcp/releases/latest).
-2. Double-click. Claude Desktop opens Settings → Extensions and prompts for BC URL, username, and password.
+2. Double-click. Claude Desktop opens Settings → Extensions and prompts for BC URL, username, and password (on-prem). For BC Online, use the [manual snippet](#saas-sandbox-setup) instead — do not store a SaaS password.
 3. Restart Claude Desktop.
 
 <details>
@@ -127,7 +156,7 @@ Restart Claude Desktop.
 | `PORT` | No | `3000` | HTTP transport port (stdio transport ignores this). |
 | `LOG_LEVEL` | No | `info` | `debug` / `info` / `warn` / `error`. |
 | `LOG_DIR` | No | `./logs` | Directory for log files. |
-| `STATE_DIR` | No | `{cwd}/.state` | Per-repo directory for `saas-web-cookies.json` and `oauth-tokens.json` (mode 0600). Relative paths resolve against the process working directory — the AL project you started Grok in. Sessions in the same repo share the file; different repos never share a login. |
+| `STATE_DIR` | No | `{cwd}/.state` | Per-repo directory for `saas-web-cookies.json` and `oauth-tokens.json` (mode 0600). Relative paths resolve against the MCP process working directory (the project you started the agent in). Sessions in the same repo share the file; different repos never share a login. |
 | `BC_INVOKE_TIMEOUT` | No | `30000` | Per-invoke timeout in ms. Kills hung sessions. |
 | `BC_RECONNECT_MAX_RETRIES` | No | `4` | Reconnect attempts after session death. |
 | `BC_RECONNECT_BASE_DELAY` | No | `1000` | Base delay (ms) for exponential reconnect backoff. |
@@ -146,21 +175,47 @@ The failure is misleading because authentication and the `/csh` upgrade complete
 101); BC only rejects the `applicationId` inside the `OpenSession` RPC body. SaaS and cronus images
 keep the `FIN` default. Verified against BC 27.1 `onprem` (see issue #10).
 
-### BC Online (SaaS)
+### SaaS sandbox setup
 
-A portal URL selects the web-client cookie session (`SaasWeb`). **Do not set `BC_PASSWORD`.** The first UI tool (`bc_open_page`, …) opens a local window (`127.0.0.1`) for Microsoft sign-in and Authenticator MFA. Portal cookies persist in `STATE_DIR/saas-web-cookies.json` (mode 0600). Reconnects mint a new cluster tab and do not ask for the password again.
+You only need the URL from the browser address bar — the same one you use to open Business Central Online:
 
 ```
-BC_BASE_URL=https://businesscentral.dynamics.com/7bcb54ae-6d5e-43c7-9402-928aed68ad00/DEV
-BC_USERNAME=user@tenant.com
-STATE_DIR=./.state
+https://businesscentral.dynamics.com/<aad-tenant-id>/<environment>
 ```
 
-Human shortcut (same `STATE_DIR` as the MCP): `npx business-central-mcp login` or `npx tsx src/stdio-server.ts login`.
+`<environment>` is usually `DEV`, `sandbox`, or `production`. **Do not set `BC_PASSWORD`.** Company policy and this server both treat a SaaS password in env as wrong.
 
-`/csh` lives on the appservices cluster, not on the Front Door URL. OpenSession `tenantId` is the internal runtime id (`msft1…`), not the AAD GUID. WebSocket `Origin` is `https://businesscentral.dynamics.com`.
+1. Copy that portal URL into `BC_BASE_URL` (no extra path, no query string).
+2. Optionally set `BC_USERNAME` to your work email — that only prefills the sign-in form.
+3. Point the MCP at this project (stdio, Grok `.grok/config.toml`, Claude `--scope project`, or a workspace `mcp.json`). Leave `STATE_DIR` unset so cookies land in `{project}/.state/`.
+4. Start the agent on a machine **with a display** (Linux needs `DISPLAY` or `WAYLAND_DISPLAY`). Headless CI cannot complete MFA.
+5. Ask the agent to open a page (`bc_open_page`, e.g. Customer List = 22). A local window (`127.0.0.1`) opens. Sign in with Microsoft and complete Authenticator there. Do not paste the password into chat or tool arguments.
+6. Retry the tool. Cookies are saved as `{project}/.state/saas-web-cookies.json` (mode 0600). Later sessions in the **same repo** reuse them; another repo needs its own sign-in.
 
-Claude Desktop (no `BC_PASSWORD`):
+Human shortcut (same working directory as the MCP):
+
+```bash
+npx business-central-mcp login
+# from a source checkout:
+npx tsx src/stdio-server.ts login
+```
+
+**Grok** (project-scoped, no password):
+
+```toml
+# .grok/config.toml  — not committed if it holds a tenant URL you do not want shared
+[mcp_servers.business-central]
+command = "npx"
+args = ["-y", "business-central-mcp"]
+
+[mcp_servers.business-central.env]
+BC_BASE_URL = "https://businesscentral.dynamics.com/<aad-tenant-id>/DEV"
+BC_USERNAME = "you@tenant.com"
+```
+
+From a source checkout, point `command` / `args` at `node` + `node_modules/tsx/dist/cli.mjs` + `src/stdio-server.ts` instead of `npx`.
+
+**Claude Desktop / VS Code** (no `BC_PASSWORD`):
 
 ```json
 {
@@ -169,15 +224,15 @@ Claude Desktop (no `BC_PASSWORD`):
       "command": "npx",
       "args": ["-y", "business-central-mcp"],
       "env": {
-        "BC_BASE_URL": "https://businesscentral.dynamics.com/7bcb54ae-6d5e-43c7-9402-928aed68ad00/DEV",
-        "BC_USERNAME": "user@tenant.com",
-        "STATE_DIR": "/absolute/path/to/.state",
-        "LOG_LEVEL": "info"
+        "BC_BASE_URL": "https://businesscentral.dynamics.com/<aad-tenant-id>/DEV",
+        "BC_USERNAME": "you@tenant.com"
       }
     }
   }
 }
 ```
+
+The WebSocket is not on the portal host. After sign-in the server discovers the cluster and uses `Origin: https://businesscentral.dynamics.com`. You never put a cluster URL in config.
 
 ### `bc_query` (OData) on SaaS
 
