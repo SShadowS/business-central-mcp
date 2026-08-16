@@ -310,6 +310,78 @@ describe('LoginWindow', () => {
     expect(isOk(await secondP)).toBe(true);
   });
 
+  it('after success the server waits for the page to poll phase done, then closes', async () => {
+    // A background tab's throttled poll loop can miss a fixed 1.5s close
+    // window entirely — the page then froze on the MFA panel forever.
+    const dir = mkdtempSync(join(tmpdir(), 'bc-login-ack-'));
+    dirs.push(dir);
+    let opened = '';
+    const window = new LoginWindow({
+      opener: {
+        open: (url) => {
+          opened = url;
+          return true;
+        },
+      },
+      portalUrl: PORTAL,
+      stateDir: dir,
+      aadTenantId: TENANT,
+      environmentName: 'DEV',
+      timeoutMs: 8_000,
+      closeDelayMs: 50,
+      logger: createNullLogger(),
+      loginFn: async () => ok(undefined),
+    });
+    windows.push(window);
+
+    const runP = window.run();
+    await vi.waitFor(() => expect(opened).toMatch(/^http:\/\/127\.0\.0\.1:/));
+    const href = new URL(opened);
+    await fetch(`${href.origin}/login${href.search}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'u@t.com', password: 'x' }),
+    });
+    expect(isOk(await runP)).toBe(true);
+
+    // Well past closeDelayMs with no page poll: server must still be up so a
+    // throttled page can catch phase 'done'.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const status = await fetch(`${href.origin}/status${href.search}`);
+    expect((await status.json() as { phase: string }).phase).toBe('done');
+
+    // The served 'done' is the ack — now the server may close (closeDelayMs).
+    await vi.waitFor(async () => {
+      let alive = true;
+      try {
+        await fetch(`${href.origin}/status${href.search}`);
+      } catch {
+        alive = false;
+      }
+      expect(alive).toBe(false);
+    }, { timeout: 3_000 });
+  });
+
+  it('login page shows progress for signing-in/finishing and survives a vanished server', async () => {
+    let opened = '';
+    const window = makeWindow({
+      open: (url) => {
+        opened = url;
+        return true;
+      },
+    });
+    void window.run();
+    await vi.waitFor(() => expect(opened).toMatch(/^http:\/\/127\.0\.0\.1:/));
+    const html = await (await fetch(opened)).text();
+    // Progress panel replaces the form while the backend works, so the user
+    // never sees a silent emptied password field.
+    expect(html).toContain('id="busy"');
+    // The poll loop must render the finishing phase and treat a dead server
+    // after 'finishing' as success (the server only vanishes then on success).
+    expect(html).toContain("'finishing'");
+    expect(html).toContain('visibilitychange');
+  });
+
   it('close() rejects an in-flight OTP wait', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'bc-login-otp-'));
     dirs.push(dir);

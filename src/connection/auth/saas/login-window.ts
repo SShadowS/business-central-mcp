@@ -19,6 +19,14 @@ import type { EstsStatus } from './ests-types.js';
 const BODY_LIMIT = 8192;
 const DEFAULT_TIMEOUT_MS = 5 * 60_000;
 const DEFAULT_CLOSE_DELAY_MS = 1500;
+/**
+ * How long a SUCCESSFUL sign-in keeps the server up waiting for the page to
+ * poll phase 'done'. Browsers throttle background-tab timers (up to once a
+ * minute), so a fixed short close window let the page miss 'done' and freeze
+ * on the MFA panel; closing is instead triggered by the first /status
+ * response served with 'done' (plus closeDelayMs), with this as the cap.
+ */
+const DONE_ACK_FALLBACK_MS = 15_000;
 
 export type LoginWindowResult = Result<
   void,
@@ -73,6 +81,7 @@ export class LoginWindow {
   private timeout: ReturnType<typeof setTimeout> | undefined;
   private closeTimer: ReturnType<typeof setTimeout> | undefined;
   private listening: Promise<void> | undefined;
+  private doneAcked = false;
   private openAttempted = false;
   private generation = 0;
 
@@ -146,6 +155,7 @@ export class LoginWindow {
     this.timeout = undefined;
     this.closeTimer = undefined;
     this.generation += 1;
+    this.doneAcked = false;
     this.otp.reset();
     const server = this.server;
     this.server = undefined;
@@ -236,7 +246,10 @@ export class LoginWindow {
       void this.close();
       return;
     }
-    this.closeTimer = setTimeout(() => { void this.close(); }, delay);
+    // Success: hold the server so a timer-throttled page can still observe
+    // phase 'done' — serving it reschedules the close (see handle()).
+    const holdMs = isErr(result) ? delay : Math.max(delay, DONE_ACK_FALLBACK_MS);
+    this.closeTimer = setTimeout(() => { void this.close(); }, holdMs);
   }
 
   private authorized(req: IncomingMessage, url: URL): boolean {
@@ -271,6 +284,15 @@ export class LoginWindow {
         message: this.status.message,
         busy: this.status.busy === true,
       });
+      if (this.status.phase === 'done' && this.completed && !this.doneAcked) {
+        // The page has seen 'done' — the success hold can end.
+        this.doneAcked = true;
+        if (this.closeTimer) clearTimeout(this.closeTimer);
+        this.closeTimer = setTimeout(
+          () => { void this.close(); },
+          this.opts.closeDelayMs ?? DEFAULT_CLOSE_DELAY_MS,
+        );
+      }
       return;
     }
 

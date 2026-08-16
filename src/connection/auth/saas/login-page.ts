@@ -44,7 +44,13 @@ export function renderLoginPage(usernamePrefill: string): string {
       background: #0078d4; color: #fff; font: 600 15px inherit; cursor: pointer;
     }
     button:disabled { opacity: .55; cursor: default; }
-    #mfa, #done, #err, #totpBox { display: none; text-align: center; }
+    #busy, #mfa, #done, #err, #totpBox { display: none; text-align: center; }
+    .spinner {
+      width: 28px; height: 28px; margin: 18px auto 10px;
+      border: 3px solid #c7e0f4; border-top-color: #0078d4;
+      border-radius: 50%; animation: spin .9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
     #entropy {
       font-size: 56px; font-weight: 600; letter-spacing: 4px;
       margin: 16px 0 8px; color: #0078d4;
@@ -64,6 +70,11 @@ export function renderLoginPage(usernamePrefill: string): string {
       <input id="pass" name="password" type="password" autocomplete="current-password" required>
       <button type="submit" id="go">Sign in</button>
     </form>
+    <div id="busy">
+      <h1>Signing in…</h1>
+      <div class="spinner"></div>
+      <p class="hint" id="busyMsg">Contacting Microsoft sign-in…</p>
+    </div>
     <div id="mfa">
       <h1>Approve in Authenticator</h1>
       <p class="hint" id="entropyHint">Pick this number in Microsoft Authenticator</p>
@@ -86,6 +97,8 @@ export function renderLoginPage(usernamePrefill: string): string {
     const k = params.get('k') || '';
     const q = k ? ('?k=' + encodeURIComponent(k)) : '';
     const form = document.getElementById('form');
+    const busy = document.getElementById('busy');
+    const busyMsg = document.getElementById('busyMsg');
     const mfa = document.getElementById('mfa');
     const done = document.getElementById('done');
     const err = document.getElementById('err');
@@ -95,15 +108,44 @@ export function renderLoginPage(usernamePrefill: string): string {
     const mfaMsg = document.getElementById('mfaMsg');
     const go = document.getElementById('go');
 
+    let lastPhase = '';
+    let polling = false;
+    let pollTimer;
+
     function show(el) {
-      form.style.display = el === form ? 'block' : 'none';
-      mfa.style.display = el === mfa ? 'block' : 'none';
-      done.style.display = el === done ? 'block' : 'none';
+      for (const p of [form, busy, mfa, done]) {
+        p.style.display = p === el ? 'block' : 'none';
+      }
+    }
+
+    function showFormError(message) {
+      show(form);
+      go.disabled = false;
+      err.style.display = 'block';
+      err.textContent = message;
+    }
+
+    // The server shuts down shortly after it has served phase 'done' (and on
+    // sign-in timeout). A dead server after 'finishing'/'done' therefore IS
+    // success; anything earlier means the sign-in window expired.
+    function serverGone() {
+      polling = false;
+      if (lastPhase === 'finishing' || lastPhase === 'done') show(done);
+      else showFormError('The sign-in window expired. Go back to the agent and try again.');
     }
 
     async function poll() {
-      const r = await fetch('/status' + q, { cache: 'no-store' });
-      const s = await r.json();
+      clearTimeout(pollTimer);
+      if (!polling) return;
+      let s;
+      try {
+        const r = await fetch('/status' + q, { cache: 'no-store' });
+        s = await r.json();
+      } catch {
+        serverGone();
+        return;
+      }
+      lastPhase = s.phase;
       if (s.phase === 'mfa') {
         show(mfa);
         if (s.entropy) {
@@ -118,17 +160,27 @@ export function renderLoginPage(usernamePrefill: string): string {
         }
         if (s.message) mfaMsg.textContent = s.message;
       } else if (s.phase === 'done') {
+        polling = false;
         show(done);
         return;
       } else if (s.phase === 'error') {
-        show(form);
-        go.disabled = false;
-        err.style.display = 'block';
-        err.textContent = s.message || 'Sign-in failed';
+        polling = false;
+        showFormError(s.message || 'Sign-in failed');
         return;
+      } else {
+        // 'signing-in' / 'finishing': keep the form hidden and narrate
+        // progress so an emptied password field never looks like a no-op.
+        show(busy);
+        if (s.message) busyMsg.textContent = s.message;
       }
-      setTimeout(poll, 400);
+      pollTimer = setTimeout(poll, 400);
     }
+
+    // Background tabs get their timers throttled (the user is on their phone
+    // approving the push) — poll immediately when the tab becomes visible.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && polling) poll();
+    });
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -139,18 +191,26 @@ export function renderLoginPage(usernamePrefill: string): string {
         password: document.getElementById('pass').value,
       };
       document.getElementById('pass').value = '';
-      const r = await fetch('/login' + q, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!r.ok) {
-        const s = await r.json().catch(() => ({}));
-        go.disabled = false;
-        err.style.display = 'block';
-        err.textContent = s.message || 'Could not start sign-in';
+      busyMsg.textContent = 'Contacting Microsoft sign-in…';
+      show(busy);
+      let r;
+      try {
+        r = await fetch('/login' + q, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+      } catch {
+        showFormError('Could not reach the sign-in window. Go back to the agent and try again.');
         return;
       }
+      if (!r.ok) {
+        const s = await r.json().catch(() => ({}));
+        showFormError(s.message || 'Could not start sign-in');
+        return;
+      }
+      lastPhase = '';
+      polling = true;
       poll();
     });
 
