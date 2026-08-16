@@ -157,6 +157,67 @@ describe('OAuthAuthProvider', () => {
   });
 });
 
+describe('OAuthAuthProvider refresh single-flight', () => {
+  let dir: string;
+  afterEach(() => {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  });
+
+  function makeExpiredProvider(client: OAuthTokenClient) {
+    dir = mkdtempSync(join(tmpdir(), 'bc-oauth-sf-'));
+    const disk = new FileTokenCache(join(dir, 'oauth-tokens.json'));
+    disk.save({
+      accessToken: 'stale',
+      refreshToken: 'rt-old',
+      expiresAt: Date.now() - 1000,
+      clientId: CLIENT,
+      aadTenantId: TENANT,
+    });
+    return new OAuthAuthProvider({
+      baseUrl: `https://businesscentral.dynamics.com/${TENANT}/DEV`,
+      aadTenantId: TENANT,
+      clientId: CLIENT,
+      scope: 'https://api.businesscentral.dynamics.com/user_impersonation offline_access',
+      stateDir: dir,
+    }, createNullLogger(), client, disk);
+  }
+
+  it('concurrent getAccessToken at expiry runs ONE refresh grant (rotation-safe)', async () => {
+    // Entra rotates refresh tokens: a second concurrent grant with the same
+    // token gets invalid_grant and used to clear the freshly-persisted cache.
+    const refresh = vi.fn(async (): Promise<ReturnType<typeof ok<TokenSet>>> => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return ok({ ...TOKENS, accessToken: 'access-fresh', refreshToken: 'rt-new' });
+    });
+    const provider = makeExpiredProvider(stubClient({ refresh }));
+
+    const [a, b] = await Promise.all([provider.getAccessToken(), provider.getAccessToken()]);
+    expect(a).toBe('access-fresh');
+    expect(b).toBe('access-fresh');
+    expect(refresh).toHaveBeenCalledTimes(1);
+    const disk = new FileTokenCache(join(dir, 'oauth-tokens.json'));
+    expect(disk.load(CLIENT, TENANT)?.refreshToken).toBe('rt-new');
+  });
+
+  it('a loser of the old race no longer wipes the rotated token cache', async () => {
+    // First grant succeeds; any (buggy) second grant would fail invalid_grant.
+    let calls = 0;
+    const refresh = vi.fn(async () => {
+      calls += 1;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      if (calls === 1) return ok({ ...TOKENS, accessToken: 'access-fresh', refreshToken: 'rt-new' });
+      return err(new AuthenticationError('invalid_grant', { oauthError: 'invalid_grant' }));
+    });
+    const start = vi.fn();
+    const provider = makeExpiredProvider(stubClient({ refresh, startDeviceCode: start }));
+
+    await Promise.all([provider.getAccessToken(), provider.getAccessToken()]);
+    const disk = new FileTokenCache(join(dir, 'oauth-tokens.json'));
+    expect(disk.load(CLIENT, TENANT)?.accessToken).toBe('access-fresh');
+    expect(start).not.toHaveBeenCalled();
+  });
+});
+
 describe('OAuthAuthProvider device-code state machine (fail-fast)', () => {
   let dir: string;
   afterEach(() => {

@@ -37,6 +37,7 @@ export class OAuthAuthProvider implements IBCAuthProvider {
   private readonly cache: FileTokenCache;
   private readonly pending: FilePendingDeviceCache;
   private inflight: Promise<Result<AuthResult, TokenFailure>> | null = null;
+  private tokenInflight: Promise<Result<TokenSet, TokenFailure>> | null = null;
 
   constructor(
     private readonly config: OAuthProviderConfig,
@@ -131,7 +132,23 @@ export class OAuthAuthProvider implements IBCAuthProvider {
 
   unboundCluster(): void {}
 
+  /**
+   * Single-flight: Entra rotates refresh tokens, so two concurrent refresh
+   * grants with the same token make the loser hit invalid_grant and (before
+   * this guard) wipe the freshly-persisted cache, forcing a device-code
+   * re-login. All callers at expiry share one grant.
+   */
   private async ensureToken(): Promise<Result<TokenSet, TokenFailure>> {
+    if (this.tokenInflight) return this.tokenInflight;
+    this.tokenInflight = this.ensureTokenOnce();
+    try {
+      return await this.tokenInflight;
+    } finally {
+      this.tokenInflight = null;
+    }
+  }
+
+  private async ensureTokenOnce(): Promise<Result<TokenSet, TokenFailure>> {
     if (this.tokens && this.tokens.expiresAt - EXPIRY_SKEW_MS > Date.now()) {
       return ok(this.tokens);
     }
