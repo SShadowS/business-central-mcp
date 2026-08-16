@@ -466,6 +466,29 @@ describe('SaasWebSessionProvider', () => {
     }
   });
 
+  it('single attempts spaced beyond the staleness gap still escalate — no dependence on backoff bursts', async () => {
+    // With BC_RECONNECT_MAX_RETRIES=0 each tool call probes once; a revoked
+    // session must still reach sign-in. Three failures with zero successes
+    // in between, however far apart, are enough.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      seedCookies();
+      const { fetchFn } = recordFetch(() => new Response('forbidden', { status: 403 }));
+      const provider = makeProvider(fetchFn);
+      const first = await provider.authenticate();
+      expect(isErr(first) && first.error.code === 'CONNECTION_ERROR').toBe(true);
+      vi.setSystemTime(Date.now() + 15 * 60_000);
+      const second = await provider.authenticate();
+      expect(isErr(second) && second.error.code === 'CONNECTION_ERROR').toBe(true);
+      vi.setSystemTime(Date.now() + 15 * 60_000);
+      const third = await provider.authenticate();
+      expect(isErr(third)).toBe(true);
+      if (isErr(third)) expect(third.error.code).toBe('SIGN_IN_REQUIRED');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('post-login verification rejects a session the portal does not accept (wrong account/tenant)', async () => {
     const { fetchFn } = recordFetch(() => new Response('', {
       status: 302,

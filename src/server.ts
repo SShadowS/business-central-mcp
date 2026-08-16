@@ -40,11 +40,23 @@ import { createApiRoutes } from './api/routes.js';
 import { parseJsonBody, checkApiToken, bcErrorToHttp } from './api/middleware.js';
 // isErr no longer needed — SessionManager handles session creation errors internally
 
-/** The MCP endpoint by pathname, tolerant of a trailing slash and query —
- * used by both the API-token 401 gate and the router so they cannot drift. */
+/** The request-target's pathname: query stripped, trailing slashes trimmed,
+ * absolute-form targets (proxy-style `http://host/mcp`) reduced to their
+ * path. */
+function requestPathname(url: string): string {
+  let pathname = url.split('?')[0]!;
+  if (/^https?:\/\//i.test(pathname)) {
+    try {
+      pathname = new URL(pathname).pathname;
+    } catch { /* keep the raw form */ }
+  }
+  return pathname.replace(/\/+$/, '') || '/';
+}
+
+/** The MCP endpoint by pathname — used by both the API-token 401 gate and
+ * the router so they cannot drift. */
 function isMcpPath(url: string): boolean {
-  const pathname = url.split('?')[0]!.replace(/\/+$/, '');
-  return pathname === '/mcp';
+  return requestPathname(url) === '/mcp';
 }
 
 async function main() {
@@ -178,8 +190,11 @@ async function main() {
     const url = req.url ?? '/';
 
     try {
-      // Health check (no session needed)
-      if (url === '/health' && method === 'GET') {
+      // Health check (no session needed). Matched by pathname: a query
+      // string (`/health?ts=1`) must not slip past this into the REST
+      // section, whose duplicate 'GET /health' route would create a BC
+      // session for an unauthenticated monitoring probe.
+      if (requestPathname(url) === '/health' && method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
           status: sessionManager.currentSession !== null ? 'healthy' : 'starting',

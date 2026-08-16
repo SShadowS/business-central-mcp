@@ -160,6 +160,8 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
    * Entra-redirect rejection does, with a message naming the likely cause.
    */
   private async verifyFreshLogin(): Promise<Result<void, AuthFailure>> {
+    // Deliberately untracked (probePortal, not readShellTracked): this read
+    // verifies the sign-in that just happened and must not feed the streak.
     const probe = await this.probePortal();
     if (isErr(probe) && probe.error instanceof AuthenticationError) {
       this.markSessionDead();
@@ -352,8 +354,11 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
   }
 
   /**
-   * Read the portal shell WITH escalation bookkeeping — the only way session
-   * code may probe the shell, so no call site can bypass the streak.
+   * Read the portal shell WITH escalation bookkeeping — the tracked entry
+   * every liveness decision must use. (verifyFreshLogin deliberately probes
+   * untracked: a post-login shell read is a verification of the sign-in
+   * that just happened, not evidence about the pre-existing session, and
+   * must never count toward killing the session it just created.)
    * Liveness = "would readPortalShell hand us a signed-in shell?": one
    * implementation of shell classification (redirect following, Entra
    * detection, signed-out 2xx shells) instead of a weaker duplicate.
@@ -395,13 +400,15 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
       // A streak ages out: an old burst separated from this failure by a
       // long gap is no longer evidence about the current state — a fresh
       // 5-second interstitial days later must start a fresh streak, not
-      // inherit an escalation-ready one. A burst that itself filled the
-      // streak counts as a failed episode before being discarded.
+      // inherit an escalation-ready one. Any aged-out failures count as a
+      // failed episode (a single probe per tool call is a supported cadence
+      // via BC_RECONNECT_MAX_RETRIES=0, so episodes cannot require full
+      // bursts); a brief blip still never kills the session because any
+      // intervening SUCCESS resets everything, and escalation needs three
+      // failure occasions with zero successes in between.
       if (this.shellUnclassifiableLast !== undefined
         && now - this.shellUnclassifiableLast > SHELL_STREAK_STALE_MS) {
-        if (this.shellUnclassifiableStreak >= SHELL_UNCLASSIFIABLE_ESCALATION) {
-          this.failedEpisodes++;
-        }
+        this.failedEpisodes++;
         this.shellUnclassifiableStreak = 0;
         this.shellUnclassifiableSince = undefined;
       }
@@ -417,9 +424,15 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
     return 'retryable';
   }
 
-  /** The only reset of the escalation streak, called on every signed-in
-   * outcome (successful probe, shell read, or fresh login). */
+  /** Recorded on every signed-in outcome (successful probe, shell read, or
+   * fresh login). */
   private recordShellSuccess(): void {
+    this.resetShellStreak();
+  }
+
+  /** The only reset of the escalation state — reached from a signed-in
+   * outcome or from tearing down a proven-dead session. */
+  private resetShellStreak(): void {
     this.shellUnclassifiableStreak = 0;
     this.shellUnclassifiableSince = undefined;
     this.shellUnclassifiableLast = undefined;
@@ -434,7 +447,7 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
    * re-offered immediately.
    */
   private markSessionDead(): void {
-    this.recordShellSuccess();
+    this.resetShellStreak();
     this.authenticated = false;
     this.jar.clearPortalAuth();
     this.persistPortalCookies();
