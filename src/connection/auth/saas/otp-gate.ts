@@ -23,16 +23,22 @@ export class OtpGate {
   provide(code: string): boolean {
     if (!this.resolveWait) return false;
     if (this.timer) clearTimeout(this.timer);
-    this.resolveWait(code);
-    this.reset();
+    const resolve = this.resolveWait;
+    this.resolveWait = undefined;
+    this.rejectWait = undefined;
+    this.pending = undefined;
+    this.timer = undefined;
+    resolve(code);
     return true;
   }
 
   reset(): void {
     if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
+    const reject = this.rejectWait;
     this.resolveWait = undefined;
     this.rejectWait = undefined;
     this.pending = undefined;
+    reject?.(new Error('OTP cancelled'));
   }
 }

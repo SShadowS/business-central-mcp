@@ -175,14 +175,17 @@ describe('SessionManager', () => {
     }
   });
 
-  it('throws ConnectionError if initial creation fails after retries', async () => {
+  it('throws the last BCError when first-create retries are exhausted', async () => {
+    const last = new ConnectionError('deployment did not return Ready');
     const factory = {
-      create: vi.fn().mockResolvedValue(err(new ConnectionError('connection refused'))),
+      create: vi.fn()
+        .mockResolvedValueOnce(err(new ConnectionError('AUTHENTICATETOKEN HTTP 503')))
+        .mockResolvedValue(err(last)),
     };
-    const mgr = new TestSessionManager(factory as any, repo as any, logger as any, { maxRetries: 1, baseDelayMs: 100 });
+    const mgr = new TestSessionManager(factory as any, repo as any, logger as any, { maxRetries: 1, baseDelayMs: 1 });
 
-    await expect(mgr.getSession()).rejects.toBeInstanceOf(ConnectionError);
-    await expect(mgr.getSession()).rejects.toThrow('Session creation failed after all retry attempts');
+    await expect(mgr.getSession()).rejects.toBe(last);
+    expect(factory.create).toHaveBeenCalledTimes(2);
   });
 
   it('does not retry SignInRequiredError and throws it as-is', async () => {
@@ -211,7 +214,7 @@ describe('SessionManager', () => {
       create: vi.fn().mockResolvedValue(err(authErr)),
     };
     const mgr = new TestSessionManager(factory as any, repo as any, logger as any, { maxRetries: 2, baseDelayMs: 1 });
-    await expect(mgr.getSession()).rejects.toBeInstanceOf(ConnectionError);
+    await expect(mgr.getSession()).rejects.toBe(authErr);
     expect(factory.create).toHaveBeenCalledTimes(3);
   });
 

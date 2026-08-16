@@ -72,6 +72,7 @@ export class LoginWindow {
   private closeTimer: ReturnType<typeof setTimeout> | undefined;
   private listening: Promise<void> | undefined;
   private openAttempted = false;
+  private generation = 0;
 
   constructor(private readonly opts: LoginWindowOptions) {
     this.jar = opts.jar ?? new CookieJar();
@@ -141,6 +142,7 @@ export class LoginWindow {
     if (this.closeTimer) clearTimeout(this.closeTimer);
     this.timeout = undefined;
     this.closeTimer = undefined;
+    this.generation += 1;
     this.otp.reset();
     const server = this.server;
     this.server = undefined;
@@ -285,6 +287,7 @@ export class LoginWindow {
     }
     this.status.busy = true;
     this.json(res, 202, { ok: true });
+    const generation = this.generation;
     const result = await this.loginFn({
       username,
       password,
@@ -292,6 +295,7 @@ export class LoginWindow {
     });
     password = '';
     body.password = '';
+    if (generation !== this.generation) return;
     this.status.busy = false;
     if (isErr(result)) {
       // Do NOT finish(): the page re-shows the form on phase 'error' so the

@@ -2,11 +2,13 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { existsSync } from 'node:fs';
 import { LoginWindow } from '../../src/connection/auth/saas/login-window.js';
 import { CookieJar } from '../../src/connection/auth/saas/cookie-jar.js';
+import { FileCookieStore, saasCookieStorePath } from '../../src/connection/auth/saas/cookie-store.js';
 import { ClientElicitationPort } from '../../src/mcp/elicitation-port.js';
-import { isErr, isOk, ok } from '../../src/core/result.js';
-import { SignInRequiredError, UrlElicitationRequiredError } from '../../src/core/errors.js';
+import { err, isErr, isOk, ok } from '../../src/core/result.js';
+import { AuthenticationError, SignInRequiredError, UrlElicitationRequiredError } from '../../src/core/errors.js';
 import { createNullLogger } from '../../src/core/logger.js';
 
 const TENANT = '7bcb54ae-6d5e-43c7-9402-928aed68ad00';
@@ -172,5 +174,123 @@ describe('LoginWindow', () => {
     });
     expect(isOk(await runP)).toBe(true);
     expect(jar.hasPortalAuth(TENANT)).toBe(true);
+  });
+
+  it('close() during loginFn does not let a late success finish a later run()', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bc-login-stale-'));
+    dirs.push(dir);
+    const store = new FileCookieStore(saasCookieStorePath(dir));
+    const jar = new CookieJar();
+    let releaseLogin!: (value: ReturnType<typeof ok<undefined>>) => void;
+    let loginStarted!: () => void;
+    const started = new Promise<void>((resolve) => { loginStarted = resolve; });
+    let loginCalls = 0;
+    let opened = '';
+    const window = new LoginWindow({
+      opener: {
+        open: (url) => {
+          opened = url;
+          return true;
+        },
+      },
+      portalUrl: PORTAL,
+      stateDir: dir,
+      aadTenantId: TENANT,
+      environmentName: 'DEV',
+      timeoutMs: 8_000,
+      closeDelayMs: 8_000,
+      logger: createNullLogger(),
+      jar,
+      store,
+      loginFn: () => {
+        loginCalls += 1;
+        if (loginCalls === 1) {
+          loginStarted();
+          return new Promise((resolve) => { releaseLogin = resolve; });
+        }
+        return Promise.resolve(ok(undefined));
+      },
+    });
+    windows.push(window);
+
+    const first = window.run();
+    await vi.waitFor(() => expect(opened).toMatch(/^http:\/\/127\.0\.0\.1:/));
+    const href = new URL(opened);
+    const login = await fetch(`${href.origin}/login${href.search}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'u@t.com', password: 'x' }),
+    });
+    expect(login.status).toBe(202);
+    await started;
+    await window.close();
+
+    opened = '';
+    const second = window.run();
+    await vi.waitFor(() => expect(opened).toMatch(/^http:\/\/127\.0\.0\.1:/));
+    releaseLogin(ok(undefined));
+
+    const raced = await Promise.race([
+      second.then((result) => ({ kind: 'done' as const, result })),
+      new Promise<{ kind: 'pending' }>((resolve) => {
+        setTimeout(() => resolve({ kind: 'pending' }), 80);
+      }),
+    ]);
+    expect(raced.kind).toBe('pending');
+    expect(existsSync(saasCookieStorePath(dir))).toBe(false);
+
+    const href2 = new URL(opened);
+    await fetch(`${href2.origin}/login${href2.search}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'u@t.com', password: 'x' }),
+    });
+    expect(isOk(await second)).toBe(true);
+    void first;
+  });
+
+  it('close() rejects an in-flight OTP wait', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bc-login-otp-'));
+    dirs.push(dir);
+    let otpWait: Promise<string> | undefined;
+    let opened = '';
+    const window = new LoginWindow({
+      opener: {
+        open: (url) => {
+          opened = url;
+          return true;
+        },
+      },
+      portalUrl: PORTAL,
+      stateDir: dir,
+      aadTenantId: TENANT,
+      environmentName: 'DEV',
+      timeoutMs: 8_000,
+      closeDelayMs: 8_000,
+      logger: createNullLogger(),
+      loginFn: async ({ waitForOtp }) => {
+        otpWait = waitForOtp!();
+        try {
+          await otpWait;
+          return ok(undefined);
+        } catch {
+          return err(new AuthenticationError('otp cancelled'));
+        }
+      },
+    });
+    windows.push(window);
+
+    void window.run();
+    await vi.waitFor(() => expect(opened).toMatch(/^http:\/\/127\.0\.0\.1:/));
+    const href = new URL(opened);
+    const login = await fetch(`${href.origin}/login${href.search}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'u@t.com', password: 'x' }),
+    });
+    expect(login.status).toBe(202);
+    await vi.waitFor(() => expect(otpWait).toBeDefined());
+    await window.close();
+    await expect(otpWait).rejects.toThrow();
   });
 });

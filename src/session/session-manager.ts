@@ -1,5 +1,5 @@
 import { isErr } from '../core/result.js';
-import { ConnectionError, SessionLostError } from '../core/errors.js';
+import { BCError, ConnectionError, SessionLostError } from '../core/errors.js';
 import { isNonRetryableSessionCreateError } from './session-create-error.js';
 import type { BCSession } from './bc-session.js';
 import type { SessionFactory } from './session-factory.js';
@@ -107,9 +107,9 @@ export class SessionManager {
       this.servicesInvalidated = true;
 
       // Attempt reconnect with exponential backoff
-      const newSession = await this.createWithBackoff();
+      const created = await this.createWithBackoff();
 
-      if (newSession === null) {
+      if (!created.session) {
         throw new SessionLostError(
           'Session was lost and all reconnect attempts failed. The server cannot reach Business Central.',
           impactedIds,
@@ -117,7 +117,7 @@ export class SessionManager {
         );
       }
 
-      this.session = newSession;
+      this.session = created.session;
       this.logger.info('Session recovered successfully');
 
       // Throw SessionLostError so the MCP handler returns a clear message to the LLM
@@ -128,22 +128,24 @@ export class SessionManager {
     }
 
     // No session yet -- create one (first call), also with backoff for LogicalModalityViolation
-    const newSession = await this.createWithBackoff();
-    if (newSession === null) {
+    const created = await this.createWithBackoff();
+    if (!created.session) {
+      if (created.lastError instanceof BCError) throw created.lastError;
       throw new ConnectionError('Session creation failed after all retry attempts');
     }
 
-    this.session = newSession;
+    this.session = created.session;
     this.logger.info('BC session established');
     return this.session;
   }
 
   /**
    * Attempt to create a session with exponential backoff.
-   * Returns the new BCSession on success, or null if all retries are exhausted.
+   * Returns the session on success, or the last create error after exhaustion.
    */
-  private async createWithBackoff(): Promise<BCSession | null> {
+  private async createWithBackoff(): Promise<{ session: BCSession | null; lastError?: unknown }> {
     const { maxRetries, baseDelayMs } = this.reconnectOptions;
+    let lastError: unknown;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       if (attempt > 0) {
@@ -155,13 +157,14 @@ export class SessionManager {
       const result = await this.sessionFactory.create();
 
       if (!isErr(result)) {
-        return result.value;
+        return { session: result.value };
       }
 
       if (isNonRetryableSessionCreateError(result.error)) {
         throw result.error;
       }
 
+      lastError = result.error;
       const errorMsg = result.error.message;
 
       if (errorMsg.includes('LogicalModalityViolation')) {
@@ -177,7 +180,7 @@ export class SessionManager {
       }
     }
 
-    return null;
+    return { session: null, lastError };
   }
 
   /** Gracefully close the session, sending CloseForm for all open forms. */
