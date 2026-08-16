@@ -471,6 +471,17 @@ describe('EstsLoginClient', () => {
     if (isErr(result)) expect(result.error.message).toMatch(/timed out/i);
   });
 
+  it('a network failure mid-sign-in stays retryable, not a terminal auth failure', async () => {
+    const fetchFn = (async () => { throw new TypeError('fetch failed: ECONNRESET'); }) as unknown as typeof fetch;
+    const { ests } = client(fetchFn);
+    const result = await ests.login({ username: 'u@t.com', password: PASSWORD, portalUrl: PORTAL });
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.error.message).toContain('ECONNRESET');
+      expect(result.error.context?.nonRetryable).not.toBe(true);
+    }
+  });
+
   it('returns Entra sErrTxt and never includes the password', async () => {
     const { ests, cap } = client(scriptedFetch([
       { urlMatch: PORTAL, status: 302, location: AUTHORIZE },

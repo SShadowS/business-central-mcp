@@ -76,8 +76,15 @@ export class SaasClusterSession {
       }
       url = next.href;
     }
+    if (page.res.status === 401 || page.res.status === 403) {
+      // A bare 401/403 on the shell GET with cookies attached suggests the
+      // session was revoked without an Entra redirect — it rides the
+      // windowed escalation streak so sign-in eventually reopens, instead of
+      // staying retryable forever.
+      return err(new ShellUnclassifiableError(`Portal shell HTTP ${page.res.status}`));
+    }
     if (page.res.status >= 400) {
-      // An error/maintenance page carries no FixedEndPoint auth; it must fail
+      // A 5xx/other error page carries no FixedEndPoint auth; it must fail
       // retryably, not fall through to the signed-out-shell classification
       // (which would destroy valid stored cookies).
       return err(new ConnectionError(`Portal shell HTTP ${page.res.status}`));

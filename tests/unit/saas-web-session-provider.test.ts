@@ -421,6 +421,72 @@ describe('SaasWebSessionProvider', () => {
     }
   });
 
+  it('a persistent portal 403 with stored cookies escalates like an unclassifiable shell', async () => {
+    // A bare 401/403 on the shell GET (session revoked without an Entra
+    // redirect) must not stay retryable forever — it rides the same windowed
+    // streak, so sign-in eventually reopens.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      seedCookies();
+      const { fetchFn } = recordFetch(() => new Response('forbidden', { status: 403 }));
+      const provider = makeProvider(fetchFn);
+      await provider.authenticate();
+      await provider.authenticate();
+      vi.setSystemTime(Date.now() + 61_000);
+      const third = await provider.authenticate();
+      expect(isErr(third)).toBe(true);
+      if (isErr(third)) expect(third.error.code).toBe('SIGN_IN_REQUIRED');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('sporadic usage escalates via failed episodes — no dead band between window and staleness', async () => {
+    // Attempts separated by more than the staleness gap reset the streak, so
+    // streak+window alone can never fire for a client polling every 15
+    // minutes. Two fully-failed episodes plus fresh evidence must escalate.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      seedCookies();
+      const { fetchFn } = recordFetch(() => new Response('<html>one moment</html>', { status: 200 }));
+      const provider = makeProvider(fetchFn);
+      for (let episode = 0; episode < 2; episode++) {
+        // A quick burst (backoff-ladder shaped): streak fills, window unmet.
+        await provider.authenticate();
+        await provider.authenticate();
+        await provider.authenticate();
+        expect(provider.isAuthenticated()).toBe(true);
+        vi.setSystemTime(Date.now() + 15 * 60_000);
+      }
+      const escalated = await provider.authenticate();
+      expect(isErr(escalated)).toBe(true);
+      if (isErr(escalated)) expect(escalated.error.code).toBe('SIGN_IN_REQUIRED');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('post-login verification rejects a session the portal does not accept (wrong account/tenant)', async () => {
+    const { fetchFn } = recordFetch(() => new Response('', {
+      status: 302,
+      headers: { Location: 'https://login.microsoftonline.com/common/oauth2/authorize' },
+    }));
+    const jar = new CookieJar();
+    // A sign-in that landed cookies for some OTHER tenant's GUID.
+    jar.load([{ ...authCookie, name: 'bb258e74-0d74-4054-b2d6-41f6c19bcd6e.auth' }]);
+    const provider = makeProvider(fetchFn, { jar });
+    const verify = (provider as unknown as {
+      verifyFreshLogin(): Promise<import('../../src/core/result.js').Result<unknown, { code: string; message: string }>>;
+    }).verifyFreshLogin();
+    const result = await verify;
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.error.code).toBe('AUTHENTICATION_ERROR');
+      expect(result.error.message).toMatch(/account|tenant/i);
+    }
+    expect(provider.isAuthenticated()).toBe(false);
+  });
+
   it('network failures do not count toward escalation — cookies survive an outage of any length', async () => {
     seedCookies();
     const { fetchFn } = recordFetch(() => { throw new Error('ECONNREFUSED'); });

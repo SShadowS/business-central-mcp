@@ -69,6 +69,7 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
   private shellUnclassifiableStreak = 0;
   private shellUnclassifiableSince: number | undefined;
   private shellUnclassifiableLast: number | undefined;
+  private failedEpisodes = 0;
   private authenticated = false;
   private clusterBound = false;
   private inflight: Promise<Result<AuthResult, AuthFailure>> | null = null;
@@ -112,25 +113,21 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
   private async authenticateOnce(): Promise<Result<AuthResult, AuthFailure>> {
     this.loadStoredCookies();
     if (this.jar.hasPortalAuth()) {
-      const probe = await this.probePortal();
+      const probe = await this.readShellTracked();
       if (!isErr(probe)) {
-        this.recordShellSuccess();
         this.persistPortalCookies();
         this.authenticated = true;
         return ok(this.authResult());
       }
-      if (this.recordShellFailure(probe.error) === 'retryable') {
+      if (probe.error instanceof ConnectionError) {
         // Transient failure with stored cookies present: fail retryably
-        // instead of popping a sign-in window for a session that is probably
-        // still valid. The underlying detail (network vs unclassifiable
-        // shell) rides along so logs and clients see the real state.
-        return err(new ConnectionError(
-          `BC Online portal probe failed; retrying: ${probe.error.message}`,
-        ));
+        // (preserving the typed error and its detail — network vs
+        // unclassifiable shell) instead of popping a sign-in window for a
+        // session that is probably still valid.
+        return err(probe.error);
       }
-      // 'fatal': Entra redirect, or the unclassifiable streak spanned the
-      // escalation window. Tear down and fall through to interactive sign-in.
-      this.markSessionDead();
+      // Fatal (AuthenticationError from readShellTracked): teardown already
+      // applied there — fall through to interactive sign-in.
     }
 
     const signedIn = await this.login.run();
@@ -142,6 +139,8 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
         { nonRetryable: true },
       ));
     }
+    const verified = await this.verifyFreshLogin();
+    if (isErr(verified)) return verified;
     this.persistPortalCookies();
     this.authenticated = true;
     this.recordShellSuccess();
@@ -149,6 +148,28 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
     this.clusterMeta = undefined;
     this.tab = undefined;
     return ok(this.authResult());
+  }
+
+  /**
+   * A fresh sign-in can complete with an account the configured portal does
+   * not accept (multi-account user picking the wrong one at Entra): cookie
+   * presence alone cannot detect this since the auth cookie is named by the
+   * RESOLVED tenant GUID. Verify behaviorally — the portal at the configured
+   * URL must honor the new session. A transient failure here does not fail
+   * the sign-in (the next create's probe re-checks); only a definitive
+   * Entra-redirect rejection does, with a message naming the likely cause.
+   */
+  private async verifyFreshLogin(): Promise<Result<void, AuthFailure>> {
+    const probe = await this.probePortal();
+    if (isErr(probe) && probe.error instanceof AuthenticationError) {
+      this.markSessionDead();
+      return err(new AuthenticationError(
+        `Sign-in completed, but ${this.opts.saas.portalUrl} did not accept the session — `
+        + 'signed in with a different account or tenant than configured?',
+        { nonRetryable: true },
+      ));
+    }
+    return ok(undefined);
   }
 
   async prepare(): Promise<Result<ConnectionBinding, AuthFailure>> {
@@ -196,16 +217,8 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
     // needed a TTL and three clear sites to stay safe — one extra HTTPS GET
     // per cold start is negligible next to the discover/shareAuthCookie/
     // authenticateToken chain that follows.
-    const shell = await this.cluster.readPortalShell(this.jar, this.opts.saas);
-    if (isErr(shell)) {
-      // ConnectionFactory.create skips authenticate() while isAuthenticated()
-      // is true, so fatal shell outcomes seen HERE must tear the session down
-      // too — otherwise the sign-in window could never reopen for the
-      // lifetime of the process.
-      if (this.recordShellFailure(shell.error) === 'fatal') this.markSessionDead();
-      return shell;
-    }
-    this.recordShellSuccess();
+    const shell = await this.readShellTracked();
+    if (isErr(shell)) return shell;
 
     const discovered = await this.cluster.discover(this.jar, this.opts.saas);
     if (isErr(discovered)) return discovered;
@@ -326,27 +339,54 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
    * A thrown fetch error becomes a plain ConnectionError — retryable and
    * never counted toward escalation.
    */
-  private async probePortal(): Promise<Result<unknown, ConnectionError | AuthenticationError>> {
+  private async probePortal(): Promise<ReturnType<SaasClusterSession['readPortalShell']>> {
     try {
       return await this.cluster.readPortalShell(this.jar, this.opts.saas);
     } catch (e) {
-      // request() throws typed ConnectionErrors — preserve the instance
-      // instead of double-wrapping its message.
-      return err(e instanceof ConnectionError ? e : new ConnectionError(
-        `portal probe failed: ${e instanceof Error ? e.message : String(e)}`,
-      ));
+      // request() throws typed ConnectionErrors — preserve the instance.
+      // Anything else is a programming bug and propagates raw (stack
+      // intact), matching prepare()'s policy.
+      if (e instanceof ConnectionError) return err(e);
+      throw e;
     }
+  }
+
+  /**
+   * Read the portal shell WITH escalation bookkeeping — the only way session
+   * code may probe the shell, so no call site can bypass the streak.
+   * Liveness = "would readPortalShell hand us a signed-in shell?": one
+   * implementation of shell classification (redirect following, Entra
+   * detection, signed-out 2xx shells) instead of a weaker duplicate.
+   * A fatal outcome (Entra redirect, or an escalated unclassifiable streak)
+   * tears the session down here and surfaces as AuthenticationError, so
+   * callers distinguish fatal from retryable by error type alone.
+   */
+  private async readShellTracked(): Promise<ReturnType<SaasClusterSession['readPortalShell']>> {
+    const shell = await this.probePortal();
+    if (!isErr(shell)) {
+      this.recordShellSuccess();
+      return shell;
+    }
+    if (this.recordShellFailure(shell.error) === 'fatal') {
+      this.markSessionDead();
+      return err(shell.error instanceof AuthenticationError
+        ? shell.error
+        : new AuthenticationError(shell.error.message));
+    }
+    return shell;
   }
 
   /**
    * Record a readPortalShell failure — the ONLY writer of the escalation
    * streak, so classification and bookkeeping cannot drift apart across
    * call sites. 'fatal' means the stored session must be treated as dead:
-   * an Entra redirect (immediately), or an unclassifiable shell once the
-   * streak has reached the limit AND spanned the minimum window (the
+   * an Entra redirect (immediately), or an unclassifiable shell once EITHER
+   * the streak has reached the limit AND spanned the minimum window (the
    * backoff ladder can burn 3 attempts in seconds; a brief interstitial
-   * must never kill a session). Network/HTTP failures never touch the
-   * streak and are always 'retryable'.
+   * must never kill a session), OR two full episodes have already failed
+   * (sporadic usage — attempts more than the staleness gap apart — would
+   * otherwise never satisfy streak+window and wedge retryable forever).
+   * Network/HTTP failures never touch the streak and are always 'retryable'.
    */
   private recordShellFailure(e: unknown): 'fatal' | 'retryable' {
     if (e instanceof AuthenticationError) return 'fatal';
@@ -355,15 +395,20 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
       // A streak ages out: an old burst separated from this failure by a
       // long gap is no longer evidence about the current state — a fresh
       // 5-second interstitial days later must start a fresh streak, not
-      // inherit an escalation-ready one.
+      // inherit an escalation-ready one. A burst that itself filled the
+      // streak counts as a failed episode before being discarded.
       if (this.shellUnclassifiableLast !== undefined
         && now - this.shellUnclassifiableLast > SHELL_STREAK_STALE_MS) {
+        if (this.shellUnclassifiableStreak >= SHELL_UNCLASSIFIABLE_ESCALATION) {
+          this.failedEpisodes++;
+        }
         this.shellUnclassifiableStreak = 0;
         this.shellUnclassifiableSince = undefined;
       }
       this.shellUnclassifiableLast = now;
       this.shellUnclassifiableStreak++;
       this.shellUnclassifiableSince ??= now;
+      if (this.failedEpisodes >= 2) return 'fatal';
       if (this.shellUnclassifiableStreak >= SHELL_UNCLASSIFIABLE_ESCALATION
         && now - this.shellUnclassifiableSince >= SHELL_ESCALATION_WINDOW_MS) {
         return 'fatal';
@@ -378,6 +423,7 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
     this.shellUnclassifiableStreak = 0;
     this.shellUnclassifiableSince = undefined;
     this.shellUnclassifiableLast = undefined;
+    this.failedEpisodes = 0;
   }
 
   /**

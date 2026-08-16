@@ -1,5 +1,5 @@
 import { err, ok, type Result } from '../../../core/result.js';
-import { AuthenticationError } from '../../../core/errors.js';
+import { AuthenticationError, ConnectionError } from '../../../core/errors.js';
 import type { Logger } from '../../../core/logger.js';
 import { parseSaasUrl } from '../../saas-url.js';
 import { CookieJar } from './cookie-jar.js';
@@ -85,9 +85,15 @@ export class EstsLoginClient {
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       this.onStatus({ phase: 'error', message });
-      // A typed AuthenticationError keeps its own retryability (e.g. the MFA
-      // throttle is retryable); everything else is a hard sign-in failure.
+      // Typed errors keep their retryability: an AuthenticationError carries
+      // its own (the MFA throttle is retryable), and a ConnectionError
+      // (network blip mid-sign-in) is an outage, not a terminal failure.
+      // Everything else is a hard sign-in failure. Note the retryability on
+      // this Result is currently consumed only by future session-layer
+      // callers — LoginWindow.handleLogin re-shows the form on any error and
+      // lets the user resubmit regardless.
       if (e instanceof AuthenticationError) return err(e);
+      if (e instanceof ConnectionError) return err(new AuthenticationError(message));
       return err(new AuthenticationError(message, { nonRetryable: true }));
     }
   }
@@ -266,10 +272,11 @@ export class EstsLoginClient {
       }
       if (began.Success === false && !began.CorrelationId) {
         if (began.Retry) {
-          // A throttle clears in seconds — surface it retryable, not as a
-          // terminal auth failure the user must restart sign-in over.
-          // (login()'s catch preserves AuthenticationError instances; one
-          // without nonRetryable stays retryable in SessionManager.)
+          // A throttle clears in seconds — keep it retryable (no
+          // nonRetryable flag), not a terminal auth failure. Today the
+          // LoginWindow re-shows the form on any error, so the user can
+          // simply resubmit; the flag matters to future session-layer
+          // consumers of login()'s Result.
           throw new AuthenticationError('MFA BeginAuth failed: throttled by Entra (retries exhausted); retry shortly');
         }
         throw new Error(`MFA BeginAuth failed: ${began.Message ?? began.ResultValue ?? 'unknown error'}`);
@@ -401,9 +408,18 @@ export class EstsLoginClient {
     headers.set('User-Agent', SAAS_BROWSER_UA);
     const cookie = this.jar.headerFor(url);
     if (cookie) headers.set('Cookie', cookie);
-    const res = await this.fetchFn(url, { ...init, headers, redirect: 'manual' });
-    this.jar.absorb(res, url);
-    const html = await res.text();
-    return { res, html, url };
+    try {
+      const res = await this.fetchFn(url, { ...init, headers, redirect: 'manual' });
+      this.jar.absorb(res, url);
+      const html = await res.text();
+      return { res, html, url };
+    } catch (e) {
+      // Same policy as SaasClusterSession.request: a rejected fetch is a
+      // typed, retryable ConnectionError — a network blip mid-sign-in is an
+      // outage, not a terminal authentication failure.
+      throw new ConnectionError(
+        `sign-in request failed: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
   }
 }

@@ -130,7 +130,13 @@ async function main() {
   // MCP tools/list and session-independent tools (e.g. bc_query over OData)
   // must work before a /csh session exists. A session-independent tool's own
   // execute already reaches BC without a session, so run it directly.
-  const staticTools = buildServices({} as BCSession).tools;
+  const staticBuild = buildServices({} as BCSession);
+  const staticTools = staticBuild.tools;
+  // Route KEYS are static (only the handlers need a session): knowing them
+  // up front lets the server 404 unknown paths WITHOUT creating a BC
+  // session — otherwise any stray request (a LAN scanner's GET /favicon.ico)
+  // could pop the interactive SaaS sign-in window on the host.
+  const knownRouteKeys = new Set(createApiRoutes(staticBuild.operations, logger).keys());
   const lazyTools = staticTools.map(toolDef => ({
     ...toolDef,
     execute: async (input: unknown) => {
@@ -205,19 +211,28 @@ async function main() {
         return;
       }
 
-      // REST API routes
-      await ensureReady();
-      const routeKey = `${method} ${url.split('?')[0]}`;
-      const handler = apiRoutes!.get(routeKey);
-      if (handler) {
-        const body = method === 'POST' ? await parseJsonBody(req) : {};
-        await handler(req, res, body);
+      // Non-POST /mcp (e.g. an MCP client's GET SSE probe) must not fall
+      // into the REST section: session-creation errors there map to 401,
+      // which MCP streamable-HTTP clients treat as an OAuth-discovery
+      // trigger this server does not serve.
+      if (isMcpPath(url)) {
+        res.writeHead(405, { 'Content-Type': 'application/json', Allow: 'POST' });
+        res.end(JSON.stringify({ error: 'Method not allowed; the MCP endpoint accepts POST only' }));
         return;
       }
 
-      // 404
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Not found' }));
+      // REST API routes — resolve the route BEFORE creating a session, so
+      // unknown paths 404 without side effects.
+      const routeKey = `${method} ${url.split('?')[0]}`;
+      if (!knownRouteKeys.has(routeKey)) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Not found' }));
+        return;
+      }
+      await ensureReady();
+      const handler = apiRoutes!.get(routeKey)!;
+      const body = method === 'POST' ? await parseJsonBody(req) : {};
+      await handler(req, res, body);
 
     } catch (e) {
       logger.error(`Request error: ${e instanceof Error ? e.message : String(e)}`);
