@@ -9,6 +9,16 @@ import { tmpdir } from 'node:os';
 import { copyFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import WebSocket from 'ws';
+import { parseSaasUrl } from '../src/connection/saas-url.js';
+import { requireBaseUrl } from './proto-env.js';
+
+const SAAS = parseSaasUrl(requireBaseUrl());
+if (!SAAS) {
+  process.stderr.write('FAIL: BC_BASE_URL is not a SaaS portal URL\n');
+  process.exit(1);
+}
+const TENANT = SAAS.aadTenantId;
+const ENV = SAAS.environmentName;
 
 function log(msg: string): void {
   process.stderr.write(`${msg}\n`);
@@ -165,18 +175,18 @@ async function main(): Promise<void> {
   if (portalCookie) {
     const origin = 'https://businesscentral.dynamics.com';
     const headers = { Cookie: portalCookie, Origin: origin, ...ua };
-    log('\n[portal] GET /7bcb54ae-6d5e-43c7-9402-928aed68ad00/DEV');
-    log(`  ${await http('https://businesscentral.dynamics.com/7bcb54ae-6d5e-43c7-9402-928aed68ad00/DEV', headers)}`);
+    log(`\n[portal] GET /${TENANT}/${ENV}`);
+    log(`  ${await http(`https://businesscentral.dynamics.com/${TENANT}/${ENV}`, headers)}`);
     log('[portal] GET /…/csh');
-    log(`  ${await http('https://businesscentral.dynamics.com/7bcb54ae-6d5e-43c7-9402-928aed68ad00/DEV/csh', headers)}`);
+    log(`  ${await http(`https://businesscentral.dynamics.com/${TENANT}/${ENV}/csh`, headers)}`);
     log('[portal] GET /{tenant}/csh');
-    log(`  ${await http('https://businesscentral.dynamics.com/7bcb54ae-6d5e-43c7-9402-928aed68ad00/csh', headers)}`);
+    log(`  ${await http(`https://businesscentral.dynamics.com/${TENANT}/csh`, headers)}`);
     const csrf = csrfFrom(portalCookie);
     const qs = new URLSearchParams({ ackseqnb: '-1' });
     if (csrf) qs.set('csrftoken', csrf);
     for (const path of [
-      `/7bcb54ae-6d5e-43c7-9402-928aed68ad00/csh?${qs}`,
-      `/7bcb54ae-6d5e-43c7-9402-928aed68ad00/DEV/csh?${qs}`,
+      `/${TENANT}/csh?${qs}`,
+      `/${TENANT}/${ENV}/csh?${qs}`,
     ]) {
       const r = await probeWs(`wss://businesscentral.dynamics.com${path}`, headers);
       log(`[portal] WS ${path.split('?')[0]} → ${r}`);

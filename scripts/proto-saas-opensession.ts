@@ -21,8 +21,8 @@ import { PageContextRepository } from '../src/protocol/page-context-repo.js';
 import { PageService } from '../src/services/page-service.js';
 import { DataService } from '../src/services/data-service.js';
 import { fields as treeFields } from '../src/protocol/form-views.js';
+import { requireBaseUrl } from './proto-env.js';
 
-const DEFAULT_URL = 'https://businesscentral.dynamics.com/7bcb54ae-6d5e-43c7-9402-928aed68ad00/DEV';
 const UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 const COOKIE_FILE = resolve(process.env.STATE_DIR || './.state', 'proto-ests-cookies.json');
 const PORTAL_ORIGIN = 'https://businesscentral.dynamics.com';
@@ -123,7 +123,7 @@ function summarizeEvents(events: BCEvent[]): string {
 }
 
 async function main(): Promise<void> {
-  const saas = parseSaasUrl((process.env.BC_BASE_URL || DEFAULT_URL).replace(/\/+$/, ''));
+  const saas = parseSaasUrl(requireBaseUrl());
   if (!saas) throw new Error('not a SaaS URL');
 
   log('Prototype 3: ESTS /csh + PageService/DataService (no Chromium)');

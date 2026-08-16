@@ -12,14 +12,14 @@ import { BC_API_DELEGATED_SCOPE, BC_API_PUBLIC_CLIENT_ID } from '../src/connecti
 import { OAuthTokenClient } from '../src/connection/auth/oauth-token-client.js';
 import { FileTokenCache } from '../src/connection/auth/token-cache.js';
 import { isErr } from '../src/core/result.js';
-const DEFAULT_URL = 'https://businesscentral.dynamics.com/7bcb54ae-6d5e-43c7-9402-928aed68ad00/DEV';
+import { requireBaseUrl } from './proto-env.js';
 
 function log(msg: string): void {
   process.stderr.write(`${msg}\n`);
 }
 
 async function main(): Promise<void> {
-  const raw = (process.env.BC_BASE_URL || DEFAULT_URL).replace(/\/+$/, '');
+  const raw = requireBaseUrl();
   const saas = parseSaasUrl(raw);
   if (!saas) {
     log(`FAIL: not a SaaS portal URL: ${raw}`);

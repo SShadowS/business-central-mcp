@@ -8,12 +8,12 @@ import { parseSaasUrl } from '../src/connection/saas-url.js';
 import { OAuthTokenClient } from '../src/connection/auth/oauth-token-client.js';
 import { FileTokenCache } from '../src/connection/auth/token-cache.js';
 import { isErr } from '../src/core/result.js';
+import { requireBaseUrl } from './proto-env.js';
 
 const WELL_KNOWN_CLIENT = '1950a258-227b-4e31-a9cf-717495945fc2';
 const API_SCOPE = 'https://api.businesscentral.dynamics.com/user_impersonation offline_access';
 const RESOURCE = '996def3d-b36c-4153-8607-a6fd3c01b89f';
 const RES_SCOPE = `${RESOURCE}/.default offline_access`;
-const DEFAULT_URL = 'https://businesscentral.dynamics.com/7bcb54ae-6d5e-43c7-9402-928aed68ad00/DEV';
 
 function log(msg: string): void {
   process.stderr.write(`${msg}\n`);
@@ -58,7 +58,7 @@ async function http(url: string, headers: Record<string, string>): Promise<strin
 }
 
 async function main(): Promise<void> {
-  const saas = parseSaasUrl((process.env.BC_BASE_URL || DEFAULT_URL).replace(/\/+$/, ''));
+  const saas = parseSaasUrl(requireBaseUrl());
   if (!saas) throw new Error('bad url');
   const apiTok = await load('proto-saas-tokens.json', saas.aadTenantId, API_SCOPE);
   const resTok = await load('proto-saas-tokens-aud-996def3d.json', saas.aadTenantId, RES_SCOPE);

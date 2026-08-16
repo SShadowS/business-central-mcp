@@ -6,15 +6,15 @@ import { resolve } from 'node:path';
 import { writeFileSync } from 'node:fs';
 import { ensureChromium } from '../src/connection/auth/ensure-chromium.js';
 import { parseSaasUrl } from '../src/connection/saas-url.js';
+import { requireBaseUrl } from './proto-env.js';
 
-const DEFAULT_URL = 'https://businesscentral.dynamics.com/7bcb54ae-6d5e-43c7-9402-928aed68ad00/DEV';
 
 function log(msg: string): void {
   process.stderr.write(`${msg}\n`);
 }
 
 async function main(): Promise<void> {
-  const saas = parseSaasUrl((process.env.BC_BASE_URL || DEFAULT_URL).replace(/\/+$/, ''));
+  const saas = parseSaasUrl(requireBaseUrl());
   if (!saas) throw new Error('bad url');
   const stateDir = resolve(process.env.STATE_DIR || './.state');
   process.env.PLAYWRIGHT_BROWSERS_PATH = ensureChromium(stateDir);

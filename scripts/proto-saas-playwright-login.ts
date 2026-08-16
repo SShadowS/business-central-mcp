@@ -11,8 +11,8 @@ import { resolve } from 'node:path';
 import WebSocket from 'ws';
 import { parseSaasUrl } from '../src/connection/saas-url.js';
 import { ensureChromium } from '../src/connection/auth/ensure-chromium.js';
+import { requireBaseUrl } from './proto-env.js';
 
-const DEFAULT_URL = 'https://businesscentral.dynamics.com/7bcb54ae-6d5e-43c7-9402-928aed68ad00/DEV';
 const LOGIN_TIMEOUT_MS = 10 * 60 * 1000;
 
 function log(msg: string): void {
@@ -60,7 +60,7 @@ async function http(url: string, headers: Record<string, string>): Promise<strin
 }
 
 async function main(): Promise<void> {
-  const saas = parseSaasUrl((process.env.BC_BASE_URL || DEFAULT_URL).replace(/\/+$/, ''));
+  const saas = parseSaasUrl(requireBaseUrl());
   if (!saas) throw new Error('not a SaaS URL');
   const stateDir = resolve(process.env.STATE_DIR || './.state');
 

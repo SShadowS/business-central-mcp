@@ -7,9 +7,16 @@ import WebSocket from 'ws';
 import { FileTokenCache } from '../src/connection/auth/token-cache.js';
 import { OAuthTokenClient } from '../src/connection/auth/oauth-token-client.js';
 import { isErr } from '../src/core/result.js';
+import { parseSaasUrl } from '../src/connection/saas-url.js';
+import { requireBaseUrl } from './proto-env.js';
 
 const WELL_KNOWN_CLIENT = '1950a258-227b-4e31-a9cf-717495945fc2';
-const TENANT = '7bcb54ae-6d5e-43c7-9402-928aed68ad00';
+const SAAS = parseSaasUrl(requireBaseUrl());
+if (!SAAS) {
+  process.stderr.write('FAIL: BC_BASE_URL is not a SaaS portal URL\n');
+  process.exit(1);
+}
+const TENANT = SAAS.aadTenantId;
 const HOSTS = [
   'msft1eu2as5743-3mujv5i.appservices.us.businesscentral.dynamics.com',
   'msft1eu2as5632-xlxnecq.appservices.us.businesscentral.dynamics.com',

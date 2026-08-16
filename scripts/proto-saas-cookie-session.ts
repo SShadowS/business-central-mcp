@@ -17,8 +17,8 @@ import { resolve } from 'node:path';
 import WebSocket from 'ws';
 import { parseSaasUrl } from '../src/connection/saas-url.js';
 import { extractCsrf } from '../src/connection/auth/oauth-provider.js';
+import { requireBaseUrl } from './proto-env.js';
 
-const DEFAULT_URL = 'https://businesscentral.dynamics.com/7bcb54ae-6d5e-43c7-9402-928aed68ad00/DEV';
 
 function log(msg: string): void {
   process.stderr.write(`${msg}\n`);
@@ -64,7 +64,7 @@ function probeWs(url: string, headers: Record<string, string>): Promise<string> 
 }
 
 async function main(): Promise<void> {
-  const raw = (process.env.BC_BASE_URL || DEFAULT_URL).replace(/\/+$/, '');
+  const raw = requireBaseUrl();
   const saas = parseSaasUrl(raw);
   if (!saas) {
     log(`FAIL: not a SaaS portal URL: ${raw}`);

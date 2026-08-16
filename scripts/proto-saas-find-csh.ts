@@ -7,10 +7,10 @@ import { parseSaasUrl } from '../src/connection/saas-url.js';
 import { OAuthTokenClient } from '../src/connection/auth/oauth-token-client.js';
 import { FileTokenCache } from '../src/connection/auth/token-cache.js';
 import { isErr } from '../src/core/result.js';
+import { requireBaseUrl } from './proto-env.js';
 
 const WELL_KNOWN_CLIENT = '1950a258-227b-4e31-a9cf-717495945fc2';
 const DELEGATED_SCOPE = 'https://api.businesscentral.dynamics.com/user_impersonation offline_access';
-const DEFAULT_URL = 'https://businesscentral.dynamics.com/7bcb54ae-6d5e-43c7-9402-928aed68ad00/DEV';
 const JS_HINT = /csh|websocket|wss:\/\/|clientservices|\/cs\/|signalr|openSession/i;
 
 function log(msg: string): void {
@@ -37,7 +37,7 @@ async function loadApiToken(aadTenantId: string): Promise<string> {
 }
 
 async function main(): Promise<void> {
-  const saas = parseSaasUrl((process.env.BC_BASE_URL || DEFAULT_URL).replace(/\/+$/, ''));
+  const saas = parseSaasUrl(requireBaseUrl());
   if (!saas) throw new Error('bad url');
   const token = await loadApiToken(saas.aadTenantId);
   const auth = { Authorization: `Bearer ${token}`, Accept: 'application/json', 'User-Agent': 'BCMCPServer/2.0' };

@@ -10,8 +10,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { spawn } from 'node:child_process';
 import { parseSaasUrl } from '../src/connection/saas-url.js';
 import { estsPasswordLogin, type EstsUiStatus } from './proto-saas-ests-login.js';
+import { requireBaseUrl } from './proto-env.js';
 
-const DEFAULT_URL = 'https://businesscentral.dynamics.com/7bcb54ae-6d5e-43c7-9402-928aed68ad00/DEV';
 
 function log(msg: string): void {
   process.stderr.write(`${msg}\n`);
@@ -182,7 +182,7 @@ function openWindow(url: string): boolean {
 }
 
 async function main(): Promise<void> {
-  const raw = (process.env.BC_BASE_URL || DEFAULT_URL).replace(/\/+$/, '');
+  const raw = requireBaseUrl();
   const saas = parseSaasUrl(raw);
   if (!saas) throw new Error('not a SaaS URL');
 

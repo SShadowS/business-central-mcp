@@ -15,10 +15,10 @@ import { parseSaasUrl } from '../src/connection/saas-url.js';
 import { OAuthTokenClient, type TokenSet } from '../src/connection/auth/oauth-token-client.js';
 import { FileTokenCache } from '../src/connection/auth/token-cache.js';
 import { isErr } from '../src/core/result.js';
+import { requireBaseUrl } from './proto-env.js';
 
 const FIRST_PARTY_CLIENT = '996def3d-b36c-4153-8607-a6fd3c01b89f';
 const WEB_CLIENT_SCOPE = 'openid profile offline_access';
-const DEFAULT_URL = 'https://businesscentral.dynamics.com/7bcb54ae-6d5e-43c7-9402-928aed68ad00/DEV';
 const CACHE_FILE = 'proto-saas-tokens-996def3d.json';
 
 function log(msg: string): void {
@@ -184,7 +184,7 @@ async function runProbes(
 }
 
 async function main(): Promise<void> {
-  const raw = (process.env.BC_BASE_URL || DEFAULT_URL).replace(/\/+$/, '');
+  const raw = requireBaseUrl();
   const saas = parseSaasUrl(raw);
   if (!saas) {
     log(`FAIL: not a SaaS portal URL: ${raw}`);
