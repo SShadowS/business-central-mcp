@@ -69,8 +69,8 @@ export class QueryOperation {
       const header = this.getAuthorization ? await this.getAuthorization() : undefined;
       if (!header) {
         return err(new OAuthNotConfiguredError(
-          'bc_query on BC Online requires an Entra app. Set BC_CLIENT_ID (device code), '
-          + 'BC_CLIENT_SECRET (S2S), or BC_ACCESS_TOKEN.',
+          'bc_query on BC Online needs a device-code sign-in. '
+          + 'Open https://microsoft.com/devicelogin and enter the code printed on stderr.',
         ));
       }
     }

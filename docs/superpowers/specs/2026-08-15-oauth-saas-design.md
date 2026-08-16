@@ -1,6 +1,7 @@
 # OAuth + BC Online (SaaS) — design
 
 **Date:** 2026-08-15
+**Revised:** 2026-08-16 — `bc_query` is device-code with the built-in public client.
 **Status:** Implemented for the official API (`bc_query`). `/csh` on SaaS is implemented separately — see [2026-08-15-saas-web-session-design.md](2026-08-15-saas-web-session-design.md).
 
 ## Problem
@@ -17,7 +18,7 @@ Roadmap item: "OAuth / AAD authentication. Largest gap."
 
 | Surface | Host | Auth Microsoft documents | Used by |
 |---|---|---|---|
-| Standard API / OData | `api.businesscentral.dynamics.com/v2.0/{tenant}/{env}` | Entra Bearer (`user_impersonation` or `API.ReadWrite.All`) | `bc_query` |
+| Standard API / OData | `api.businesscentral.dynamics.com/v2.0/{tenant}/{env}` | Device-code Bearer (`user_impersonation`) | `bc_query` |
 | Web client `/csh` | Front Door `businesscentral.dynamics.com/{tenant}/{env}` after a cookie session | First-party OpenID Connect | `bc_open_page` and every other UI tool |
 
 Verified live 2026-08-15 against the DEV sandbox above:
@@ -32,10 +33,10 @@ So: **OAuth unlocks the official API immediately. It does not, by itself, unlock
 
 ## Decisions
 
-1. **Auto-detect SaaS URLs.** `parseSaasUrl` extracts Entra tenant + environment. `BC_AUTH` defaults to `auto` (SaaS → OAuth, else NavUserPassword).
-2. **No MSAL.** Device-code, client-credentials, and refresh against the v2.0 token endpoint are small enough to implement and unit-test with mocked `fetch`.
-3. **Require the user's Entra app** (`BC_CLIENT_ID`). Do not ship Microsoft's first-party client id as ours.
-4. **Device code when there is no secret** (MCP/stdio: prompt on stderr). **Client credentials when `BC_CLIENT_SECRET` is set.** Optional `BC_ACCESS_TOKEN` skips both.
+1. **Auto-detect SaaS URLs.** `parseSaasUrl` extracts Entra tenant + environment. `BC_AUTH` defaults to `auto` (SaaS → `SaasWeb`, else NavUserPassword).
+2. **No MSAL.** Device-code and refresh against the v2.0 token endpoint are small enough to implement and unit-test with mocked `fetch`.
+3. **Built-in public client.** Device-code uses Azure PowerShell `1950a258-227b-4e31-a9cf-717495945fc2` (`oauth-defaults.ts`). Scope `user_impersonation` + `offline_access`.
+4. **Device-code on stderr.** First `bc_query` prints `https://microsoft.com/devicelogin` and a user code. Incomplete sign-in returns `OAUTH_NOT_CONFIGURED`.
 5. **Refresh cache** at `STATE_DIR/oauth-tokens.json` (mode 0600), keyed by clientId + tenant.
 6. **`bc_query` must not open `/csh`.** Previously `ensureSession()` ran for every tool, so a SaaS `/csh` 404 would have blocked the one tool OAuth can serve.
 7. **OAuth provider still implements `IBCAuthProvider`.** It sends Bearer + any cookies a Bearer GET of the portal produced. A 302 to `login.microsoftonline.com` is treated as "no web session" (cookies cleared), not as success. `invalidate()` drops cookies only, so reconnect does not force another device-code prompt.
@@ -55,11 +56,10 @@ A legitimate `/csh` path would be one of:
 - A documented token-to-web-session exchange that is not the first-party `/remote-sign-in` form_post.
 - An optional, explicit browser-assisted cookie capture (out of scope here; this project is not a Playwright driver).
 
-Until then the honest UX is: SaaS + OAuth → `bc_query` works; UI tools tell the user `/csh` needs the web-client session.
+Until then the honest UX is: SaaS + device-code → `bc_query` works; UI tools use the ESTS web-client session.
 
 ## References
 
 - [Using OAuth to authorize Business Central web services](https://learn.microsoft.com/dynamics365/business-central/dev-itpro/webservices/authenticate-web-services-using-oauth)
-- [S2S authentication](https://learn.microsoft.com/dynamics365/business-central/dev-itpro/administration/automation-apis-using-s2s-authentication)
 - [API endpoint structure](https://learn.microsoft.com/dynamics365/business-central/dev-itpro/webservices/api-endpoint-structure)
 - [Admin Center API](https://learn.microsoft.com/dynamics365/business-central/dev-itpro/administration/administration-center-api) (resource `996def3d-…`)

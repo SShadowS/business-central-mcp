@@ -19,9 +19,15 @@ const TOKENS: TokenSet = {
 
 function stubClient(overrides?: Partial<OAuthTokenClient>): OAuthTokenClient {
   return {
-    clientCredentials: async () => ok(TOKENS),
-    startDeviceCode: async () => { throw new Error('device code should not run'); },
-    pollDeviceCode: async () => { throw new Error('device code should not run'); },
+    startDeviceCode: async () => ok({
+      deviceCode: 'dev',
+      userCode: 'CODE',
+      verificationUri: 'https://microsoft.com/devicelogin',
+      message: 'open the page',
+      intervalSec: 5,
+      expiresAt: Date.now() + 900_000,
+    }),
+    pollDeviceCode: async () => ok(TOKENS),
     refresh: async () => ok(TOKENS),
     ...overrides,
   } as unknown as OAuthTokenClient;
@@ -46,39 +52,18 @@ describe('OAuthAuthProvider', () => {
     if (dir) rmSync(dir, { recursive: true, force: true });
   });
 
-  function makeProvider(client: OAuthTokenClient, extra?: { accessToken?: string }) {
+  function makeProvider(client: OAuthTokenClient) {
     dir = mkdtempSync(join(tmpdir(), 'bc-oauth-p-'));
     return new OAuthAuthProvider({
       baseUrl: `https://businesscentral.dynamics.com/${TENANT}/DEV`,
       aadTenantId: TENANT,
       clientId: CLIENT,
-      clientSecret: 's',
-      scope: 'https://api.businesscentral.dynamics.com/.default',
-      accessToken: extra?.accessToken,
+      scope: 'https://api.businesscentral.dynamics.com/user_impersonation offline_access',
       stateDir: dir,
     }, createNullLogger(), client, new FileTokenCache(join(dir, 'oauth-tokens.json')));
   }
 
-  it('uses a pre-supplied access token and skips the token client', async () => {
-    const client = stubClient({
-      clientCredentials: async () => { throw new Error('should not acquire'); },
-    });
-    vi.stubGlobal('fetch', vi.fn(async () => ({
-      status: 302,
-      headers: {
-        get: (n: string) => n.toLowerCase() === 'location' ? 'https://login.microsoftonline.com/x/oauth2/authorize' : null,
-        getSetCookie: () => [] as string[],
-      },
-    })));
-
-    const provider = makeProvider(client, { accessToken: 'pre-supplied' });
-    const result = await provider.authenticate();
-    expect(result.ok).toBe(true);
-    expect(await provider.getAccessToken()).toBe('pre-supplied');
-    expect(provider.getWebSocketHeaders()['Authorization']).toBe('Bearer pre-supplied');
-  });
-
-  it('client-credentials then captures antiforgery cookies from a same-origin 200', async () => {
+  it('device-code then captures antiforgery cookies from a same-origin 200', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({
       status: 200,
       headers: {
@@ -134,7 +119,7 @@ describe('OAuthAuthProvider', () => {
     expect(await provider.getAccessToken()).toBe('access-1');
   });
 
-  it('reuses a cached unexpired token without calling clientCredentials', async () => {
+  it('reuses a cached unexpired token without calling device-code', async () => {
     dir = mkdtempSync(join(tmpdir(), 'bc-oauth-p-'));
     const disk = new FileTokenCache(join(dir, 'oauth-tokens.json'));
     disk.save({
@@ -152,11 +137,11 @@ describe('OAuthAuthProvider', () => {
       baseUrl: `https://businesscentral.dynamics.com/${TENANT}/DEV`,
       aadTenantId: TENANT,
       clientId: CLIENT,
-      clientSecret: 's',
-      scope: 'https://api.businesscentral.dynamics.com/.default',
+      scope: 'https://api.businesscentral.dynamics.com/user_impersonation offline_access',
       stateDir: dir,
     }, createNullLogger(), stubClient({
-      clientCredentials: async () => { throw new Error('should use cache'); },
+      startDeviceCode: async () => { throw new Error('should use cache'); },
+      pollDeviceCode: async () => { throw new Error('should use cache'); },
     }), disk);
 
     expect(await provider.getAccessToken()).toBe('cached-tok');

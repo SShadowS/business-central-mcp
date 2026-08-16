@@ -1,19 +1,19 @@
 # SaaS web-client session (ESTS) — production design
 
 **Date:** 2026-08-15
-**Revised:** 2026-08-15 after two review rounds (error channel, constructor call-site consistency, `requireBearer` always on SaaS, mint-only when `clusterBound`, optional `MCPHandler` opts, `nonRetryable` classifier)
+**Revised:** 2026-08-16 — `bc_query` is device-code with the built-in public client. Earlier: 2026-08-15 after two review rounds (error channel, constructor call-site consistency, `requireBearer` always on SaaS, mint-only when `clusterBound`, optional `MCPHandler` opts, `nonRetryable` classifier)
 **Author:** (draft for implementation on `feat/saas-web-session`)
 **Status:** Draft
 **Size:** L
 **Branch:** `feat/saas-web-session`
 **Prototype archive:** `proto/saas-ests` @ `cc06b05`
-**Supersedes (for `/csh` only):** [2026-08-15-oauth-saas-design.md](docs/superpowers/specs/2026-08-15-oauth-saas-design.md) — that spec remains correct for `bc_query` / OData. Its "SaaS `/csh` is blocked" conclusion is closed by the live ESTS gates below.
+**Supersedes (for `/csh` only):** [2026-08-15-oauth-saas-design.md](2026-08-15-oauth-saas-design.md) — that spec covers `bc_query` device-code. Its "SaaS `/csh` is blocked" conclusion is closed by the live ESTS gates below.
 
 ---
 
 ## Overview
 
-`business-central-mcp` can already talk OData to BC Online (`bc_query` via device-code / client-credentials / `BC_ACCESS_TOKEN`). Every other tool (`bc_open_page`, `bc_read_data`, `bc_execute_action`, …) speaks the native `/csh` WebSocket. On SaaS that socket does not live on the Front Door URL the user pastes:
+`business-central-mcp` can already talk OData to BC Online (`bc_query` via device-code). Every other tool (`bc_open_page`, `bc_read_data`, `bc_execute_action`, …) speaks the native `/csh` WebSocket. On SaaS that socket does not live on the Front Door URL the user pastes:
 
 ```
 https://businesscentral.dynamics.com/7bcb54ae-6d5e-43c7-9402-928aed68ad00/DEV
@@ -31,11 +31,11 @@ This document is the production plan: re-implement the proven path as proper mod
 
 | Surface | Host | Auth today | Tools |
 |---|---|---|---|
-| Standard API / OData | `api.businesscentral.dynamics.com/v2.0/{aadTenant}/{env}` | Entra Bearer (`OAuthAuthProvider`) | `bc_query` only |
+| Standard API / OData | `api.businesscentral.dynamics.com/v2.0/{aadTenant}/{env}` | Device-code Bearer (`OAuthAuthProvider`) | `bc_query` only |
 | Web client `/csh` (on-prem) | `{baseUrl}/csh` | `NTLMAuthProvider` (`POST /SignIn`) | all UI tools |
 | Web client `/csh` (SaaS) | **not** `{portal}/{env}/csh` | missing | UI tools fail |
 
-`loadConfig()` (`src/core/config.ts`) auto-selects `authMode: 'OAuth'` for any `businesscentral.dynamics.com/{guid}/{env}` URL and **throws at process start** if neither `BC_CLIENT_ID` nor `BC_ACCESS_TOKEN` is set. `createAuthProvider` then returns `OAuthAuthProvider`, whose `bootstrapWebSession` follows a Bearer GET of the portal and correctly gives up when Entra 302s. `ConnectionFactory.buildWebSocketUrl()` still produces `wss://businesscentral.dynamics.com/{tenant}/{env}/csh` and sets `Origin` from `baseUrl`. Unauthenticated (and Bearer-only) `GET {portal}/{env}/csh` is 404 `x-servicefabric: ResourceNotFound`.
+`loadConfig()` (`src/core/config.ts`) auto-selects `authMode: 'SaasWeb'` for any `businesscentral.dynamics.com/{guid}/{env}` URL and always populates `bc.oauth` with the built-in device-code client. `createAuthProvider` returns `SaasWebSessionProvider` for `/csh`. `bc_query` uses a separate `OAuthAuthProvider`. Unauthenticated `GET {portal}/{env}/csh` is 404 `x-servicefabric: ResourceNotFound`.
 
 `SessionFactory` (`src/session/session-factory.ts`) passes `config.bc.tenantId` — the AAD GUID parsed from the URL — into `BCSession.initialize` → `InteractionEncoder.encodeOpenSession`. SaaS OpenSession requires the **internal runtime id** (`msft1a6720t30818544`), not that GUID.
 
@@ -66,13 +66,13 @@ The prototype scripts (`scripts/proto-saas-*.ts`, `src/connection/auth/ensure-ch
 - `OpenSession.tenantId` is the cluster runtime id.
 - `/csh` `Origin` is `https://businesscentral.dynamics.com`, never the cluster host.
 - Downloads keep the existing same-origin + same-session rule, against the **tab** HTTPS base.
-- `bc_query` keeps working with OAuth and **without** a `/csh` session.
+- `bc_query` keeps working with device-code and **without** a `/csh` session.
 - On-prem NavUserPassword is byte-compatible in behaviour (optional `IBCAuthProvider` methods, NTLM path untouched).
 - Full TDD: failing unit tests before each new module. No live Entra in unit tests.
 
 ### Non-Goals
 
-- Custom Entra app registration as the `/csh` path (device-code apps stay for `bc_query` only).
+- Custom Entra app registration as the `/csh` path.
 - Impersonating first-party `client_id=996def3d-…` as *our* OAuth client.
 - Shipping Playwright / `ensure-chromium`.
 - Storing the password anywhere (env, `FileTokenCache`, cookie file, logs, tool results).
@@ -112,9 +112,9 @@ Treat these as closed. Do not re-open them as implementation questions. Sources:
 
 ## Key Decisions
 
-1. **Two auth surfaces, two providers — not a god provider.** `/csh` on SaaS uses a new `SaasWebSessionProvider`. `bc_query` keeps `OAuthAuthProvider`. Composition root constructs both when a SaaS URL has `BC_CLIENT_ID` / `BC_ACCESS_TOKEN`. Optional methods on `IBCAuthProvider` carry tab/Origin/tenant overrides so `ConnectionFactory` / `SessionFactory` stay provider-agnostic.
+1. **Two auth surfaces, two providers — not a god provider.** `/csh` on SaaS uses a new `SaasWebSessionProvider`. `bc_query` keeps `OAuthAuthProvider` (device-code). Composition root always constructs both on a SaaS URL. Optional methods on `IBCAuthProvider` carry tab/Origin/tenant overrides so `ConnectionFactory` / `SessionFactory` stay provider-agnostic.
 
-2. **`AuthMode` gains `SaasWeb`; OAuth becomes orthogonal.** A SaaS URL no longer means "process cannot start without `BC_CLIENT_ID`". `authMode` describes the `/csh` provider. `bc.oauth` is populated only when API credentials exist, and is required only when `bc_query` runs.
+2. **`AuthMode` gains `SaasWeb`; OAuth becomes orthogonal.** `authMode` describes the `/csh` provider. `bc.oauth` is always populated on SaaS with the built-in device-code client.
 
 3. **HTTP-only ESTS, acting as the browser.** We complete Microsoft's own `form_post` to Microsoft's `redirect_uri`. We do not register `996def3d` as our app and we do not send that client id except by following the portal's 302.
 
@@ -134,7 +134,7 @@ Treat these as closed. Do not re-open them as implementation questions. Sources:
 
 11. **Prototype scripts are not production.** Re-implement with injected `fetch`, tests, and redaction. Do not import `scripts/proto-saas-*.ts` or `ensure-chromium.ts`.
 
-12. **Breaking config change is allowed and intentional.** The existing unit test "SaaS URL without `BC_CLIENT_ID` throws" is inverted. On-prem tests are not.
+12. **Breaking config change is allowed and intentional.** A SaaS URL starts without username/password. On-prem tests are not inverted.
 
 13. **Auth errors propagate unwrapped to the MCP client.** `ConnectionFactory` / `SessionFactory` must not wrap `SignInRequiredError`, `UrlElicitationRequiredError`, or `AuthenticationError` in `ConnectionError`. `SessionManager` must not retry `SIGN_IN_REQUIRED`, `URL_ELICITATION_REQUIRED`, or `AuthenticationError` with `context.nonRetryable === true`. First-create throws the original `BCError` (today a generic `Error`, which `MCPHandler` renders as `Tool error:`). `-32042` is a JSON-RPC `error`, never `result.isError`. Bare NTLM transport `AuthenticationError` stays retryable.
 
@@ -210,7 +210,7 @@ Today (`src/core/config.ts`):
 
 ```ts
 export type AuthMode = 'NavUserPassword' | 'OAuth';
-// SaaS URL + auto → OAuth, and throw if no BC_CLIENT_ID / BC_ACCESS_TOKEN
+// SaaS URL + auto used to select OAuth
 ```
 
 Production:
@@ -224,10 +224,9 @@ export type AuthMode = 'NavUserPassword' | 'OAuth' | 'SaasWeb';
 | Input | `authMode` | `oauth` | `/csh` provider | `bc_query` |
 |---|---|---|---|---|
 | On-prem URL, `BC_AUTH` unset | `NavUserPassword` | undefined | `NTLMAuthProvider` | HTTP Basic |
-| On-prem + `BC_AUTH=OAuth` + `BC_CLIENT_ID` + `BC_AAD_TENANT_ID` | `OAuth` | populated | `OAuthAuthProvider` (unchanged; AAD on-prem experiment) | Bearer |
-| SaaS URL, no client id / token | **`SaasWeb`** | **undefined** | `SaasWebSessionProvider` | `OAUTH_NOT_CONFIGURED` at **execute** time, not at `loadConfig` |
-| SaaS URL + `BC_CLIENT_ID` (or `BC_ACCESS_TOKEN`) | **`SaasWeb`** | populated | `SaasWebSessionProvider` | `OAuthAuthProvider` (separate instance) |
-| SaaS URL + `BC_AUTH=OAuth` | **`SaasWeb`** | as credentials allow | `SaasWebSessionProvider` | OAuth if configured |
+| On-prem + `BC_AUTH=OAuth` + `BC_AAD_TENANT_ID` | `OAuth` | device-code public client | `OAuthAuthProvider` | Device-code Bearer |
+| SaaS URL | **`SaasWeb`** | device-code public client | `SaasWebSessionProvider` | `OAuthAuthProvider` (separate instance) |
+| SaaS URL + `BC_AUTH=OAuth` | **`SaasWeb`** | device-code public client | `SaasWebSessionProvider` | Device-code Bearer |
 | SaaS URL + `BC_AUTH=NavUserPassword` | `NavUserPassword` | undefined | `NTLMAuthProvider` (will fail SignIn on Front Door; explicit escape hatch) | Basic (useless on SaaS) |
 
 `resolveAuthMode`:
@@ -242,10 +241,10 @@ export type AuthMode = 'NavUserPassword' | 'OAuth' | 'SaasWeb';
 - `username` = `BC_USERNAME` or `''` (prefill only; not required)
 - `password` = **always `''`**. If `BC_PASSWORD` is set, log a one-line stderr warning that it is ignored (company policy). Do not copy it into `BCConfig`.
 - `tenantId` = AAD GUID from URL / `BC_AAD_TENANT_ID` / `BC_TENANT_ID` (config/health/OData identity, **not** OpenSession)
-- `oauth` = built only when `BC_CLIENT_ID` or `BC_ACCESS_TOKEN` is set; **no throw** when both are missing
+- `oauth` = always `deviceOAuthConfig(aadTenant)` (built-in public client)
 - `appendTenantQuery` = `false`
 
-This **intentionally breaks** `tests/unit/config.test.ts` case `"throws when a SaaS URL is used without BC_CLIENT_ID or BC_ACCESS_TOKEN"`. Rewrite that test. Leave the on-prem missing-password tests alone.
+Leave the on-prem missing-password tests alone.
 
 #### `createAuthProvider` signature (DI, no implicit NTLM)
 
@@ -308,10 +307,8 @@ const apiAuth = config.bc.oauth
       baseUrl: config.bc.baseUrl,
       aadTenantId: config.bc.oauth.aadTenantId,
       clientId: config.bc.oauth.clientId,
-      clientSecret: config.bc.oauth.clientSecret,
       scope: config.bc.oauth.scope,
-      accessToken: config.bc.oauth.accessToken,
-      stateDir: config.stateDir, // same FileTokenCache path as today
+      stateDir: config.stateDir,
     }, logger)
   : uiAuth;
 
@@ -354,8 +351,8 @@ export class QueryOperation {
       const header = this.getAuthorization ? await this.getAuthorization() : undefined;
       if (!header) {
         return err(new OAuthNotConfiguredError(
-          'bc_query on BC Online requires an Entra app. Set BC_CLIENT_ID (device code), '
-          + 'BC_CLIENT_SECRET (S2S), or BC_ACCESS_TOKEN.',
+          'bc_query on BC Online needs a device-code sign-in. '
+          + 'Open https://microsoft.com/devicelogin and enter the code printed on stderr.',
         ));
       }
     }
@@ -1099,13 +1096,13 @@ Assert `.code === 'SIGN_IN_REQUIRED'` / `'URL_ELICITATION_REQUIRED'` and that `e
 | Code | Hint |
 |---|---|
 | `SIGN_IN_REQUIRED` | Complete Microsoft sign-in in the window that opened (Authenticator number matching), then retry this tool. If no window appeared, run the MCP on a machine with a display or run `npx business-central-mcp login` with the same `STATE_DIR`. |
-| `OAUTH_NOT_CONFIGURED` | `bc_query` on BC Online needs an Entra app. Set `BC_CLIENT_ID` (device code) or `BC_CLIENT_SECRET` (S2S) or `BC_ACCESS_TOKEN`. UI tools do not need this. |
+| `OAUTH_NOT_CONFIGURED` | `bc_query` on BC Online needs a device-code sign-in. Open https://microsoft.com/devicelogin and enter the code printed on stderr. UI tools do not need this. |
 
 `MCPHandler.formatBcError` already prints `Error [CODE]` + hint. Add unit cases in `tests/unit/error-hint.test.ts` and `tests/unit/mcp-error-format.test.ts`. `UrlElicitationRequiredError` is **not** formatted this way — `handleToolsCall` returns JSON-RPC `-32042` (see Error channel). Tests in `tests/unit/mcp-handler.test.ts`.
 
 Health (`GET /health`) may show `authMode: 'SaasWeb'` and `webSession: boolean` (`uiAuth.isAuthenticated()`). Never cookie values.
 
-Tool descriptions: `open-page.tool.ts` notes that SaaS opens a local sign-in window on first use. `query.tool.ts` already says `bc_query` does not need `/csh`; add that it still needs Entra API credentials on SaaS.
+Tool descriptions: `open-page.tool.ts` notes that SaaS opens a local sign-in window on first use. `query.tool.ts` says `bc_query` uses device-code and does not need `/csh`.
 
 ---
 
@@ -1211,9 +1208,6 @@ Factory test: captured WS headers use the Chrome constant and `Referer` of the p
 | `BC_BASE_URL` | required (portal URL) | required | required |
 | `BC_USERNAME` | optional prefill | unused | required |
 | `BC_PASSWORD` | **ignored** (warn) | unused | required |
-| `BC_CLIENT_ID` | not required | required unless `BC_ACCESS_TOKEN` | OAuth-on-prem only |
-| `BC_CLIENT_SECRET` | unused | S2S | OAuth-on-prem S2S |
-| `BC_ACCESS_TOKEN` | unused | skips device-code | OAuth-on-prem |
 | `BC_AUTH` | `auto` → `SaasWeb` | n/a | `auto` → NavUserPassword |
 | `STATE_DIR` | cookie file | token file | unused for auth |
 | `BC_PROFILE` | OpenSession profile | unused | unchanged |
@@ -1239,7 +1233,7 @@ Factory test: captured WS headers use the Chrome constant and `Referer` of the p
 }
 ```
 
-No `BC_PASSWORD`. Optional `BC_CLIENT_ID` only if the agent will call `bc_query`.
+No `BC_PASSWORD`. First `bc_query` prints a device-code prompt on stderr.
 
 ---
 
@@ -1248,7 +1242,7 @@ No `BC_PASSWORD`. Optional `BC_CLIENT_ID` only if the agent will call `bc_query`
 ### Before
 
 ```ts
-// config: SaaS ⇒ AuthMode 'OAuth' + mandatory BC_CLIENT_ID
+// config: SaaS ⇒ AuthMode 'OAuth'
 // createAuthProvider ⇒ OAuthAuthProvider
 // ConnectionFactory Origin = new URL(baseUrl).origin
 // ConnectionFactory WS = {baseUrl}/csh
@@ -1298,7 +1292,7 @@ Migration: none. If the file is missing or the tenant/env does not match, treat 
 
 ### A. Custom Entra app + device-code for `/csh`
 
-**Rejected (user constraint + G2).** Device-code / user-registered apps are the correct `bc_query` path. They do not mint `/remote-sign-in` cookies. Bearer on the cluster `/csh` was probed and failed.
+**Rejected (user constraint + G2).** Device-code for `bc_query` does not mint `/remote-sign-in` cookies. Bearer on the cluster `/csh` was probed and failed.
 
 ### B. Chromium / Playwright / user browser profile
 
@@ -1419,7 +1413,7 @@ No feature flag. A SaaS `BC_BASE_URL` selects `SaasWeb`. On-prem binaries are un
 | First tool call blocked 5 min | Low | Document; cookies make it one-shot; subsequent calls are cache hits. SessionManager does **not** retry `SIGN_IN_REQUIRED` (would be ~25 min). |
 | PR 4 SaaS boot onto NTLM | High | `createAuthProvider` exhaustive switch throws if `SaasWeb` without `SaasWebDeps` |
 | Cookie file ignored tenant/env | Medium | Store keys include both; test mismatch → undefined |
-| Dual `loadConfig` throw removed breaks someone using the throw as "I forgot CLIENT_ID" | Low | `bc_query` still errors with `OAUTH_NOT_CONFIGURED`; README updated |
+| Dual `loadConfig` throw removed | Low | `bc_query` still errors with `OAUTH_NOT_CONFIGURED` if device-code is not completed; README updated |
 
 ---
 
@@ -1505,10 +1499,10 @@ createAuthProvider:
 
 config (`tests/unit/config.test.ts` OAuth / SaaS block):
 
-11. **Change:** SaaS URL without `BC_CLIENT_ID` / `BC_ACCESS_TOKEN` does **not** throw. `authMode === 'SaasWeb'`, `oauth === undefined`, `password === ''`.
-12. SaaS URL + `BC_CLIENT_ID` → `authMode === 'SaasWeb'`, `oauth.clientId` set (not `authMode === 'OAuth'`).
+11. **Change:** SaaS URL does **not** throw. `authMode === 'SaasWeb'`, `oauth` is the built-in device-code client, `password === ''`.
+12. SaaS URL → `authMode === 'SaasWeb'` (not `authMode === 'OAuth'`).
 13. SaaS URL + `BC_PASSWORD=leak` → `password === ''` (ignored).
-14. Existing: on-prem still requires username/password; `BC_AUTH=OAuth` on on-prem still requires `BC_AAD_TENANT_ID`; `BC_ACCESS_TOKEN` still populates `oauth`.
+14. Existing: on-prem still requires username/password; `BC_AUTH=OAuth` on on-prem still requires `BC_AAD_TENANT_ID`.
 15. `BC_AUTH=NavUserPassword` on a SaaS URL still requires `BC_USERNAME` (existing test).
 
 SessionFactory:
@@ -1603,7 +1597,7 @@ Optional second test: `openPage('21')` field count > 0 (G12). Keep runtime short
 - Do not have `invalidate()` delete portal cookies or clear `clusterBound` (use `markClusterUnbound()` for 401/403/500).
 - Do not GET the portal or POST AUTHENTICATETOKEN when `clusterBound === true`.
 - Do not set `requireBearer` only when `oauth` is missing — always on `SaasWeb`.
-- Do not throw at `loadConfig()` for missing `BC_CLIENT_ID` on a SaaS URL.
+- Do not require more than `BC_BASE_URL` at `loadConfig()` on a SaaS URL.
 - Do not open the ESTS window from `bc_query`.
 - Do not put Origin in `getWebSocketHeaders()` (HTTP download path reuses those headers).
 - Do not log `FixedEndPoint` JWTs.
@@ -1661,14 +1655,14 @@ Each PR is independently reviewable and mergeable. Tests land in the same PR as 
 - **Title:** `feat(saas): IBCAuthProvider connection hooks and SaasWeb config`
 - **Files:** `src/connection/auth/auth-provider.ts`, `src/connection/connection-factory.ts`, `src/session/session-factory.ts`, `src/session/session-manager.ts`, `src/session/session-create-error.ts`, `src/core/config.ts`, `src/core/errors.ts` (`SignInRequiredError`, `UrlElicitationRequiredError`, `OAuthNotConfiguredError` + hints), `src/connection/auth/create-auth-provider.ts`, tests listed in TDD PR 4
 - **Depends on:** none strictly; merge-friendly with PRs 1–3. **`createAuthProvider` `SaasWeb` arm throws** a complete “pass `SaasWebDeps` / merge PR 5” error — exhaustive switch, **not** `else NTLM`, not a stub provider. Optional methods + factory/config are tested with a **test-double** `IBCAuthProvider`.
-- **Changes:** `ConnectionFactory` calls `prepareConnection?` / `getOrigin?` / `getWebSocketUrl?` and **passes auth errors through unwrapped**. `SessionFactory` return type is `SessionCreateError`. `SessionManager` uses `isNonRetryableSessionCreateError` (`SIGN_IN_REQUIRED` / elicitation / `context.nonRetryable`). NTLM transport `AuthenticationError` stays retryable; NTLM wrong-password and ESTS reject set `nonRetryable: true`. `loadConfig` no longer throws on SaaS-without-client-id; `AuthMode` includes `SaasWeb`. `createAuthProvider` two-arg still throws on `SaasWeb` (composition is PR 5). First-create exhaustion throws a `BCError`. Invert the config unit test.
+- **Changes:** `ConnectionFactory` calls `prepareConnection?` / `getOrigin?` / `getWebSocketUrl?` and **passes auth errors through unwrapped**. `SessionFactory` return type is `SessionCreateError`. `SessionManager` uses `isNonRetryableSessionCreateError` (`SIGN_IN_REQUIRED` / elicitation / `context.nonRetryable`). NTLM transport `AuthenticationError` stays retryable; NTLM wrong-password and ESTS reject set `nonRetryable: true`. `loadConfig` populates device-code `oauth` on SaaS; `AuthMode` includes `SaasWeb`. `createAuthProvider` two-arg still throws on `SaasWeb` (composition is PR 5). First-create exhaustion throws a `BCError`. Invert the config unit test.
 
 ### PR 5 — `SaasWebSessionProvider` + cookie store + composition
 
 - **Title:** `feat(saas): SaasWebSessionProvider and dual auth composition`
 - **Files:** `src/connection/auth/saas-web-session-provider.ts`, `src/connection/auth/saas/cookie-store.ts`, `src/connection/auth/create-auth-provider.ts` (`SaasWebDeps`), `src/server.ts`, `src/stdio-server.ts`, `src/operations/query.ts` (`requireBearer`), tests in TDD PR 5
 - **Depends on:** PR 2, PR 3, PR 4
-- **Changes:** Real provider. `createAuthProvider(config, logger, saasDeps)` returns it for `SaasWeb` (throws without deps). Composition root builds a separate `OAuthAuthProvider` for `bc_query` when `config.bc.oauth` is set (`stateDir` unchanged). `ensurePortalSession` default = load cookie store or two-arg `SignInRequiredError`. DownloadService base uses `getHttpBaseUrl()`. `invalidate()` tab-only; `markClusterUnbound()` on dead-cluster; bind-once / mint-every-time. `QueryOperation` `requireBearer` whenever `authMode === 'SaasWeb'`.
+- **Changes:** Real provider. `createAuthProvider(config, logger, saasDeps)` returns it for `SaasWeb` (throws without deps). Composition root builds a separate `OAuthAuthProvider` for `bc_query` (device-code, `stateDir` unchanged). `ensurePortalSession` default = load cookie store or two-arg `SignInRequiredError`. DownloadService base uses `getHttpBaseUrl()`. `invalidate()` tab-only; `markClusterUnbound()` on dead-cluster; bind-once / mint-every-time. `QueryOperation` `requireBearer` whenever `authMode === 'SaasWeb'`.
 
 ### PR 6 — Loopback login window, opener, CLI
 

@@ -64,9 +64,7 @@ describe('createAuthProvider', () => {
       oauth: {
         aadTenantId: '7bcb54ae-6d5e-43c7-9402-928aed68ad00',
         clientId: 'c',
-        clientSecret: 's',
-        scope: 'https://api.businesscentral.dynamics.com/.default',
-        accessToken: undefined,
+        scope: 'https://api.businesscentral.dynamics.com/user_impersonation offline_access',
       },
     }), createNullLogger());
     expect(p).toBeInstanceOf(OAuthAuthProvider);

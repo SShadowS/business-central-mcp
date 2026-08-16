@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { loadConfig } from '../../src/core/config.js';
+import { BC_API_DELEGATED_SCOPE, BC_API_PUBLIC_CLIENT_ID } from '../../src/connection/auth/oauth-defaults.js';
 
 describe('loadConfig', () => {
   const originalEnv = process.env;
@@ -79,10 +80,8 @@ describe('loadConfig OAuth / SaaS', () => {
     process.env = { ...originalEnv };
     delete process.env.BC_USERNAME;
     delete process.env.BC_PASSWORD;
-    delete process.env.BC_CLIENT_ID;
-    delete process.env.BC_CLIENT_SECRET;
-    delete process.env.BC_ACCESS_TOKEN;
     delete process.env.BC_AAD_TENANT_ID;
+    delete process.env.BC_CLIENT_ID;
     delete process.env.BC_AUTH;
     delete process.env.BC_ODATA_URL;
     delete process.env.BC_ENVIRONMENT;
@@ -95,8 +94,6 @@ describe('loadConfig OAuth / SaaS', () => {
 
   it('auto-selects SaasWeb for a businesscentral.dynamics.com URL and parses tenant/env', () => {
     process.env.BC_BASE_URL = `https://businesscentral.dynamics.com/${TENANT}/DEV`;
-    process.env.BC_CLIENT_ID = 'app-id';
-    process.env.BC_CLIENT_SECRET = 'app-secret';
     const c = loadConfig();
     expect(c.bc.authMode).toBe('SaasWeb');
     expect(c.bc.tenantId).toBe(TENANT);
@@ -104,32 +101,18 @@ describe('loadConfig OAuth / SaaS', () => {
     expect(c.bc.baseUrl).toBe(`https://businesscentral.dynamics.com/${TENANT}/DEV`);
     expect(c.bc.odataUrl).toBe(`https://api.businesscentral.dynamics.com/v2.0/${TENANT}/DEV`);
     expect(c.bc.appendTenantQuery).toBe(false);
-    expect(c.bc.oauth?.aadTenantId).toBe(TENANT);
-    expect(c.bc.oauth?.clientId).toBe('app-id');
-    expect(c.bc.oauth?.scope).toBe('https://api.businesscentral.dynamics.com/.default');
+    expect(c.bc.oauth).toEqual({
+      aadTenantId: TENANT,
+      clientId: BC_API_PUBLIC_CLIENT_ID,
+      scope: BC_API_DELEGATED_SCOPE,
+    });
     expect(c.bc.username).toBe('');
     expect(c.bc.password).toBe('');
   });
 
   it('does not require BC_USERNAME/BC_PASSWORD for SaaS', () => {
     process.env.BC_BASE_URL = `https://businesscentral.dynamics.com/${TENANT}/DEV`;
-    process.env.BC_CLIENT_ID = 'app-id';
     expect(() => loadConfig()).not.toThrow();
-  });
-
-  it('uses delegated scope when no client secret is set', () => {
-    process.env.BC_BASE_URL = `https://businesscentral.dynamics.com/${TENANT}/DEV`;
-    process.env.BC_CLIENT_ID = 'app-id';
-    expect(loadConfig().bc.oauth?.scope).toContain('user_impersonation');
-    expect(loadConfig().bc.oauth?.clientSecret).toBeUndefined();
-  });
-
-  it('does not throw when a SaaS URL has no BC_CLIENT_ID or BC_ACCESS_TOKEN', () => {
-    process.env.BC_BASE_URL = `https://businesscentral.dynamics.com/${TENANT}/DEV`;
-    const c = loadConfig();
-    expect(c.bc.authMode).toBe('SaasWeb');
-    expect(c.bc.oauth).toBeUndefined();
-    expect(c.bc.password).toBe('');
   });
 
   it('ignores BC_PASSWORD on a SaaS URL', () => {
@@ -138,18 +121,19 @@ describe('loadConfig OAuth / SaaS', () => {
     expect(loadConfig().bc.password).toBe('');
   });
 
-  it('accepts a pre-acquired BC_ACCESS_TOKEN without BC_CLIENT_ID', () => {
-    process.env.BC_BASE_URL = `https://businesscentral.dynamics.com/${TENANT}/DEV`;
-    process.env.BC_ACCESS_TOKEN = 'eyJ';
-    const c = loadConfig();
-    expect(c.bc.oauth?.accessToken).toBe('eyJ');
-  });
-
   it('BC_AUTH=OAuth on an on-prem URL requires BC_AAD_TENANT_ID', () => {
     process.env.BC_BASE_URL = 'http://cronus28/BC';
     process.env.BC_AUTH = 'OAuth';
-    process.env.BC_CLIENT_ID = 'app-id';
     expect(() => loadConfig()).toThrow('BC_AAD_TENANT_ID');
+  });
+
+  it('BC_AUTH=OAuth on an on-prem URL uses the public client once the tenant is set', () => {
+    process.env.BC_BASE_URL = 'http://cronus28/BC';
+    process.env.BC_AUTH = 'OAuth';
+    process.env.BC_AAD_TENANT_ID = TENANT;
+    const c = loadConfig();
+    expect(c.bc.authMode).toBe('OAuth');
+    expect(c.bc.oauth?.clientId).toBe(BC_API_PUBLIC_CLIENT_ID);
   });
 
   it('BC_AUTH=NavUserPassword keeps requiring username/password even for a SaaS URL', () => {

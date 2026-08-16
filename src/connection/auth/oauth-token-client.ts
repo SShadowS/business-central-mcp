@@ -21,7 +21,6 @@ export interface DeviceCodeStart {
 export interface OAuthClientConfig {
   aadTenantId: string;
   clientId: string;
-  clientSecret?: string;
   scope: string;
 }
 
@@ -54,14 +53,8 @@ interface DeviceCodeJson {
 /**
  * Minimal OAuth 2.0 client for Microsoft Entra ID.
  *
- * Supports device-code (public client), client-credentials (confidential),
- * and refresh_token. No MSAL dependency — the three grants we need are
- * small enough to implement against the v2.0 token endpoint and unit-test
- * with a mocked fetch.
- *
- * Scopes (Microsoft Learn, Dynamics 365 Business Central):
- *   delegated:  https://api.businesscentral.dynamics.com/user_impersonation
- *   application: https://api.businesscentral.dynamics.com/.default
+ * Device-code (public client) and refresh_token. No MSAL.
+ * Scope: user_impersonation + offline_access.
  */
 export class OAuthTokenClient {
   constructor(
@@ -72,21 +65,6 @@ export class OAuthTokenClient {
 
   get authority(): string {
     return `https://login.microsoftonline.com/${this.config.aadTenantId}`;
-  }
-
-  async clientCredentials(): Promise<Result<TokenSet, AuthenticationError>> {
-    if (!this.config.clientSecret) {
-      return err(new AuthenticationError(
-        'Client-credentials flow requires BC_CLIENT_SECRET.',
-        { aadTenantId: this.config.aadTenantId },
-      ));
-    }
-    return this.tokenRequest({
-      grant_type: 'client_credentials',
-      client_id: this.config.clientId,
-      client_secret: this.config.clientSecret,
-      scope: this.config.scope,
-    });
   }
 
   async startDeviceCode(): Promise<Result<DeviceCodeStart, AuthenticationError>> {
@@ -126,6 +104,15 @@ export class OAuthTokenClient {
     });
   }
 
+  /** One token poll, no sleep. Used so bc_query can fail fast and retry. */
+  async pollDeviceCodeOnce(start: DeviceCodeStart): Promise<Result<TokenSet, AuthenticationError>> {
+    return this.tokenRequest({
+      grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+      client_id: this.config.clientId,
+      device_code: start.deviceCode,
+    }, { pendingIsNotError: true });
+  }
+
   async pollDeviceCode(start: DeviceCodeStart): Promise<Result<TokenSet, AuthenticationError>> {
     let intervalMs = Math.max(1, start.intervalSec) * 1000;
     while (Date.now() < start.expiresAt) {
@@ -150,14 +137,12 @@ export class OAuthTokenClient {
   }
 
   async refresh(refreshToken: string): Promise<Result<TokenSet, AuthenticationError>> {
-    const params: Record<string, string> = {
+    return this.tokenRequest({
       grant_type: 'refresh_token',
       client_id: this.config.clientId,
       refresh_token: refreshToken,
       scope: this.config.scope,
-    };
-    if (this.config.clientSecret) params.client_secret = this.config.clientSecret;
-    return this.tokenRequest(params);
+    });
   }
 
   private async tokenRequest(

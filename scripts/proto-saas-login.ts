@@ -1,23 +1,17 @@
 /**
- * Prototype 0 — device-code login against a SaaS portal URL.
- *
- * No Entra app registration. Uses the well-known Azure PowerShell public
- * client (same default as New-BcAuthContext -includeDeviceLogin).
- *
- * Not wired into the MCP server. Prints the Microsoft device-code prompt
- * on stderr; writes tokens to STATE_DIR without printing them.
+ * Device-code login against a SaaS portal URL (same grant as production
+ * `bc_query`). Prints the Microsoft prompt on stderr; writes tokens to
+ * STATE_DIR without printing them.
  *
  *   npx tsx scripts/proto-saas-login.ts
  *   BC_BASE_URL=https://businesscentral.dynamics.com/{tenant}/{env} npx tsx scripts/proto-saas-login.ts
  */
 import { resolve } from 'node:path';
 import { parseSaasUrl } from '../src/connection/saas-url.js';
+import { BC_API_DELEGATED_SCOPE, BC_API_PUBLIC_CLIENT_ID } from '../src/connection/auth/oauth-defaults.js';
 import { OAuthTokenClient } from '../src/connection/auth/oauth-token-client.js';
 import { FileTokenCache } from '../src/connection/auth/token-cache.js';
 import { isErr } from '../src/core/result.js';
-
-const WELL_KNOWN_CLIENT = '1950a258-227b-4e31-a9cf-717495945fc2';
-const DELEGATED_SCOPE = 'https://api.businesscentral.dynamics.com/user_impersonation offline_access';
 const DEFAULT_URL = 'https://businesscentral.dynamics.com/7bcb54ae-6d5e-43c7-9402-928aed68ad00/DEV';
 
 function log(msg: string): void {
@@ -34,7 +28,7 @@ async function main(): Promise<void> {
 
   const stateDir = resolve(process.env.STATE_DIR || './.state');
   const cache = new FileTokenCache(resolve(stateDir, 'proto-saas-tokens.json'));
-  const existing = cache.load(WELL_KNOWN_CLIENT, saas.aadTenantId);
+  const existing = cache.load(BC_API_PUBLIC_CLIENT_ID, saas.aadTenantId);
   if (existing && existing.expiresAt - 60_000 > Date.now()) {
     log(`PASS: cached token still valid (expires in ${Math.round((existing.expiresAt - Date.now()) / 1000)}s)`);
     log(`tenant=${saas.aadTenantId} env=${saas.environmentName} hasRefresh=${Boolean(existing.refreshToken)}`);
@@ -43,13 +37,13 @@ async function main(): Promise<void> {
 
   const client = new OAuthTokenClient({
     aadTenantId: saas.aadTenantId,
-    clientId: WELL_KNOWN_CLIENT,
-    scope: DELEGATED_SCOPE,
+    clientId: BC_API_PUBLIC_CLIENT_ID,
+    scope: BC_API_DELEGATED_SCOPE,
   });
 
   log(`Prototype 0: device-code login`);
   log(`tenant=${saas.aadTenantId} env=${saas.environmentName}`);
-  log(`client=${WELL_KNOWN_CLIENT} (Azure PowerShell well-known public app)`);
+  log(`client=${BC_API_PUBLIC_CLIENT_ID}`);
   log('');
 
   const started = await client.startDeviceCode();
@@ -74,7 +68,7 @@ async function main(): Promise<void> {
     accessToken: tokens.value.accessToken,
     refreshToken: tokens.value.refreshToken,
     expiresAt: tokens.value.expiresAt,
-    clientId: WELL_KNOWN_CLIENT,
+    clientId: BC_API_PUBLIC_CLIENT_ID,
     aadTenantId: saas.aadTenantId,
   });
 

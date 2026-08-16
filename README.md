@@ -23,7 +23,7 @@
 | Language | TypeScript / Node 20+ |
 | npm package | [`business-central-mcp`](https://www.npmjs.com/package/business-central-mcp) |
 | BC versions | BC27, BC28 (wire-compatible) |
-| Auth | On-prem NavUserPassword. BC Online: ESTS cookie session for `/csh` (no password in env) + optional Entra OAuth for `bc_query`. |
+| Auth | On-prem NavUserPassword. BC Online: ESTS cookie session for `/csh` (no password in env) + device-code for `bc_query`. |
 | Tools | 12 |
 | Tests | 901 unit/protocol + 111 integration |
 | License | MIT |
@@ -143,12 +143,9 @@ Restart Claude Desktop.
 | `BC_USERNAME` | NavUserPassword | — | On-prem username. On SaaS this is only an email prefill for the local sign-in window. |
 | `BC_PASSWORD` | NavUserPassword | — | On-prem password. **Ignored on SaaS** (never put a SaaS password in env). |
 | `BC_AUTH` | No | `auto` | `auto` (SaaS URL → `SaasWeb`, otherwise NavUserPassword), `OAuth`, `SaasWeb`, or `NavUserPassword` |
-| `BC_CLIENT_ID` | `bc_query` on SaaS | — | Entra app id. Required only for `bc_query`, not for UI tools. |
-| `BC_CLIENT_SECRET` | OAuth S2S | — | Client secret. When set, the client-credentials grant is used; when omitted, device-code (delegated) is used |
 | `BC_AAD_TENANT_ID` | OAuth (if not in URL) | — | Entra tenant GUID. Taken from a SaaS `BC_BASE_URL` when present |
 | `BC_ENVIRONMENT` | No | from URL | SaaS environment name (`DEV`, `sandbox`, `production`) |
-| `BC_ACCESS_TOKEN` | No | — | Pre-acquired Bearer token (skips device-code / client-credentials) |
-| `BC_OAUTH_SCOPE` | No | see README | Override the Entra scope |
+| `BC_OAUTH_SCOPE` | No | `user_impersonation` + `offline_access` | Override the Entra scope for `bc_query` device-code |
 | `BC_PROFILE` | No | server default | Profile id, e.g. `BUSINESS MANAGER`. Affects which Role Center loads and which pages Tell Me indexes. |
 | `BC_TENANT_ID` | No | `default` | On-prem multi-tenant id. SaaS uses the Entra tenant from the URL. |
 | `BC_CLIENT_VERSION` | No | `27.0.0.0` | Version reported to BC during session open. |
@@ -236,21 +233,9 @@ The WebSocket is not on the portal host. After sign-in the server discovers the 
 
 ### `bc_query` (OData) on SaaS
 
-`bc_query` does **not** use the `/csh` cookie session. It needs an Entra app:
+`bc_query` does **not** use the `/csh` cookie session. On first call the server prints a `https://microsoft.com/devicelogin` prompt on **stderr**. Complete it in a browser. The refresh token is stored in `STATE_DIR/oauth-tokens.json` (mode 0600).
 
-```
-BC_CLIENT_ID=<entra-app-id>
-```
-
-Register an Entra app in the same tenant:
-
-1. Azure portal → App registrations → New registration.
-2. **Device code (delegated, recommended for MCP / Claude Desktop):** Authentication → allow public client flows. API permissions → Dynamics 365 Business Central → delegated `user_impersonation` (or `Financials.ReadWrite.All`). Grant admin consent.
-3. **Client credentials (unattended S2S):** Certificates & secrets → client secret. API permissions → application `API.ReadWrite.All`. Grant admin consent. In BC, open **Microsoft Entra Applications**, add the app id, and assign a permission set.
-
-On first `bc_query` (device code) the server prints a `https://microsoft.com/devicelogin` prompt on **stderr**. Complete it in a browser. The refresh token is stored in `STATE_DIR/oauth-tokens.json` (mode 0600).
-
-`bc_query` talks to `https://api.businesscentral.dynamics.com/v2.0/{tenant}/{environment}/api/v2.0` with the Bearer token. Without `BC_CLIENT_ID` / `BC_ACCESS_TOKEN` it returns `OAUTH_NOT_CONFIGURED` and never sends Basic.
+`bc_query` talks to `https://api.businesscentral.dynamics.com/v2.0/{tenant}/{environment}/api/v2.0` with the Bearer token. If device-code is not completed it returns `OAUTH_NOT_CONFIGURED` and never sends Basic.
 
 ## What can it do?
 

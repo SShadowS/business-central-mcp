@@ -34,9 +34,7 @@ export function createAuthProvider(
         aadTenantId: oauth.aadTenantId,
         tenantId: config.bc.tenantId,
         clientId: oauth.clientId,
-        clientSecret: oauth.clientSecret,
         scope: oauth.scope,
-        accessToken: oauth.accessToken,
         stateDir: config.stateDir,
       }, logger);
     }
@@ -85,9 +83,7 @@ export function composeAuthProviders(
         aadTenantId: config.bc.oauth.aadTenantId,
         tenantId: config.bc.tenantId,
         clientId: config.bc.oauth.clientId,
-        clientSecret: config.bc.oauth.clientSecret,
         scope: config.bc.oauth.scope,
-        accessToken: config.bc.oauth.accessToken,
         stateDir: config.stateDir,
       }, logger)
     : uiAuth;

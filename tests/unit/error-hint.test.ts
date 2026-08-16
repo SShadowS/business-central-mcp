@@ -65,7 +65,7 @@ describe('errorHint', () => {
   });
 
   it('maps OAUTH_NOT_CONFIGURED', () => {
-    expect(errorHint('OAUTH_NOT_CONFIGURED')).toMatch(/BC_CLIENT_ID|token/i);
+    expect(errorHint('OAUTH_NOT_CONFIGURED')).toMatch(/devicelogin|device-code/i);
   });
 
   it('returns undefined for unknown codes', () => {

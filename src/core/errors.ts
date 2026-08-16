@@ -218,7 +218,7 @@ const ERROR_HINTS: Record<string, string> = {
   INVALID_BOOKMARK: 'The anchor bookmark is no longer loaded in BC. Re-read the section with bc_read_data and retry with a current bookmark.',
   MULTI_ROW_ACTION_UNAVAILABLE: 'This page disables the action for multiple selected rows. Retry with a single bookmark, or repeat the action per row.',
   SIGN_IN_REQUIRED: 'Complete Microsoft sign-in in the window that opened (Authenticator number matching), then retry this tool. If no window appeared, run the MCP on a machine with a display or run `npx business-central-mcp login` with the same `STATE_DIR`.',
-  OAUTH_NOT_CONFIGURED: 'bc_query on BC Online needs an Entra app. Set BC_CLIENT_ID (device code) or BC_CLIENT_SECRET (S2S) or BC_ACCESS_TOKEN. UI tools do not need this.',
+  OAUTH_NOT_CONFIGURED: 'bc_query on BC Online needs a device-code sign-in. Open https://microsoft.com/devicelogin and enter the code printed on stderr. UI tools do not need this.',
   URL_ELICITATION_REQUIRED: 'The host must open the sign-in page. Retry the tool after completing sign-in.',
 };
 

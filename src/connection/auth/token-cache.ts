@@ -61,3 +61,64 @@ export class FileTokenCache {
     }
   }
 }
+
+export interface PendingDeviceCode {
+  deviceCode: string;
+  userCode: string;
+  verificationUri: string;
+  intervalSec: number;
+  expiresAt: number;
+  clientId: string;
+  aadTenantId: string;
+}
+
+/** In-flight device-code start. Survives the MCP process so retry can poll. */
+export class FilePendingDeviceCache {
+  constructor(private readonly filePath: string) {}
+
+  load(clientId: string, aadTenantId: string): PendingDeviceCode | undefined {
+    if (!existsSync(this.filePath)) return undefined;
+    try {
+      const parsed = JSON.parse(readFileSync(this.filePath, 'utf8')) as Partial<PendingDeviceCode>;
+      if (
+        typeof parsed.deviceCode !== 'string'
+        || typeof parsed.userCode !== 'string'
+        || typeof parsed.verificationUri !== 'string'
+        || typeof parsed.expiresAt !== 'number'
+      ) {
+        return undefined;
+      }
+      if (parsed.clientId !== clientId || parsed.aadTenantId !== aadTenantId) return undefined;
+      return {
+        deviceCode: parsed.deviceCode,
+        userCode: parsed.userCode,
+        verificationUri: parsed.verificationUri,
+        intervalSec: typeof parsed.intervalSec === 'number' ? parsed.intervalSec : 5,
+        expiresAt: parsed.expiresAt,
+        clientId: parsed.clientId,
+        aadTenantId: parsed.aadTenantId,
+      };
+    } catch {
+      return undefined;
+    }
+  }
+
+  save(pending: PendingDeviceCode): void {
+    mkdirSync(dirname(this.filePath), { recursive: true });
+    writeFileSync(this.filePath, JSON.stringify(pending), { encoding: 'utf8', mode: 0o600 });
+    try {
+      chmodSync(this.filePath, 0o600);
+    } catch {
+      // Windows may ignore mode.
+    }
+  }
+
+  clear(): void {
+    if (!existsSync(this.filePath)) return;
+    try {
+      unlinkSync(this.filePath);
+    } catch {
+      // ignore
+    }
+  }
+}

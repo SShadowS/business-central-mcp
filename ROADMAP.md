@@ -4,7 +4,7 @@ Future work, ordered by priority within each section. Open an issue or PR if you
 
 ## Auth
 
-- **OAuth / AAD authentication.** Done for `bc_query` (device-code / client-credentials)
+- **OAuth / AAD authentication.** Done for `bc_query` (device-code, public client)
   and for `/csh` on BC Online via the ESTS cookie session (`SaasWeb`). Remaining:
   OS keychain for cookies if policy forbids disk; sovereign / GCC clouds.
 - **Windows authentication.** For domain-joined on-prem deployments where NavUserPassword is not enabled.

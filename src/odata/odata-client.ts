@@ -100,7 +100,7 @@ export class ODataClient {
       return `Basic ${Buffer.from(`${this.username}:${this.password ?? ''}`).toString('base64')}`;
     }
     throw new ODataError(
-      'No OData credentials configured. Set BC_USERNAME/BC_PASSWORD or configure OAuth (BC_CLIENT_ID).',
+      'No OData credentials configured. Set BC_USERNAME/BC_PASSWORD (on-prem) or complete device-code sign-in (SaaS).',
       401,
     );
   }
@@ -283,8 +283,8 @@ export class ODataClient {
 
     if (response.status === 401) {
       const oauthHint = this.getAuthorization
-        ? 'The OAuth access token was rejected. Check BC_CLIENT_ID, API permissions (user_impersonation or API.ReadWrite.All), admin consent, and that the Entra app is registered in BC (Microsoft Entra Applications page) for S2S.'
-        : 'Check BC_USERNAME and BC_PASSWORD. Cloud/SaaS BC requires OAuth — set BC_AUTH=OAuth and BC_CLIENT_ID, or pass a businesscentral.dynamics.com URL.';
+        ? 'The OAuth access token was rejected. Re-run device-code sign-in (delete STATE_DIR/oauth-tokens.json) and complete https://microsoft.com/devicelogin.'
+        : 'Check BC_USERNAME and BC_PASSWORD. Cloud/SaaS BC uses device-code — pass a businesscentral.dynamics.com URL and complete the stderr prompt.';
       throw new ODataError(
         `BC OData authentication failed (401). ${oauthHint}`,
         401,

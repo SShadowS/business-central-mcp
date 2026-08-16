@@ -1,15 +1,14 @@
 import { resolve } from 'node:path';
 import { deriveODataUrl } from '../odata/odata-client.js';
 import { parseSaasUrl } from '../connection/saas-url.js';
+import { BC_API_DELEGATED_SCOPE, BC_API_PUBLIC_CLIENT_ID } from '../connection/auth/oauth-defaults.js';
 
 export type AuthMode = 'NavUserPassword' | 'OAuth' | 'SaasWeb';
 
 export interface OAuthConfig {
   aadTenantId: string;
   clientId: string;
-  clientSecret: string | undefined;
   scope: string;
-  accessToken: string | undefined;
 }
 
 export interface BCConfig {
@@ -154,23 +153,11 @@ export function loadConfig(): AppConfig {
   };
 }
 
-const DELEGATED_SCOPE = 'https://api.businesscentral.dynamics.com/user_impersonation offline_access';
-const APP_SCOPE = 'https://api.businesscentral.dynamics.com/.default';
-
-function optionalOAuthConfig(saas: ReturnType<typeof parseSaasUrl>): OAuthConfig | undefined {
-  const clientId = process.env.BC_CLIENT_ID ?? '';
-  const accessToken = process.env.BC_ACCESS_TOKEN || undefined;
-  if (!clientId && !accessToken) return undefined;
-  const aadTenantId = process.env.BC_AAD_TENANT_ID || saas?.aadTenantId || process.env.BC_TENANT_ID || '';
-  if (!aadTenantId && !accessToken) return undefined;
-  const clientSecret = process.env.BC_CLIENT_SECRET || undefined;
-  const defaultScope = clientSecret ? APP_SCOPE : DELEGATED_SCOPE;
+function deviceOAuthConfig(aadTenantId: string): OAuthConfig {
   return {
     aadTenantId,
-    clientId,
-    clientSecret,
-    scope: process.env.BC_OAUTH_SCOPE || defaultScope,
-    accessToken,
+    clientId: process.env.BC_CLIENT_ID || BC_API_PUBLIC_CLIENT_ID,
+    scope: process.env.BC_OAUTH_SCOPE || BC_API_DELEGATED_SCOPE,
   };
 }
 
@@ -209,7 +196,7 @@ function resolveAuth(saas: ReturnType<typeof parseSaasUrl>): {
       password: '',
       tenantId,
       environmentName,
-      oauth: optionalOAuthConfig(saas),
+      oauth: deviceOAuthConfig(saas?.aadTenantId || process.env.BC_AAD_TENANT_ID || tenantId),
       appendTenantQuery: false,
     };
   }
@@ -226,42 +213,20 @@ function resolveAuth(saas: ReturnType<typeof parseSaasUrl>): {
     };
   }
 
-  const clientId = process.env.BC_CLIENT_ID ?? '';
-  const accessToken = process.env.BC_ACCESS_TOKEN || undefined;
-  if (!clientId && !accessToken) {
-    throw new Error(
-      'OAuth is selected (SaaS URL or BC_AUTH=OAuth) but neither BC_CLIENT_ID nor BC_ACCESS_TOKEN is set. '
-      + 'Register an Entra app with Dynamics 365 Business Central API permissions, then set BC_CLIENT_ID. '
-      + 'Device code (delegated): allow public-client flows and grant user_impersonation. '
-      + 'Client credentials (S2S): create a client secret, grant API.ReadWrite.All, consent the app, '
-      + 'and register it on the Microsoft Entra Applications page in BC. See README.',
-    );
-  }
-
-  const aadTenantId = process.env.BC_AAD_TENANT_ID || saas?.aadTenantId || process.env.BC_TENANT_ID || '';
-  if (!aadTenantId && !accessToken) {
+  const aadTenantId = process.env.BC_AAD_TENANT_ID || saas?.aadTenantId || '';
+  if (!aadTenantId) {
     throw new Error(
       'OAuth requires the Entra tenant id. Use a SaaS URL '
       + '(https://businesscentral.dynamics.com/{tenant}/{environment}) or set BC_AAD_TENANT_ID.',
     );
   }
-
-  const clientSecret = process.env.BC_CLIENT_SECRET || undefined;
-  const defaultScope = clientSecret ? APP_SCOPE : DELEGATED_SCOPE;
-
   return {
     authMode,
     username: optionalEnv('BC_USERNAME', ''),
     password: optionalEnv('BC_PASSWORD', ''),
     tenantId,
     environmentName,
-    oauth: {
-      aadTenantId,
-      clientId,
-      clientSecret,
-      scope: process.env.BC_OAUTH_SCOPE || defaultScope,
-      accessToken,
-    },
+    oauth: deviceOAuthConfig(aadTenantId),
     appendTenantQuery: saas === undefined,
   };
 }

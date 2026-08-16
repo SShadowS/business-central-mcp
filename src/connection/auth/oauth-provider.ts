@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { ok, err, isErr, type Result } from '../../core/result.js';
+import { ok, isErr, type Result } from '../../core/result.js';
 import { AuthenticationError } from '../../core/errors.js';
 import type { Logger } from '../../core/logger.js';
 import { bindingFromBaseUrl, type IBCAuthProvider, type AuthResult, type ConnectionBinding } from './auth-provider.js';
@@ -13,27 +13,18 @@ export interface OAuthProviderConfig {
   /** BC tenant (e.g. "default") for OpenSession on AAD-configured on-prem servers. */
   tenantId?: string;
   clientId: string;
-  clientSecret?: string;
   scope: string;
-  /** Pre-acquired access token (skips device-code / client-credentials). */
-  accessToken?: string;
   stateDir: string;
 }
 
 const EXPIRY_SKEW_MS = 60_000;
 
 /**
- * Entra ID (Azure AD) auth for BC Online and AAD-configured on-prem.
+ * Entra ID device-code auth for the BC Standard API (`bc_query`).
  *
- * Token acquisition is official (device code or client credentials against
- * https://api.businesscentral.dynamics.com). The /csh WebSocket on SaaS is
- * a different surface: the portal 302s unauthenticated browsers through
- * Microsoft's first-party OpenID Connect client
- * (996def3d-b36c-4153-8607-a6fd3c01b89f → /remote-sign-in). We still send
- * the API Bearer token and any cookies a Bearer GET of the portal URL
- * produced; if the front door will not route /csh without that first-party
- * cookie session, ConnectionFactory fails with a clear error and bc_query
- * (OData) continues to work because it does not need /csh.
+ * `/csh` on SaaS is a different surface (ESTS cookie session). This
+ * provider still tries a Bearer GET of the portal; a 302 to Entra means
+ * no web session. bc_query does not need /csh.
  */
 export class OAuthAuthProvider implements IBCAuthProvider {
   private cookies = '';
@@ -53,7 +44,6 @@ export class OAuthAuthProvider implements IBCAuthProvider {
     this.client = client ?? new OAuthTokenClient({
       aadTenantId: config.aadTenantId,
       clientId: config.clientId,
-      clientSecret: config.clientSecret,
       scope: config.scope,
     });
     this.cache = cache ?? new FileTokenCache(join(config.stateDir, 'oauth-tokens.json'));
@@ -136,19 +126,6 @@ export class OAuthAuthProvider implements IBCAuthProvider {
       return ok(this.tokens);
     }
 
-    if (this.config.accessToken && !this.tokens) {
-      this.tokens = {
-        accessToken: this.config.accessToken,
-        refreshToken: undefined,
-        // Caller-supplied tokens have no expires_in. Do not invent a 1h
-        // lifetime that would kick us into device-code after the hour;
-        // the API 401 is the source of truth.
-        expiresAt: Number.MAX_SAFE_INTEGER,
-        tokenType: 'Bearer',
-      };
-      return ok(this.tokens);
-    }
-
     const cached = this.cache.load(this.config.clientId, this.config.aadTenantId);
     if (cached && cached.expiresAt - EXPIRY_SKEW_MS > Date.now()) {
       this.tokens = {
@@ -166,24 +143,17 @@ export class OAuthAuthProvider implements IBCAuthProvider {
         this.persist(refreshed.value, cached.refreshToken);
         return ok(refreshed.value);
       }
-      this.logger.warn(`Refresh token rejected (${refreshed.error.message}); falling back to interactive/S2S grant`);
+      this.logger.warn(`Refresh token rejected (${refreshed.error.message}); falling back to device-code`);
       this.cache.clear();
     }
 
-    const acquired = this.config.clientSecret
-      ? await this.client.clientCredentials()
-      : await this.deviceCode();
+    const acquired = await this.deviceCode();
     if (isErr(acquired)) return acquired;
     this.persist(acquired.value, acquired.value.refreshToken);
     return acquired;
   }
 
   private async deviceCode(): Promise<Result<TokenSet, AuthenticationError>> {
-    if (!this.config.clientId) {
-      return err(new AuthenticationError(
-        'OAuth device-code flow requires BC_CLIENT_ID. Register an Entra app with Dynamics 365 Business Central delegated permission user_impersonation (and allow public client flows).',
-      ));
-    }
     const started = await this.client.startDeviceCode();
     if (isErr(started)) return started;
     this.logger.info(started.value.message);
@@ -196,7 +166,6 @@ export class OAuthAuthProvider implements IBCAuthProvider {
       ...tokens,
       refreshToken: tokens.refreshToken ?? previousRefresh,
     };
-    if (!this.config.clientId) return;
     this.cache.save({
       accessToken: this.tokens.accessToken,
       refreshToken: this.tokens.refreshToken,
