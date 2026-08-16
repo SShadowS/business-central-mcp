@@ -11,7 +11,7 @@ import type {
 import type { BrowserOpener } from './saas/browser-opener.js';
 import { CookieJar } from './saas/cookie-jar.js';
 import { FileCookieStore, saasCookieStorePath } from './saas/cookie-store.js';
-import { SaasClusterSession, ShellUnclassifiableError } from './saas/cluster-session.js';
+import { DeadTabError, SaasClusterSession, ShellUnclassifiableError } from './saas/cluster-session.js';
 import { LoginWindow, type LoginFn } from './saas/login-window.js';
 import {
   SAAS_BROWSER_UA,
@@ -35,7 +35,6 @@ export interface SaasWebSessionProviderOpts {
   store?: FileCookieStore;
 }
 
-const DEAD_TAB = /HTTP (3\d\d|401|403|500)\b/;
 /** Consecutive unclassifiable-shell reads (ShellUnclassifiableError: a 2xx
  * with no FixedEndPoint.start, a token-less shell, or a bare 401/403 —
  * counted across BOTH the authenticate() probe and bindAndMint) before the
@@ -71,7 +70,6 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
   private shellUnclassifiableSince: number | undefined;
   private shellUnclassifiableLast: number | undefined;
   private failedEpisodes = 0;
-  private authenticated = false;
   private clusterBound = false;
   private inflight: Promise<Result<AuthResult, AuthFailure>> | null = null;
 
@@ -117,7 +115,6 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
       const probe = await this.readShellTracked();
       if (!isErr(probe)) {
         this.persistPortalCookies();
-        this.authenticated = true;
         return ok(this.authResult());
       }
       if (probe.error instanceof ConnectionError) {
@@ -143,7 +140,6 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
     const verified = await this.verifyFreshLogin();
     if (isErr(verified)) return verified;
     this.persistPortalCookies();
-    this.authenticated = true;
     this.recordShellSuccess();
     this.clusterBound = false;
     this.clusterMeta = undefined;
@@ -166,10 +162,24 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
   private async verifyFreshLogin(): Promise<Result<void, AuthFailure>> {
     // Deliberately untracked (probePortal, not readShellTracked): this read
     // verifies the sign-in that just happened and must not feed the streak.
-    const probe = await this.probePortal();
-    if (isErr(probe)
-      && (probe.error instanceof AuthenticationError || probe.error instanceof ShellUnclassifiableError)) {
+    // An unclassifiable shell gets ONE retry — this is the first real shell
+    // classification after an MFA sign-in, and a single transient
+    // interstitial must not destroy the session the user just created. A
+    // wrong tenant fails deterministically, so the retry cannot admit one.
+    let rejected = false;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const probe = await this.probePortal();
+      if (!isErr(probe)) return ok(undefined);
+      if (probe.error instanceof AuthenticationError) { rejected = true; break; }
+      if (!(probe.error instanceof ShellUnclassifiableError)) return ok(undefined);
+      rejected = true;
+    }
+    if (rejected) {
       this.markSessionDead();
+      // Reset the login window too: its cached completed-ok would otherwise
+      // short-circuit the next run() and surface a misleading
+      // "portal cookies are missing" instead of this message.
+      await this.login.close();
       return err(new AuthenticationError(
         `Sign-in completed, but ${this.opts.saas.portalUrl} did not return a signed-in session — `
         + 'signed in with a different account or tenant than configured, or the portal is degraded? '
@@ -213,7 +223,7 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
         this.clusterMeta.csrfHint,
       );
       if (isErr(minted)) {
-        if (DEAD_TAB.test(minted.error.message)) this.clusterBound = false;
+        if (minted.error instanceof DeadTabError) this.clusterBound = false;
         return minted;
       }
       return minted;
@@ -264,7 +274,7 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
       authed.value,
     );
     if (isErr(minted)) {
-      if (DEAD_TAB.test(minted.error.message)) this.clusterBound = false;
+      if (minted.error instanceof DeadTabError) this.clusterBound = false;
       return minted;
     }
     return minted;
@@ -286,7 +296,10 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
   }
 
   isAuthenticated(): boolean {
-    return this.authenticated || this.jar.hasPortalAuth();
+    // The jar is the single source of truth: a shadow flag diverged from it
+    // exactly once — on cookie expiry — and reported a session that no
+    // longer existed.
+    return this.jar.hasPortalAuth();
   }
 
   invalidate(): void {
@@ -454,7 +467,6 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
    */
   private markSessionDead(): void {
     this.resetShellStreak();
-    this.authenticated = false;
     this.jar.clearPortalAuth();
     this.persistPortalCookies();
   }

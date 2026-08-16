@@ -489,6 +489,31 @@ describe('SaasWebSessionProvider', () => {
     }
   });
 
+  it('post-login verification retries once past a transient interstitial', async () => {
+    // The verification GET is the FIRST real shell classification after an
+    // MFA sign-in; one transient interstitial must not destroy the session
+    // the user just created. A wrong tenant fails deterministically, so the
+    // single retry cannot admit one.
+    let calls = 0;
+    const base = defaultRouter();
+    const { fetchFn } = recordFetch((url) => {
+      const u = new URL(url);
+      if (u.hostname === 'businesscentral.dynamics.com' && !u.pathname.includes('/api/')) {
+        calls++;
+        if (calls === 1) return new Response('<html>one moment</html>', { status: 200 });
+      }
+      return base(url);
+    });
+    const jar = new CookieJar();
+    jar.load([authCookie]);
+    const provider = makeProvider(fetchFn, { jar });
+    const result = await (provider as unknown as {
+      verifyFreshLogin(): Promise<import('../../src/core/result.js').Result<unknown, { code: string }>>;
+    }).verifyFreshLogin();
+    expect(isOk(result)).toBe(true);
+    expect(provider.isAuthenticated()).toBe(true);
+  });
+
   it('post-login verification rejects a token-less shell — sign-in must yield a WORKING session', async () => {
     // A wrong-tenant sign-in can answer with a token-less shell instead of
     // an Entra redirect; accepting it would persist wrong-tenant cookies as

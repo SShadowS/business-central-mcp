@@ -24,8 +24,34 @@ const MAX_SHELL_REDIRECTS = 5;
  */
 export class ShellUnclassifiableError extends ConnectionError {}
 
-function isDeadTabStatus(status: number): boolean {
-  return (status >= 300 && status < 400) || status === 401 || status === 403 || status === 500;
+/**
+ * A tab endpoint answered in a way that means the cluster no longer honors
+ * the session (401/403/500 per the design spec, or a redirect pointing at
+ * Entra / off the cluster origin). Typed so the provider unbinds by
+ * instanceof, not by string-matching the message. A benign SAME-ORIGIN 3xx
+ * (canonicalization/affinity re-pin) is NOT dead — treating it as dead
+ * created an unbounded rebind loop on a live session.
+ */
+export class DeadTabError extends ConnectionError {}
+
+/** Non-empty reason when a tab response means the session is dead. */
+function deadTabReason(res: Response, tabBaseUrl: string): string | undefined {
+  if (res.status === 401 || res.status === 403 || res.status === 500) {
+    return `HTTP ${res.status}`;
+  }
+  if (res.status >= 300 && res.status < 400) {
+    const location = res.headers.get('location') ?? '';
+    if (isEntraLoginUrl(location)) return `redirected to Entra sign-in`;
+    let next: URL | undefined;
+    try {
+      next = location ? new URL(location, tabBaseUrl) : undefined;
+    } catch { /* unusable Location — treat as dead below */ }
+    if (!next || next.origin !== new URL(tabBaseUrl).origin) {
+      return `HTTP ${res.status} off-origin`;
+    }
+    // Benign same-origin redirect on a live session: not dead.
+  }
+  return undefined;
 }
 
 export class SaasClusterSession {
@@ -216,23 +242,19 @@ export class SaasClusterSession {
       Origin: SAAS_PORTAL_ORIGIN,
       Referer: portalUrl,
     };
-    // A 3xx here is redirect-to-sign-in shaped (the tab endpoints never
-    // redirect on a live session): it must FAIL, not mint a bogus tab —
-    // otherwise a revoked session on the warm cluster path never surfaces
-    // and the sign-in window cannot reopen.
     for (const path of ['/v', '/boot/browser/desktop']) {
-      const page = await this.request(jar, `${tabBaseUrl}${path}`, { headers: clusterHeaders });
-      if (isDeadTabStatus(page.res.status)) {
-        return err(new ConnectionError(`tab ${path} HTTP ${page.res.status}`));
-      }
+      // Status-only checks: discard the body (the boot payload is the full
+      // web-client bootstrap document — no reason to download it per mint).
+      const page = await this.request(jar, `${tabBaseUrl}${path}`, { headers: clusterHeaders }, { discardBody: true });
+      const dead = deadTabReason(page.res, tabBaseUrl);
+      if (dead) return err(new DeadTabError(`tab ${path} ${dead}`));
     }
     const csrfPage = await this.request(jar, `${tabBaseUrl}/csrf`, {
       method: 'POST',
       headers: { Accept: 'application/json', ...clusterHeaders },
     });
-    if (isDeadTabStatus(csrfPage.res.status)) {
-      return err(new ConnectionError(`tab /csrf HTTP ${csrfPage.res.status}`));
-    }
+    const dead = deadTabReason(csrfPage.res, tabBaseUrl);
+    if (dead) return err(new DeadTabError(`tab /csrf ${dead}`));
     let csrf = csrfHint;
     try {
       const j = JSON.parse(csrfPage.html) as { csrfToken?: string };
@@ -252,7 +274,12 @@ export class SaasClusterSession {
     return ok({ tabId, tabBaseUrl, clusterHost, runtimeId, csrfToken: csrf });
   }
 
-  private request(jar: CookieJar, url: string, init: RequestInit = {}): Promise<{ res: Response; html: string }> {
-    return fetchWithJar(this.fetchFn, jar, url, init);
+  private request(
+    jar: CookieJar,
+    url: string,
+    init: RequestInit = {},
+    opts: { discardBody?: boolean } = {},
+  ): Promise<{ res: Response; html: string }> {
+    return fetchWithJar(this.fetchFn, jar, url, init, opts);
   }
 }

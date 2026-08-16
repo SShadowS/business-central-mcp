@@ -16,6 +16,7 @@ export async function fetchWithJar(
   jar: CookieJar,
   url: string,
   init: RequestInit = {},
+  opts: { discardBody?: boolean } = {},
 ): Promise<{ res: Response; html: string }> {
   const headers = new Headers(init.headers);
   headers.set('User-Agent', SAAS_BROWSER_UA);
@@ -24,6 +25,12 @@ export async function fetchWithJar(
   try {
     const res = await fetchFn(url, { ...init, headers, redirect: 'manual' });
     jar.absorb(res, url);
+    if (opts.discardBody) {
+      // Status/header-only callers: release the socket without downloading
+      // (the tab boot payload is the full web-client bundle).
+      await res.body?.cancel();
+      return { res, html: '' };
+    }
     return { res, html: await res.text() };
   } catch (e) {
     throw new ConnectionError(

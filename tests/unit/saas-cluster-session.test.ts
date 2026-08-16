@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SaasClusterSession } from '../../src/connection/auth/saas/cluster-session.js';
+import { DeadTabError, SaasClusterSession } from '../../src/connection/auth/saas/cluster-session.js';
 import { CookieJar } from '../../src/connection/auth/saas/cookie-jar.js';
 import { parseSaasUrl } from '../../src/connection/saas-url.js';
 import { isErr, isOk } from '../../src/core/result.js';
@@ -118,6 +118,38 @@ describe('SaasClusterSession', () => {
     const session = new SaasClusterSession(fetchFn, capturingLogger().logger);
     const result = await session.authenticateToken(new CookieJar(), HOST, RUNTIME, TID, auth);
     expect(isErr(result)).toBe(true);
+  });
+
+  it('mintTab tolerates a benign same-origin tab redirect', async () => {
+    // A cluster may 302 within its own origin (canonicalization/affinity
+    // re-pin) on a LIVE session; only Entra/off-origin redirects mean the
+    // session is dead. Treating every 3xx as dead caused an unbounded
+    // rebind loop (shell read succeeds, tab mint always "dies").
+    const { fetchFn } = recordFetch((url) => {
+      const u = new URL(url);
+      if (u.pathname.endsWith('/v')) {
+        return new Response('', { status: 302, headers: { Location: `${u.origin}${u.pathname}2` } });
+      }
+      if (url.includes('/csrf')) return new Response(JSON.stringify({ csrfToken: 'c' }), { status: 200 });
+      return new Response('ok', { status: 200 });
+    });
+    const session = new SaasClusterSession(fetchFn, capturingLogger().logger);
+    const minted = await session.mintTab(new CookieJar(), HOST, RUNTIME, PORTAL, '');
+    expect(isOk(minted)).toBe(true);
+  });
+
+  it('mintTab fails dead on an Entra-redirecting tab endpoint', async () => {
+    const { fetchFn } = recordFetch((url) => {
+      const u = new URL(url);
+      if (u.pathname.endsWith('/v')) {
+        return new Response('', { status: 302, headers: { Location: 'https://login.microsoftonline.com/x' } });
+      }
+      return new Response('ok', { status: 200 });
+    });
+    const session = new SaasClusterSession(fetchFn, capturingLogger().logger);
+    const minted = await session.mintTab(new CookieJar(), HOST, RUNTIME, PORTAL, '');
+    expect(isErr(minted)).toBe(true);
+    if (isErr(minted)) expect(minted.error).toBeInstanceOf(DeadTabError);
   });
 
   it('mintTab boots /v /boot /csrf and issues a new tabId each call', async () => {

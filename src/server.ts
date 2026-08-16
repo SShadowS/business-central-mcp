@@ -190,10 +190,10 @@ async function main() {
     const url = req.url ?? '/';
 
     try {
-      // Health check (no session needed). Matched by pathname: a query
-      // string (`/health?ts=1`) must not slip past this into the REST
-      // section, whose duplicate 'GET /health' route would create a BC
-      // session for an unauthenticated monitoring probe.
+      // Health check (no session needed). Matched by the shared pathname
+      // normalization so `/health?ts=1` or `/health/` never falls through to
+      // the REST section (which would 404 — no REST health route exists —
+      // but must not be relied on).
       if (requestPathname(url) === '/health' && method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
@@ -246,7 +246,15 @@ async function main() {
         return;
       }
       await ensureReady();
-      const handler = apiRoutes!.get(routeKey)!;
+      const handler = apiRoutes?.get(routeKey);
+      if (!handler) {
+        // knownRouteKeys and the live map are built by the same
+        // createApiRoutes; a mismatch would be a bug, but it must surface
+        // as a 404, not an opaque TypeError-500.
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Not found' }));
+        return;
+      }
       const body = method === 'POST' ? await parseJsonBody(req) : {};
       await handler(req, res, body);
 
