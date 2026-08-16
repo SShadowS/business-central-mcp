@@ -152,6 +152,7 @@ describe('SaasClusterSession', () => {
     const session = new SaasClusterSession(fetchFn, cap.logger);
     const result = await session.readPortalShell(new CookieJar(), saas);
     expect(isErr(result)).toBe(true);
+    if (isErr(result)) expect(result.error.code).toBe('AUTHENTICATION_ERROR');
     expect(calls[0]!.url).toBe(saas.portalUrl);
     expect(calls[0]!.headers['origin']).toBe(SAAS_PORTAL_ORIGIN);
   });

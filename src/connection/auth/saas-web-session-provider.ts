@@ -1,7 +1,7 @@
 import { err, isErr, ok, type Result } from '../../core/result.js';
 import { AuthenticationError, ConnectionError } from '../../core/errors.js';
 import type { Logger } from '../../core/logger.js';
-import { isEntraLoginUrl, type SaasTarget } from '../saas-url.js';
+import type { SaasTarget } from '../saas-url.js';
 import type {
   AuthFailure,
   AuthResult,
@@ -277,26 +277,17 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
     };
   }
 
+  /**
+   * Liveness = "would readPortalShell hand us a signed-in shell?", so probe
+   * with readPortalShell itself: one implementation of shell classification
+   * (redirect following, Entra detection, signed-out 2xx shells) instead of
+   * a weaker duplicate that misread canonical 302s and sign-in-page 200s.
+   */
   private async portalAlive(): Promise<'ok' | 'entra' | 'error'> {
     try {
-      const headers: Record<string, string> = {
-        'User-Agent': SAAS_BROWSER_UA,
-        Origin: SAAS_PORTAL_ORIGIN,
-      };
-      const cookie = this.jar.headerFor(this.opts.saas.portalUrl);
-      if (cookie) headers['Cookie'] = cookie;
-      const res = await this.fetchFn(this.opts.saas.portalUrl, {
-        method: 'GET',
-        redirect: 'manual',
-        headers,
-      });
-      this.jar.absorb(res, this.opts.saas.portalUrl);
-      if (res.status >= 300 && res.status < 400) {
-        const location = res.headers.get('location') ?? '';
-        return isEntraLoginUrl(location) ? 'entra' : 'error';
-      }
-      if (res.status >= 200 && res.status < 300) return 'ok';
-      return 'error';
+      const shell = await this.cluster.readPortalShell(this.jar, this.opts.saas);
+      if (!isErr(shell)) return 'ok';
+      return shell.error instanceof AuthenticationError ? 'entra' : 'error';
     } catch {
       return 'error';
     }

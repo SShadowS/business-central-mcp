@@ -65,7 +65,10 @@ export class SaasClusterSession {
     };
     this.log.info('saas-web: portal shell', { hasAccess: Boolean(auth.accessToken), hasCode: Boolean(auth.authorizationCode) });
     if (!auth.accessToken) {
-      return err(new ConnectionError(
+      // A 2xx shell without FixedEndPoint auth is the client-rendered sign-in
+      // page: the portal is reachable but the session is signed out, so this
+      // must trigger re-sign-in, not a connection retry.
+      return err(new AuthenticationError(
         'FixedEndPoint.start has no accessToken; portal shell is not a signed-in session',
       ));
     }

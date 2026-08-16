@@ -180,6 +180,32 @@ describe('SaasWebSessionProvider', () => {
     expect(calls.filter((c) => c.url.includes('/auth?')).length).toBeGreaterThan(authCallsBefore);
   });
 
+  it('stored cookies + 2xx sign-in shell (no accessToken) treats the session as dead and opens login', async () => {
+    seedCookies();
+    const { fetchFn } = recordFetch(defaultRouter({ skipJwt: true }));
+    const provider = makeProvider(fetchFn);
+    const result = await provider.authenticate();
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) expect(result.error.code).toBe('SIGN_IN_REQUIRED');
+  });
+
+  it('stored cookies + same-origin 302 to the signed-in shell authenticates without login', async () => {
+    seedCookies();
+    const base = defaultRouter();
+    let redirected = false;
+    const { fetchFn } = recordFetch((url) => {
+      if (url === PORTAL && !redirected) {
+        redirected = true;
+        return new Response('', { status: 302, headers: { Location: `${PORTAL}?canonical=1` } });
+      }
+      return base(url);
+    });
+    const provider = makeProvider(fetchFn);
+    const result = await provider.authenticate();
+    expect(isOk(result)).toBe(true);
+    expect(provider.isAuthenticated()).toBe(true);
+  });
+
   it('missing cookies returns SignInRequiredError from the owned login window', async () => {
     const { fetchFn } = recordFetch(defaultRouter());
     const provider = makeProvider(fetchFn);
