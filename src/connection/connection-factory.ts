@@ -24,6 +24,16 @@ export class ConnectionFactory {
     return this.binding?.sessionTenantId;
   }
 
+  /**
+   * HTTP base from the last successful prepare() (the tab base on SaaS,
+   * config baseUrl otherwise). Downloads must be classified same-origin
+   * against THIS base, not the portal URL — a portal base would classify
+   * cluster DynamicFileHandler.axd URLs as external and never fetch them.
+   */
+  get httpBaseUrl(): string {
+    return this.binding?.httpBaseUrl ?? this.bcConfig.baseUrl;
+  }
+
   async create(): Promise<Result<BCWebSocket, AuthFailure>> {
     if (!this.authProvider.isAuthenticated()) {
       const authResult = await this.authProvider.authenticate();
@@ -59,7 +69,7 @@ export class ConnectionFactory {
 
   createHttpClient(): BCHttpClient {
     return new BCHttpClient(
-      this.binding?.httpBaseUrl ?? this.bcConfig.baseUrl,
+      this.httpBaseUrl,
       () => this.authProvider.getWebSocketHeaders(),
       this.logger,
     );

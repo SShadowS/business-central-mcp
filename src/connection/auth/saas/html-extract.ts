@@ -4,9 +4,20 @@ export function parseBalancedObject(src: string, from: number): Record<string, u
   const start = src.indexOf('{', from);
   if (start < 0) return undefined;
   let depth = 0;
+  let inString = false;
+  let escaped = false;
   for (let j = start; j < src.length; j++) {
     const ch = src[j];
-    if (ch === '{') depth += 1;
+    if (inString) {
+      // Braces inside JSON string values (error texts, URLs, localized
+      // strings) must not affect the depth count.
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === '{') depth += 1;
     else if (ch === '}') {
       depth -= 1;
       if (depth === 0) {
@@ -34,12 +45,14 @@ export function parseFixedEndPoint(html: string): Record<string, unknown> | unde
 }
 
 export function decodeHtml(s: string): string {
+  // &amp; must be decoded LAST: decoding it first turns "&amp;lt;" into
+  // "&lt;" which the later pass double-decodes to "<".
   return s
-    .replace(/&amp;/g, '&')
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
     .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>');
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
 }
 
 export function extractInputs(html: string): Record<string, string> {

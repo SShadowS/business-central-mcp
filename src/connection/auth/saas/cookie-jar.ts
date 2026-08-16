@@ -20,6 +20,7 @@ export class CookieJar {
     } catch {
       return;
     }
+    this.pruneExpired();
     const set = res.headers.getSetCookie?.() ?? [];
     for (const header of set) {
       const parsed = parseSetCookie(header, req);
@@ -71,6 +72,33 @@ export class CookieJar {
 
   load(records: CookieRecord[]): void {
     for (const rec of records) this.upsert({ ...rec });
+  }
+
+  /**
+   * Drop the portal auth cookies for a tenant. Used when the portal stops
+   * honoring the stored session (redirect to Entra), so isAuthenticated()
+   * flips false and a fresh sign-in can run.
+   */
+  clearPortalAuth(aadTenantId: string): void {
+    const authName = `${aadTenantId}.auth`;
+    this.cookies = this.cookies.filter((c) =>
+      c.name !== authName && !(c.name === '.AspNetCore.Cookies' && isPortalHost(c.domain)),
+    );
+  }
+
+  /**
+   * Drop cookies scoped under a path prefix (e.g. a discarded per-tab path
+   * `/tenant/{runtimeId}/tab/{tabId}`), so per-tab cookies do not accumulate
+   * one set per WebSocket reconnect.
+   */
+  evictPathPrefix(prefix: string): void {
+    if (!prefix || prefix === '/') return;
+    this.cookies = this.cookies.filter((c) => !c.path.startsWith(prefix));
+  }
+
+  private pruneExpired(): void {
+    const now = Date.now();
+    this.cookies = this.cookies.filter((c) => c.expires === undefined || c.expires > now);
   }
 
   private upsert(cookie: CookieRecord): void {

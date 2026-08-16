@@ -43,7 +43,11 @@ export function createQueryOperation(config: AppConfig, authProvider: IBCAuthPro
       return token ? `Bearer ${token}` : undefined;
     },
   }, {
-    requireBearer: config.bc.authMode === 'SaasWeb',
+    // SaasWeb AND OAuth: bc_query must never silently downgrade to Basic.
+    // In OAuth mode a failed token acquisition would otherwise fall back to
+    // leftover BC_USERNAME/BC_PASSWORD (leaking on-prem credentials to the
+    // cloud API, or masking a broken OAuth config against on-prem).
+    requireBearer: config.bc.authMode === 'SaasWeb' || config.bc.authMode === 'OAuth',
   });
 }
 

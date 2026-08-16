@@ -3,12 +3,15 @@ import { ok, err, isErr, type Result } from '../../core/result.js';
 import { AuthenticationError } from '../../core/errors.js';
 import type { Logger } from '../../core/logger.js';
 import { bindingFromBaseUrl, type IBCAuthProvider, type AuthResult, type ConnectionBinding } from './auth-provider.js';
+import { isSaasHost } from '../saas-url.js';
 import { OAuthTokenClient, type TokenSet } from './oauth-token-client.js';
 import { FileTokenCache } from './token-cache.js';
 
 export interface OAuthProviderConfig {
   baseUrl: string;
   aadTenantId: string;
+  /** BC tenant (e.g. "default") for OpenSession on AAD-configured on-prem servers. */
+  tenantId?: string;
   clientId: string;
   clientSecret?: string;
   scope: string;
@@ -111,7 +114,19 @@ export class OAuthAuthProvider implements IBCAuthProvider {
   }
 
   async prepare(): Promise<Result<ConnectionBinding, AuthenticationError>> {
-    return ok(bindingFromBaseUrl(this.config.baseUrl, this.config.aadTenantId));
+    // OpenSession tenant: on SaaS the portal path segment is the AAD GUID,
+    // but on AAD-configured on-prem the BC tenant (e.g. "default") must be
+    // sent — the AAD GUID would target a nonexistent BC tenant.
+    let saas = false;
+    try {
+      saas = isSaasHost(new URL(this.config.baseUrl).hostname);
+    } catch {
+      // Malformed baseUrl: treat as on-prem; connect will fail with a clearer error.
+    }
+    const sessionTenant = saas
+      ? this.config.aadTenantId
+      : (this.config.tenantId ?? this.config.aadTenantId);
+    return ok(bindingFromBaseUrl(this.config.baseUrl, sessionTenant));
   }
 
   unboundCluster(): void {}

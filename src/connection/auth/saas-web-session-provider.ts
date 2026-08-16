@@ -1,5 +1,5 @@
 import { err, isErr, ok, type Result } from '../../core/result.js';
-import { AuthenticationError } from '../../core/errors.js';
+import { AuthenticationError, ConnectionError } from '../../core/errors.js';
 import type { Logger } from '../../core/logger.js';
 import { isEntraLoginUrl, type SaasTarget } from '../saas-url.js';
 import type {
@@ -94,6 +94,18 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
         this.authenticated = true;
         return ok(this.authResult());
       }
+      if (probe === 'error') {
+        // Transient network/portal failure with stored cookies present:
+        // fail retryably instead of popping a sign-in window for a session
+        // that is probably still valid.
+        return err(new ConnectionError(
+          'BC Online portal is unreachable (network or portal error); retrying',
+        ));
+      }
+      // probe === 'entra': the portal no longer honors the stored session.
+      // Drop the stale auth cookies so a fresh sign-in replaces them.
+      this.jar.clearPortalAuth(this.opts.saas.aadTenantId);
+      this.authenticated = false;
     }
 
     const signedIn = await this.login.run();
@@ -143,7 +155,14 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
 
     const shell = await this.cluster.readPortalShell(this.jar, this.opts.saas);
     if (isErr(shell)) {
-      if (shell.error instanceof AuthenticationError) this.authenticated = false;
+      if (shell.error instanceof AuthenticationError) {
+        // Portal redirected to Entra: the stored session is dead. Clear the
+        // stale auth cookies too, or isAuthenticated() stays true forever and
+        // ConnectionFactory never re-runs authenticate() (sign-in window
+        // could never reopen for the lifetime of the process).
+        this.authenticated = false;
+        this.jar.clearPortalAuth(this.opts.saas.aadTenantId);
+      }
       return shell;
     }
 
@@ -209,13 +228,25 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
   }
 
   invalidate(): void {
+    this.evictTabCookies();
     this.tab = undefined;
   }
 
   unboundCluster(): void {
+    this.evictTabCookies();
     this.clusterBound = false;
     this.clusterMeta = undefined;
     this.tab = undefined;
+  }
+
+  /** A new tab is minted per WebSocket; drop the dead tab's path-scoped cookies. */
+  private evictTabCookies(): void {
+    if (!this.tab) return;
+    try {
+      this.jar.evictPathPrefix(new URL(this.tab.tabBaseUrl).pathname);
+    } catch {
+      // Malformed tab base URL: nothing to evict.
+    }
   }
 
   get isClusterBound(): boolean {

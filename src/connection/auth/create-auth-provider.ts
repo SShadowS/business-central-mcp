@@ -32,6 +32,7 @@ export function createAuthProvider(
       return new OAuthAuthProvider({
         baseUrl: config.bc.baseUrl,
         aadTenantId: oauth.aadTenantId,
+        tenantId: config.bc.tenantId,
         clientId: oauth.clientId,
         clientSecret: oauth.clientSecret,
         scope: oauth.scope,
@@ -82,6 +83,7 @@ export function composeAuthProviders(
     ? new OAuthAuthProvider({
         baseUrl: config.bc.baseUrl,
         aadTenantId: config.bc.oauth.aadTenantId,
+        tenantId: config.bc.tenantId,
         clientId: config.bc.oauth.clientId,
         clientSecret: config.bc.oauth.clientSecret,
         scope: config.bc.oauth.scope,

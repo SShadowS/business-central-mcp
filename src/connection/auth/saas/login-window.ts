@@ -294,11 +294,11 @@ export class LoginWindow {
     body.password = '';
     this.status.busy = false;
     if (isErr(result)) {
+      // Do NOT finish(): the page re-shows the form on phase 'error' so the
+      // user can correct a typoed password against the still-open loopback
+      // server. run() stays parked in waitForDone(); the overall sign-in
+      // timeout still bounds the wait with SIGN_IN_REQUIRED.
       this.status = { phase: 'error', message: result.error.message, busy: false };
-      this.finish(err(new SignInRequiredError(result.error.message, {
-        openedWindow: true,
-        reason: 'ests_failed',
-      })));
       return;
     }
     this.store.save(this.opts.aadTenantId, this.opts.environmentName, this.jar.persistable());

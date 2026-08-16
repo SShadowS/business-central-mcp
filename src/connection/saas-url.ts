@@ -20,6 +20,11 @@
 const SAAS_HOST = /^(?:[a-z0-9-]+\.)?businesscentral\.dynamics\.com$/i;
 const AAD_TENANT_GUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// BC Online also accepts a verified AAD domain in the tenant path segment
+// (e.g. contoso.onmicrosoft.com or contoso.com). A tenant domain always
+// contains at least one dot, which distinguishes it from non-tenant path
+// segments like "admin" or an environment name.
+const AAD_TENANT_DOMAIN = /^[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*)+$/i;
 
 export interface SaasTarget {
   aadTenantId: string;
@@ -63,7 +68,7 @@ export function parseSaasUrl(raw: string): SaasTarget | undefined {
   if (parts.length < 2) return undefined;
   const tenant = parts[0]!;
   const environment = parts[1]!;
-  if (!AAD_TENANT_GUID.test(tenant)) return undefined;
+  if (!AAD_TENANT_GUID.test(tenant) && !AAD_TENANT_DOMAIN.test(tenant)) return undefined;
   if (!environment || environment.toLowerCase() === 'api') return undefined;
 
   const aadTenantId = tenant.toLowerCase();

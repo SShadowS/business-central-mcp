@@ -77,7 +77,10 @@ async function main() {
     const searchService = new SearchService(s, logger);
     const lookupService = new LookupService(s, pageContextRepo, logger);
     const httpClient = connectionFactory.createHttpClient();
-    const downloadService = new DownloadService(httpClient, config.bc.baseUrl, config.bc.downloadLimits, logger);
+    // Same-origin download guard must use the session's HTTP base (the tab
+    // base on SaaS), not the portal baseUrl, or cluster DynamicFileHandler
+    // URLs are misclassified as external and never fetched.
+    const downloadService = new DownloadService(httpClient, connectionFactory.httpBaseUrl, config.bc.downloadLimits, logger);
 
     const operations: Operations = {
       openPage: new OpenPageOperation(pageService),
