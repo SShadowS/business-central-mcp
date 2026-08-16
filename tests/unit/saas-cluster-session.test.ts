@@ -167,6 +167,76 @@ describe('SaasClusterSession', () => {
     if (isErr(result)) expect(result.error.code).toBe('AUTHENTICATION_ERROR');
   });
 
+  it('readPortalShell follows a same-origin non-Entra redirect to the signed-in shell', async () => {
+    const html = `FixedEndPoint.start({"authentication":{"accessToken":"${JWT}","authorizationCode":"${CODE}","homeAccountId":"h","sharedAuthCookieName":""}});`;
+    const { fetchFn, calls } = recordFetch((url) => {
+      if (url === saas.portalUrl) {
+        return new Response('', { status: 302, headers: { Location: `${saas.portalUrl}?noSignUpCheck=1` } });
+      }
+      return new Response(html, { status: 200 });
+    });
+    const session = new SaasClusterSession(fetchFn, capturingLogger().logger);
+    const result = await session.readPortalShell(new CookieJar(), saas);
+    expect(isOk(result)).toBe(true);
+    if (isOk(result)) expect(result.value.auth.accessToken).toBe(JWT);
+    expect(calls.length).toBe(2);
+    expect(calls[1]!.url).toBe(`${saas.portalUrl}?noSignUpCheck=1`);
+  });
+
+  it('readPortalShell resolves a relative redirect Location against the portal origin', async () => {
+    const html = `FixedEndPoint.start({"authentication":{"accessToken":"${JWT}","authorizationCode":"${CODE}","homeAccountId":"h","sharedAuthCookieName":""}});`;
+    const { fetchFn, calls } = recordFetch((url) => {
+      if (url === saas.portalUrl) {
+        return new Response('', { status: 302, headers: { Location: `/${TENANT}/DEV/` } });
+      }
+      return new Response(html, { status: 200 });
+    });
+    const session = new SaasClusterSession(fetchFn, capturingLogger().logger);
+    const result = await session.readPortalShell(new CookieJar(), saas);
+    expect(isOk(result)).toBe(true);
+    expect(calls[1]!.url).toBe(`https://businesscentral.dynamics.com/${TENANT}/DEV/`);
+  });
+
+  it('readPortalShell returns AuthenticationError when a later hop redirects to Entra', async () => {
+    const { fetchFn } = recordFetch((url) => {
+      if (url === saas.portalUrl) {
+        return new Response('', { status: 302, headers: { Location: `${saas.portalUrl}?hop=1` } });
+      }
+      return new Response('', {
+        status: 302,
+        headers: { Location: 'https://login.microsoftonline.com/common/oauth2/authorize' },
+      });
+    });
+    const session = new SaasClusterSession(fetchFn, capturingLogger().logger);
+    const result = await session.readPortalShell(new CookieJar(), saas);
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) expect(result.error.code).toBe('AUTHENTICATION_ERROR');
+  });
+
+  it('readPortalShell does not follow an off-origin redirect', async () => {
+    const { fetchFn, calls } = recordFetch(() => new Response('', {
+      status: 302,
+      headers: { Location: 'https://evil.example.com/steal' },
+    }));
+    const session = new SaasClusterSession(fetchFn, capturingLogger().logger);
+    const result = await session.readPortalShell(new CookieJar(), saas);
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) expect(result.error.code).toBe('CONNECTION_ERROR');
+    expect(calls.length).toBe(1);
+  });
+
+  it('readPortalShell caps same-origin redirect chains', async () => {
+    const { fetchFn, calls } = recordFetch((url) => {
+      const n = Number(new URL(url).searchParams.get('hop') ?? '0');
+      return new Response('', { status: 302, headers: { Location: `${saas.portalUrl}?hop=${n + 1}` } });
+    });
+    const session = new SaasClusterSession(fetchFn, capturingLogger().logger);
+    const result = await session.readPortalShell(new CookieJar(), saas);
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) expect(result.error.code).toBe('CONNECTION_ERROR');
+    expect(calls.length).toBeLessThanOrEqual(6);
+  });
+
   it('readPortalShell parses FixedEndPoint auth and never logs the JWT', async () => {
     const cap = capturingLogger();
     const html = [

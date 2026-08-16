@@ -28,14 +28,36 @@ export class SaasClusterSession {
     jar: CookieJar,
     saas: SaasTarget,
   ): Promise<Result<{ fceToken: string; auth: FixedEndPointAuth; html: string }, ConnectionError | AuthenticationError>> {
-    const page = await this.request(jar, saas.portalUrl, {
-      headers: { Origin: SAAS_PORTAL_ORIGIN, Referer: saas.portalUrl },
-    });
-    if (page.res.status >= 300 && page.res.status < 400) {
+    // A valid session may 302 to a canonical/locale URL before serving the
+    // shell; follow same-origin hops so a signed-in user is not misread as
+    // signed out. Entra redirects still mean sign-in is required, and
+    // off-origin redirects are never followed (cookies stay on the portal).
+    let url = saas.portalUrl;
+    let page: { res: Response; html: string };
+    let hops = 0;
+    const MAX_REDIRECTS = 5;
+    for (;;) {
+      page = await this.request(jar, url, {
+        headers: { Origin: SAAS_PORTAL_ORIGIN, Referer: saas.portalUrl },
+      });
+      if (page.res.status < 300 || page.res.status >= 400) break;
       const location = page.res.headers.get('location') ?? '';
       if (isEntraLoginUrl(location)) {
         return err(new AuthenticationError('Portal redirected to Entra sign-in'));
       }
+      let next: URL;
+      try {
+        next = new URL(location, url);
+      } catch {
+        return err(new ConnectionError('Portal redirect has no usable Location'));
+      }
+      if (next.origin !== saas.origin) {
+        return err(new ConnectionError(`Portal redirected off-origin to ${next.host}`));
+      }
+      if (++hops > MAX_REDIRECTS) {
+        return err(new ConnectionError('Portal redirect chain exceeded 5 hops'));
+      }
+      url = next.href;
     }
     const fp = parseFixedEndPoint(page.html);
     const auth = fp ? extractFixedEndPointAuth(fp) : {
