@@ -5,7 +5,7 @@
 // Auth: HTTP Basic (on-prem NavUserPassword) or Bearer (Entra / SaaS).
 // Entry point: ODataClient.query(entity, opts).
 
-import { ProtocolError } from '../core/errors.js';
+import { BCError, ProtocolError } from '../core/errors.js';
 
 export class ODataError extends ProtocolError {
   public readonly statusCode: number;
@@ -259,7 +259,10 @@ export class ODataClient {
         signal: AbortSignal.timeout(this.requestTimeoutMs),
       });
     } catch (e) {
-      if (e instanceof ODataError) throw e;
+      // Typed BC errors (notably DeviceLoginRequiredError from
+      // getAuthorization on mid-flight token expiry) must keep their code
+      // and context — only genuinely untyped failures become network errors.
+      if (e instanceof BCError) throw e;
       throw new ODataError(
         `Network error reaching BC OData endpoint: ${e instanceof Error ? e.message : String(e)}`,
         0,

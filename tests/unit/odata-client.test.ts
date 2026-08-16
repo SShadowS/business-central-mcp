@@ -5,6 +5,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ODataClient, ODataError, deriveODataUrl } from '../../src/odata/odata-client.js';
+import { DeviceLoginRequiredError } from '../../src/core/errors.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -350,6 +351,27 @@ describe('ODataClient.query — URL construction', () => {
     }));
     await expect(client.query('customers')).rejects.toSatisfy(
       (e: unknown) => e instanceof ODataError && e.statusCode === 401 && e.message.includes('No OData credentials'),
+    );
+  });
+
+  it('rethrows DeviceLoginRequiredError from mid-flight token expiry instead of wrapping it as a network error', async () => {
+    // First call (company resolution) has a valid token; the entity query hits
+    // an expired token and getAuthorization throws DEVICE_LOGIN_REQUIRED. The
+    // code and verification URL must survive to the caller.
+    let authCalls = 0;
+    const getAuthorization = vi.fn(async () => {
+      if (++authCalls === 1) return 'Bearer tok-1';
+      throw new DeviceLoginRequiredError('https://microsoft.com/devicelogin', 'ABC-123', Date.now() + 900_000);
+    });
+    global.fetch = mockFetch([
+      companiesResponse([{ id: 'co-id', name: 'Co' }]),
+    ]) as unknown as typeof fetch;
+
+    const client = new ODataClient(makeConfig({ username: '', password: '', getAuthorization }));
+    await expect(client.query('customers')).rejects.toSatisfy(
+      (e: unknown) => e instanceof DeviceLoginRequiredError
+        && e.code === 'DEVICE_LOGIN_REQUIRED'
+        && e.message.includes('ABC-123'),
     );
   });
 
