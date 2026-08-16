@@ -74,14 +74,14 @@ describe('CookieJar', () => {
     expect(jar.headerFor(PORTAL)).not.toContain(`${TENANT}.auth`);
   });
 
-  it('hasPortalAuth accepts the auth cookie when scoped to a parent domain of the portal host', () => {
-    // The cookie is host-only today, but a Domain=dynamics.com auth cookie
-    // would still be SENT to the portal (headerFor suffix match) — presence
-    // detection must agree with sending, or a live session reads as absent.
+  it('hasPortalAuth ignores a parent-domain auth cookie — cluster responses could plant one', () => {
+    // Cluster hosts live under businesscentral.dynamics.com and every cluster
+    // response is absorbed, so a Domain=dynamics.com cookie could be set by a
+    // cluster response. Counting it as portal auth would make
+    // isAuthenticated() true with no portal session. The real portal auth
+    // cookie is host-only, so exact-host matching costs nothing.
     const jar = new CookieJar();
     jar.absorb(response([`${TENANT}.auth=x; Domain=dynamics.com; Path=/; Secure`]), PORTAL);
-    expect(jar.hasPortalAuth()).toBe(true);
-    jar.clearPortalAuth();
     expect(jar.hasPortalAuth()).toBe(false);
   });
 
@@ -103,13 +103,13 @@ describe('CookieJar', () => {
     expect(jar.hasPortalAuth()).toBe(true);
   });
 
-  it('persistable() keeps a parent-domain auth cookie — persistence must agree with detection and sending', () => {
+  it('persistable() drops a parent-domain auth cookie, agreeing with detection', () => {
     const jar = new CookieJar();
-    jar.absorb(response([`${TENANT}.auth=keep; Domain=dynamics.com; Path=/; Secure`]), PORTAL);
-    expect(jar.hasPortalAuth()).toBe(true);
-    // If detection says the session exists but persistence drops the cookie,
-    // every restart pops a sign-in window despite each run "persisting".
-    expect(jar.persistable().some((c) => c.name === `${TENANT}.auth`)).toBe(true);
+    jar.absorb(response([`${TENANT}.auth=x; Domain=dynamics.com; Path=/; Secure`]), PORTAL);
+    // Persistence and detection agree: neither counts a parent-domain cookie
+    // (which a cluster response could plant), so nothing "persisted" can
+    // disagree with hasPortalAuth() across restarts.
+    expect(jar.persistable().some((c) => c.name === `${TENANT}.auth`)).toBe(false);
   });
 
   it('persistable() drops ESTS-domain cookies and keeps portal cookies', () => {

@@ -236,37 +236,36 @@ export class EstsLoginClient {
     let flowToken = str(cfg, 'sFT');
     let ctx = str(cfg, 'sCtx');
 
-    // Retry:true means retry BeginAuth ITSELF (throttle). Token refresh is
-    // inlined per attempt, matching the EndAuth poll below.
-    let began: SasJson;
-    for (let attempt = 0; ; attempt++) {
-      began = await this.sasPost(beginUrl, {
-        AuthMethodId: preferred,
-        Method: 'BeginAuth',
-        ctx,
-        flowToken,
-      });
-      if (began.FlowToken) flowToken = began.FlowToken;
-      if (began.Ctx) ctx = began.Ctx;
-      if (began.Success !== false || began.Retry !== true || attempt >= 2) break;
-      await this.sleep(MFA_POLL_MS);
-    }
-    // Push (PhoneAppNotification) needs an auth session to poll: EndAuth's
-    // SessionId is began.CorrelationId, so an explicit rejection WITHOUT one
-    // fails fast — polling would run 90s against an undefined SessionId.
-    // That presence test is deliberately vocabulary-free (ESTS's ResultValue
-    // set is large and undocumented; the EndAuth poll judges everything
-    // else), and an unparseable body ({} from sasPost) falls through. The
-    // OTP branch is never gated: its EndAuth sends no SessionId, so the code
-    // prompt can complete sign-in even after a failed BeginAuth.
-    if (preferred === 'PhoneAppNotification'
-      && began.Success === false && !began.CorrelationId) {
-      const reason = began.Message ?? began.ResultValue
-        ?? (began.Retry ? 'throttled by Entra (retries exhausted)' : 'unknown error');
-      throw new Error(`MFA BeginAuth failed: ${reason}`);
-    }
-
     if (preferred === 'PhoneAppNotification') {
+      // Push needs an auth session to poll (EndAuth's SessionId is
+      // began.CorrelationId), so BeginAuth is retried on Retry:true
+      // (throttle) and an explicit rejection WITHOUT a CorrelationId fails
+      // fast — polling would run 90s against an undefined SessionId. The
+      // presence test is deliberately vocabulary-free (ESTS's ResultValue
+      // set is large and undocumented; the EndAuth poll judges everything
+      // else), and an unparseable body ({} from sasPost) falls through.
+      // Known trade-off: a hard failure that carries a request-correlation
+      // id proceeds to polling, where EndAuth's own error handling (or the
+      // 90s cap) judges it — no reliable wire signal distinguishes a
+      // session id from a trace id.
+      let began: SasJson;
+      for (let attempt = 0; ; attempt++) {
+        began = await this.sasPost(beginUrl, {
+          AuthMethodId: preferred,
+          Method: 'BeginAuth',
+          ctx,
+          flowToken,
+        });
+        if (began.FlowToken) flowToken = began.FlowToken;
+        if (began.Ctx) ctx = began.Ctx;
+        if (began.Success !== false || began.Retry !== true || attempt >= 2) break;
+        await this.sleep(MFA_POLL_MS);
+      }
+      if (began.Success === false && !began.CorrelationId) {
+        const reason = began.Message ?? began.ResultValue
+          ?? (began.Retry ? 'throttled by Entra (retries exhausted)' : 'unknown error');
+        throw new Error(`MFA BeginAuth failed: ${reason}`);
+      }
       const entropy = began.Entropy !== undefined && began.Entropy !== '' ? String(began.Entropy) : '';
       this.onStatus({
         phase: 'mfa',
@@ -299,6 +298,18 @@ export class EstsLoginClient {
       if (!waitForOtp) {
         throw new Error('TOTP required but no waitForOtp was provided');
       }
+      // A single ungated BeginAuth: OTP's EndAuth carries no SessionId, so a
+      // failed or throttled BeginAuth must not dead-end the flow — only the
+      // refreshed flowToken/ctx are consumed, and the code prompt plus
+      // EndAuth judge the sign-in.
+      const began = await this.sasPost(beginUrl, {
+        AuthMethodId: preferred,
+        Method: 'BeginAuth',
+        ctx,
+        flowToken,
+      });
+      if (began.FlowToken) flowToken = began.FlowToken;
+      if (began.Ctx) ctx = began.Ctx;
       this.onStatus({ phase: 'mfa', message: 'Enter the code from Authenticator' });
       let code = await waitForOtp();
       if (!code) throw new Error('empty MFA code');

@@ -152,7 +152,10 @@ describe('SaasClusterSession', () => {
     const session = new SaasClusterSession(fetchFn, cap.logger);
     const result = await session.readPortalShell(new CookieJar(), saas);
     expect(isErr(result)).toBe(true);
-    if (isErr(result)) expect(result.error.code).toBe('AUTHENTICATION_ERROR');
+    // Token-less shells escalate via the provider's windowed streak
+    // (ShellUnclassifiableError, code CONNECTION_ERROR) rather than killing
+    // the session on one sighting; only the Entra redirect is immediate.
+    if (isErr(result)) expect(result.error.code).toBe('CONNECTION_ERROR');
     expect(calls[0]!.url).toBe(saas.portalUrl);
     expect(calls[0]!.headers['origin']).toBe(SAAS_PORTAL_ORIGIN);
   });

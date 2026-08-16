@@ -202,22 +202,24 @@ function pathMatches(cookiePath: string, requestPath: string): boolean {
  * the stored aadTenantId/environmentName tag differs from the configured one
  * — a jar therefore only ever holds cookies for its own tenant.
  *
- * The domain check accepts the portal host and its parent domains: any such
- * cookie is SENT to the portal by headerFor, and presence detection must
- * agree with sending or a live session reads as absent. Cluster hosts are
- * longer than the portal host and never match.
+ * The domain check requires the portal host EXACTLY: the real auth cookie is
+ * host-only, and a parent-domain cookie (Domain=dynamics.com) could equally
+ * be planted by a CLUSTER response — cluster hosts live under
+ * businesscentral.dynamics.com and every cluster response is absorbed —
+ * which would make isAuthenticated() true with no portal session present.
+ * isPersistableDomain applies the same rule, so detection, sending, and
+ * persistence can never disagree about a cookie that matters.
  */
 function isPortalAuthCookie(c: CookieRecord): boolean {
-  if (!hostInDomain(SAAS_PORTAL_HOST, c.domain)) return false;
+  if (c.domain.toLowerCase() !== SAAS_PORTAL_HOST) return false;
   return c.name.endsWith('.auth') || c.name === '.AspNetCore.Cookies';
 }
 
 function isPersistableDomain(domain: string): boolean {
   const d = domain.toLowerCase();
   if (d.includes('appservices.')) return false;
-  // Portal host, its subdomains, and its parent domains (a parent-scoped
-  // auth cookie is sent to the portal and counted by isPortalAuthCookie, so
-  // persistence must agree or every restart loses a "persisted" session).
-  // ESTS/cluster domains match none of these.
-  return hostInDomain(SAAS_PORTAL_HOST, d) || hostInDomain(d, SAAS_PORTAL_HOST);
+  // Portal host and its subdomains only — parent domains are excluded for
+  // the same reason isPortalAuthCookie excludes them (a cluster response
+  // could plant one). ESTS/cluster domains match neither.
+  return hostInDomain(d, SAAS_PORTAL_HOST);
 }

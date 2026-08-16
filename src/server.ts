@@ -148,8 +148,10 @@ async function main() {
       // /mcp: MCP streamable-HTTP clients treat 401 + WWW-Authenticate as
       // the trigger for RFC 9728 OAuth discovery, which this server does not
       // serve.
+      // Same predicate the router uses for the MCP endpoint below — the two
+      // must agree, or /mcp-adjacent paths get inconsistent 401 shapes.
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (!(req.url ?? '').startsWith('/mcp')) {
+      if (req.url !== '/mcp') {
         headers['WWW-Authenticate'] = 'Bearer realm="bc-mcp-api-token"';
       }
       res.writeHead(401, headers);

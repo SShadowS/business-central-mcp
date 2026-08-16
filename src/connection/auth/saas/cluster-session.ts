@@ -94,10 +94,14 @@ export class SaasClusterSession {
     const auth = extractFixedEndPointAuth(fp);
     this.log.info('saas-web: portal shell', { hasAccess: Boolean(auth.accessToken), hasCode: Boolean(auth.authorizationCode) });
     if (!auth.accessToken) {
-      // A shell that renders FixedEndPoint WITHOUT an accessToken is the
-      // client-rendered sign-in page: the portal is reachable and the session
-      // is signed out, so this must trigger re-sign-in, not a retry.
-      return err(new AuthenticationError(
+      // A shell rendering FixedEndPoint WITHOUT an accessToken is strong but
+      // not conclusive evidence of a signed-out session — the portal's
+      // server-side silent token acquisition can transiently fail on a LIVE
+      // session. It escalates via the provider's windowed streak (like a
+      // missing FixedEndPoint) rather than destroying cookies on one
+      // sighting; the Entra redirect above remains the immediate
+      // dead-session signal.
+      return err(new ShellUnclassifiableError(
         'FixedEndPoint.start has no accessToken; portal shell is not a signed-in session',
       ));
     }
@@ -238,8 +242,18 @@ export class SaasClusterSession {
     headers.set('User-Agent', SAAS_BROWSER_UA);
     const cookie = jar.headerFor(url);
     if (cookie) headers.set('Cookie', cookie);
-    const res = await this.fetchFn(url, { ...init, headers, redirect: 'manual' });
-    jar.absorb(res, url);
-    return { res, html: await res.text() };
+    try {
+      const res = await this.fetchFn(url, { ...init, headers, redirect: 'manual' });
+      jar.absorb(res, url);
+      return { res, html: await res.text() };
+    } catch (e) {
+      // A rejected fetch (DNS, socket, aborted body) becomes a typed
+      // ConnectionError so every caller — probe or prepare — classifies the
+      // same outage the same retryable way instead of leaking a raw
+      // TypeError past the Result contract.
+      throw new ConnectionError(
+        `portal request failed: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
   }
 }

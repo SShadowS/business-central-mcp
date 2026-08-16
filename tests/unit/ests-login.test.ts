@@ -374,8 +374,8 @@ describe('EstsLoginClient', () => {
           urlPost: PROCESS,
         }),
       },
-      { urlMatch: 'BeginAuth', method: 'POST', status: 200, body: throttled },
-      { urlMatch: 'BeginAuth', method: 'POST', status: 200, body: throttled },
+      // A single BeginAuth for OTP — the throttle-retry loop is push-only,
+      // since only the push branch consumes BeginAuth's outcome.
       { urlMatch: 'BeginAuth', method: 'POST', status: 200, body: throttled },
       { urlMatch: 'EndAuth', method: 'POST', status: 200, body: JSON.stringify({ Success: true, ResultValue: 'Success' }) },
       { urlMatch: 'ProcessAuth', method: 'POST', status: 200, body: formPostHtml() },

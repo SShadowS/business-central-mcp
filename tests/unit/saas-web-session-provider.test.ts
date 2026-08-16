@@ -185,13 +185,26 @@ describe('SaasWebSessionProvider', () => {
     expect(calls.filter((c) => c.url.includes('/auth?')).length).toBeGreaterThan(authCallsBefore);
   });
 
-  it('stored cookies + 2xx sign-in shell (no accessToken) treats the session as dead and opens login', async () => {
-    seedCookies();
-    const { fetchFn } = recordFetch(defaultRouter({ skipJwt: true }));
-    const provider = makeProvider(fetchFn);
-    const result = await provider.authenticate();
-    expect(isErr(result)).toBe(true);
-    if (isErr(result)) expect(result.error.code).toBe('SIGN_IN_REQUIRED');
+  it('stored cookies + persistent signed-out shell (no accessToken) escalates to sign-in after the window', async () => {
+    // A token-less shell is strong but not conclusive evidence of a dead
+    // session (the portal's silent token acquisition can transiently fail on
+    // a LIVE session), so it goes through the same windowed escalation as
+    // unclassifiable shells instead of destroying cookies on one sighting.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      seedCookies();
+      const { fetchFn } = recordFetch(defaultRouter({ skipJwt: true }));
+      const provider = makeProvider(fetchFn);
+      const first = await provider.authenticate();
+      expect(isErr(first) && first.error.code === 'CONNECTION_ERROR').toBe(true);
+      await provider.authenticate();
+      vi.setSystemTime(Date.now() + 61_000);
+      const third = await provider.authenticate();
+      expect(isErr(third)).toBe(true);
+      if (isErr(third)) expect(third.error.code).toBe('SIGN_IN_REQUIRED');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('stored cookies + same-origin 302 to the signed-in shell authenticates without login', async () => {
@@ -222,21 +235,62 @@ describe('SaasWebSessionProvider', () => {
     expect(provider.isAuthenticated()).toBe(true);
   });
 
-  it('escalates to sign-in after three consecutive unclassifiable probe failures', async () => {
+  it('escalates to sign-in after three unclassifiable probe failures spanning the window', async () => {
     // A persistently unclassifiable portal state (e.g. a signed-out state
     // that renders without FixedEndPoint.start) must not wedge retryable
-    // forever — after a short streak the stored cookies are treated as dead.
+    // forever — once the streak AND the minimum window are both met, the
+    // stored cookies are treated as dead.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      seedCookies();
+      const { fetchFn } = recordFetch(() => new Response('<html>one moment…</html>', { status: 200 }));
+      const provider = makeProvider(fetchFn);
+      const first = await provider.authenticate();
+      const second = await provider.authenticate();
+      expect(isErr(first) && first.error.code === 'CONNECTION_ERROR').toBe(true);
+      expect(isErr(second) && second.error.code === 'CONNECTION_ERROR').toBe(true);
+      vi.setSystemTime(Date.now() + 61_000);
+      const third = await provider.authenticate();
+      expect(isErr(third)).toBe(true);
+      if (isErr(third)) expect(third.error.code).toBe('SIGN_IN_REQUIRED');
+      expect(provider.isAuthenticated()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a rapid burst of unclassifiable shells within the escalation window stays retryable', async () => {
+    // SessionManager's backoff ladder can produce 3+ attempts within seconds;
+    // a portal interstitial lasting a few seconds must not destroy valid
+    // persisted cookies — the streak alone is not enough, time must pass too.
     seedCookies();
     const { fetchFn } = recordFetch(() => new Response('<html>one moment…</html>', { status: 200 }));
     const provider = makeProvider(fetchFn);
-    const first = await provider.authenticate();
-    const second = await provider.authenticate();
-    expect(isErr(first) && first.error.code === 'CONNECTION_ERROR').toBe(true);
-    expect(isErr(second) && second.error.code === 'CONNECTION_ERROR').toBe(true);
-    const third = await provider.authenticate();
-    expect(isErr(third)).toBe(true);
-    if (isErr(third)) expect(third.error.code).toBe('SIGN_IN_REQUIRED');
-    expect(provider.isAuthenticated()).toBe(false);
+    const a1 = await provider.authenticate();
+    const p1 = await provider.prepare();
+    const p2 = await provider.prepare();
+    const a2 = await provider.authenticate();
+    for (const r of [a1, p1, p2, a2]) {
+      expect(isErr(r) && r.error.code === 'CONNECTION_ERROR').toBe(true);
+    }
+    expect(provider.isAuthenticated()).toBe(true);
+  });
+
+  it('a thrown network error during prepare surfaces as a retryable Result, not an exception', async () => {
+    seedCookies();
+    let network: 'ok' | 'down' = 'ok';
+    const base = defaultRouter();
+    const { fetchFn } = recordFetch((url) => {
+      if (network === 'down') throw new TypeError('fetch failed: ECONNRESET');
+      return base(url);
+    });
+    const provider = makeProvider(fetchFn);
+    const authed = await provider.authenticate();
+    expect(isOk(authed)).toBe(true);
+    network = 'down';
+    const prepared = await provider.prepare();
+    expect(isErr(prepared)).toBe(true);
+    if (isErr(prepared)) expect(prepared.error.code).toBe('CONNECTION_ERROR');
   });
 
   it('a successful probe resets the failure streak', async () => {
@@ -264,67 +318,86 @@ describe('SaasWebSessionProvider', () => {
     // must count unclassifiable shells seen by bindAndMint too, and the
     // threshold must flip isAuthenticated() false so create() re-enters
     // authenticate() and reopens sign-in.
-    seedCookies();
-    const { fetchFn } = recordFetch(() => new Response('<html>one moment</html>', { status: 200 }));
-    const provider = makeProvider(fetchFn);
-    const auth1 = await provider.authenticate();
-    expect(isErr(auth1) && auth1.error.code === 'CONNECTION_ERROR').toBe(true);
-    expect(provider.isAuthenticated()).toBe(true);
-    const prep1 = await provider.prepare();
-    expect(isErr(prep1)).toBe(true);
-    expect(provider.isAuthenticated()).toBe(true);
-    const prep2 = await provider.prepare();
-    expect(isErr(prep2)).toBe(true);
-    // Third unclassifiable shell: cookies cleared, so create() re-authenticates.
-    expect(provider.isAuthenticated()).toBe(false);
-    const auth2 = await provider.authenticate();
-    expect(isErr(auth2)).toBe(true);
-    if (isErr(auth2)) expect(auth2.error.code).toBe('SIGN_IN_REQUIRED');
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      seedCookies();
+      const { fetchFn } = recordFetch(() => new Response('<html>one moment</html>', { status: 200 }));
+      const provider = makeProvider(fetchFn);
+      const auth1 = await provider.authenticate();
+      expect(isErr(auth1) && auth1.error.code === 'CONNECTION_ERROR').toBe(true);
+      expect(provider.isAuthenticated()).toBe(true);
+      const prep1 = await provider.prepare();
+      expect(isErr(prep1)).toBe(true);
+      expect(provider.isAuthenticated()).toBe(true);
+      vi.setSystemTime(Date.now() + 61_000);
+      const prep2 = await provider.prepare();
+      expect(isErr(prep2)).toBe(true);
+      // Third unclassifiable shell past the window: cookies cleared, so
+      // create() re-authenticates.
+      expect(provider.isAuthenticated()).toBe(false);
+      const auth2 = await provider.authenticate();
+      expect(isErr(auth2)).toBe(true);
+      if (isErr(auth2)) expect(auth2.error.code).toBe('SIGN_IN_REQUIRED');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('escalation cleanses the persisted store — a canceled sign-in is re-offered immediately', async () => {
     // Clearing only the in-memory jar let loadStoredCookies() resurrect the
     // proven-dead cookies from disk on every authenticate(), forcing the user
     // through fresh retryable cycles after canceling the sign-in window.
-    seedCookies();
-    const { fetchFn } = recordFetch(() => new Response('<html>one moment</html>', { status: 200 }));
-    const provider = makeProvider(fetchFn);
-    await provider.authenticate();
-    await provider.prepare();
-    await provider.prepare();
-    const offered = await provider.authenticate();
-    expect(isErr(offered)).toBe(true);
-    if (isErr(offered)) expect(offered.error.code).toBe('SIGN_IN_REQUIRED');
-    // Sign-in was canceled (no display); the NEXT attempt must offer sign-in
-    // again immediately, not resurrect dead cookies into more retry cycles.
-    const again = await provider.authenticate();
-    expect(isErr(again)).toBe(true);
-    if (isErr(again)) expect(again.error.code).toBe('SIGN_IN_REQUIRED');
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      seedCookies();
+      const { fetchFn } = recordFetch(() => new Response('<html>one moment</html>', { status: 200 }));
+      const provider = makeProvider(fetchFn);
+      await provider.authenticate();
+      await provider.prepare();
+      vi.setSystemTime(Date.now() + 61_000);
+      const offered = await provider.authenticate();
+      expect(isErr(offered)).toBe(true);
+      if (isErr(offered)) expect(offered.error.code).toBe('SIGN_IN_REQUIRED');
+      // Sign-in was canceled (no display); the NEXT attempt must offer
+      // sign-in again immediately, not resurrect dead cookies into more
+      // retry cycles.
+      const again = await provider.authenticate();
+      expect(isErr(again)).toBe(true);
+      if (isErr(again)) expect(again.error.code).toBe('SIGN_IN_REQUIRED');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('unclassifiable shells accumulate across interleaved network failures without either resetting the other', async () => {
-    seedCookies();
-    let mode: 'shell' | 'net' = 'shell';
-    const { fetchFn } = recordFetch(() => {
-      if (mode === 'net') throw new Error('ECONNRESET');
-      return new Response('<html>one moment</html>', { status: 200 });
-    });
-    const provider = makeProvider(fetchFn);
-    const s1 = await provider.authenticate();
-    expect(isErr(s1) && s1.error.code === 'CONNECTION_ERROR').toBe(true);
-    mode = 'net';
-    const n1 = await provider.authenticate();
-    expect(isErr(n1) && n1.error.code === 'CONNECTION_ERROR').toBe(true);
-    expect(provider.isAuthenticated()).toBe(true);
-    mode = 'shell';
-    await provider.authenticate();
-    mode = 'net';
-    await provider.authenticate();
-    expect(provider.isAuthenticated()).toBe(true);
-    mode = 'shell';
-    const third = await provider.authenticate();
-    expect(isErr(third)).toBe(true);
-    if (isErr(third)) expect(third.error.code).toBe('SIGN_IN_REQUIRED');
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      seedCookies();
+      let mode: 'shell' | 'net' = 'shell';
+      const { fetchFn } = recordFetch(() => {
+        if (mode === 'net') throw new Error('ECONNRESET');
+        return new Response('<html>one moment</html>', { status: 200 });
+      });
+      const provider = makeProvider(fetchFn);
+      const s1 = await provider.authenticate();
+      expect(isErr(s1) && s1.error.code === 'CONNECTION_ERROR').toBe(true);
+      mode = 'net';
+      const n1 = await provider.authenticate();
+      expect(isErr(n1) && n1.error.code === 'CONNECTION_ERROR').toBe(true);
+      expect(provider.isAuthenticated()).toBe(true);
+      mode = 'shell';
+      await provider.authenticate();
+      mode = 'net';
+      await provider.authenticate();
+      expect(provider.isAuthenticated()).toBe(true);
+      vi.setSystemTime(Date.now() + 61_000);
+      mode = 'shell';
+      const third = await provider.authenticate();
+      expect(isErr(third)).toBe(true);
+      if (isErr(third)) expect(third.error.code).toBe('SIGN_IN_REQUIRED');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('network failures do not count toward escalation — cookies survive an outage of any length', async () => {
