@@ -27,7 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tool call and printing the code on stderr, which MCP clients never show).
   The pending sign-in is persisted in `STATE_DIR/oauth-pending.json`; retrying
   the tool polls once and resumes — same code, no re-prompt — then runs the
-  query once sign-in is complete.
+  query once sign-in is complete. On tenants with Entra first-party hardening
+  the built-in borrowed client fails at sign-in with `AADSTS65002`; set
+  `BC_CLIENT_ID` to a publisher-owned multi-tenant public app (see README
+  "bc_query on SaaS") — customer tenants never register anything.
 
 ### Changed
 
