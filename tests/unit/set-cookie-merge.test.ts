@@ -25,4 +25,16 @@ describe('mergeSetCookies', () => {
   it('does not treat a normal cookie value as a deletion', () => {
     expect(mergeSetCookies('', ['a=1; Path=/; Secure; HttpOnly'])).toBe('a=1');
   });
+
+  it('honors RFC 6265 Max-Age-over-Expires precedence: positive Max-Age keeps despite a past Expires', () => {
+    expect(mergeSetCookies('a=1', ['a=x; Max-Age=100; Expires=Thu, 01 Jan 1970 00:00:00 GMT'])).toBe('a=x');
+  });
+
+  it('ignores an empty Max-Age= (not a deletion)', () => {
+    expect(mergeSetCookies('a=1', ['a=x; Max-Age='])).toBe('a=x');
+  });
+
+  it('deletes on Max-Age=0 even with a future Expires (Max-Age wins)', () => {
+    expect(mergeSetCookies('a=1', ['a=x; Max-Age=0; Expires=Tue, 19 Jan 2038 03:14:07 GMT'])).toBe('');
+  });
 });

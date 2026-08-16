@@ -33,19 +33,29 @@ export function mergeSetCookies(existing: string, setCookieHeaders: string[]): s
   return Array.from(map.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
 }
 
-/** A Set-Cookie deletes when Max-Age <= 0 or Expires is in the past. */
+/**
+ * A Set-Cookie deletes when Max-Age <= 0, or (absent a valid Max-Age) Expires
+ * is in the past. Per RFC 6265, Max-Age takes precedence over Expires, so a
+ * positive Max-Age keeps the cookie even alongside a past Expires. An empty or
+ * non-numeric Max-Age is ignored (falls through to Expires).
+ */
 function isDeletion(attributes: string[]): boolean {
+  let maxAge: number | undefined;
+  let expiresInPast: boolean | undefined;
   for (const attr of attributes) {
     const eq = attr.indexOf('=');
     const key = (eq < 0 ? attr : attr.slice(0, eq)).trim().toLowerCase();
     const val = eq < 0 ? '' : attr.slice(eq + 1).trim();
     if (key === 'max-age') {
-      const secs = Number(val);
-      if (Number.isFinite(secs) && secs <= 0) return true;
+      if (val !== '') {
+        const secs = Number(val);
+        if (Number.isFinite(secs)) maxAge = secs;
+      }
     } else if (key === 'expires') {
       const t = Date.parse(val);
-      if (!Number.isNaN(t) && t <= Date.now()) return true;
+      if (!Number.isNaN(t)) expiresInPast = t <= Date.now();
     }
   }
-  return false;
+  if (maxAge !== undefined) return maxAge <= 0;
+  return expiresInPast === true;
 }

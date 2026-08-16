@@ -2,7 +2,8 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { OAuthAuthProvider, mergeSetCookies, extractCsrf } from '../../src/connection/auth/oauth-provider.js';
+import { OAuthAuthProvider, extractCsrf } from '../../src/connection/auth/oauth-provider.js';
+import { mergeSetCookies } from '../../src/connection/auth/set-cookie-merge.js';
 import { OAuthTokenClient, type TokenSet } from '../../src/connection/auth/oauth-token-client.js';
 import { FileTokenCache, FilePendingDeviceCache } from '../../src/connection/auth/token-cache.js';
 import { AuthenticationError, DeviceLoginRequiredError } from '../../src/core/errors.js';
@@ -365,6 +366,21 @@ describe('OAuthAuthProvider device-code state machine (fail-fast)', () => {
 
     expect(await provider.getAccessToken()).toBeUndefined();
     expect(pendingCache().load(CLIENT, TENANT)?.userCode).toBe('KEEP-CODE');
+  });
+
+  it('pending + bodyless 4xx on poll: keeps the pending code (transient, no churn)', async () => {
+    // A 4xx with no OAuth JSON error body yields the synthetic 'http_400' (a
+    // real hard failure always carries a named error like expired_token).
+    const start = vi.fn();
+    const provider = makeProvider(stubClient({
+      startDeviceCode: start,
+      pollDeviceCodeOnce: async () => err(new AuthenticationError('Token request failed: HTTP 400', { oauthError: 'http_400' })),
+    }));
+    seedPending('KEEP-CODE');
+
+    expect(await provider.getAccessToken()).toBeUndefined();
+    expect(pendingCache().load(CLIENT, TENANT)?.userCode).toBe('KEEP-CODE');
+    expect(start).not.toHaveBeenCalled();
   });
 
   it('pending + non-JSON 200 on poll (captive portal): keeps the pending code, does not churn', async () => {

@@ -73,4 +73,13 @@ describe('parseDeploymentJson', () => {
       data: `http://${HOST}/?tenant=${RUNTIME}&tid=${TID}`,
     }))).toBeUndefined();
   });
+
+  it('rejects a userinfo-smuggled host (dynamics.com@evil.com)', () => {
+    // The real host is evil.com; only the userinfo looks like dynamics.com.
+    expect(parseDeploymentJson(JSON.stringify({
+      status: 'Ready',
+      runtimeId: RUNTIME,
+      data: `https://dynamics.com@evil.com/?tenant=${RUNTIME}&tid=${TID}`,
+    }))).toBeUndefined();
+  });
 });

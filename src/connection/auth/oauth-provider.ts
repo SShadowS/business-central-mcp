@@ -339,8 +339,6 @@ function hostnameOf(raw: string): string {
   }
 }
 
-export { mergeSetCookies };
-
 export function extractCsrf(cookies: string): string {
   const parts = cookies.split('; ').filter(Boolean);
   for (const part of parts) {
