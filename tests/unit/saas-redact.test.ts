@@ -43,6 +43,12 @@ describe('redactLog', () => {
     expect(dumped).not.toContain('eyJfixture');
   });
 
+  it('redacts an opaque (non-JWT) bearer token in an authorization header', () => {
+    const { msg } = redactLog('authorization: Bearer abc123opaqueTOKENvalue');
+    expect(msg).not.toContain('abc123opaqueTOKENvalue');
+    expect(msg).toContain('authorization: [redacted]');
+  });
+
   it('leaves ordinary log text intact', () => {
     const { msg, context } = redactLog('saas-web: tab abc', { tabId: 'abc' });
     expect(msg).toBe('saas-web: tab abc');

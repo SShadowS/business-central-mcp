@@ -8,7 +8,7 @@ const SENSITIVE_KEYS = new Set([
 
 const JWT = /eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)?/g;
 const COOKIE_HDR = /Cookie:\s*[^\r\n]+/gi;
-const AUTH_HDR = /authorization:\s*\S+/gi;
+const AUTH_HDR = /authorization:\s*[^\r\n]+/gi;
 const PASSWD_FIELD = /passwd=[^&\s]+/gi;
 const SFT_FIELD = /sFT=[^&\s"']+/gi;
 const PPFT_FIELD = /PPFT=[^&\s"']+/gi;
