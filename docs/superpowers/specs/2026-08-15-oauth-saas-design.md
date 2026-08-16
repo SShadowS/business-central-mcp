@@ -1,7 +1,7 @@
 # OAuth + BC Online (SaaS) — design
 
 **Date:** 2026-08-15
-**Revised:** 2026-08-16 — `bc_query` is device-code with the built-in public client.
+**Revised:** 2026-08-16 — `bc_query` is device-code with a required `BC_CLIENT_ID` (multi-tenant public app).
 **Status:** Implemented for the official API (`bc_query`). `/csh` on SaaS is implemented separately — see [2026-08-15-saas-web-session-design.md](2026-08-15-saas-web-session-design.md).
 
 ## Problem
@@ -35,10 +35,10 @@ So: **OAuth unlocks the official API immediately. It does not, by itself, unlock
 
 1. **Auto-detect SaaS URLs.** `parseSaasUrl` extracts Entra tenant + environment. `BC_AUTH` defaults to `auto` (SaaS → `SaasWeb`, else NavUserPassword).
 2. **No MSAL.** Device-code and refresh against the v2.0 token endpoint are small enough to implement and unit-test with mocked `fetch`.
-3. **Built-in public client.** Device-code uses Azure PowerShell `1950a258-227b-4e31-a9cf-717495945fc2` (`oauth-defaults.ts`). Scope `user_impersonation` + `offline_access`.
+3. **Required client id.** Device-code uses `BC_CLIENT_ID` — a multi-tenant public app with delegated `user_impersonation`. Scope `user_impersonation` + `offline_access` (`oauth-defaults.ts`).
 4. **Device-code in the tool result.** First `bc_query` returns `DEVICE_LOGIN_REQUIRED` carrying `https://microsoft.com/devicelogin` and a user code; a retry resumes the pending sign-in (persisted in `STATE_DIR/oauth-pending.json`).
 
-   **Client id finding (2026-08-16, live):** the borrowed Azure PowerShell client (`1950a258…`) — and any other Microsoft first-party client (Azure CLI `04b07795…` probed too) — fails at browser sign-in with `AADSTS65002` on tenants with Entra first-party preauthorization hardening (failed on tenant `e48da249…`; still works on `7bcb54ae…`). No tenant admin can consent around a first-party↔first-party pair, and the tool cannot observe the failure — the device code stays `authorization_pending` until its 15-minute expiry. Resolution verified live: a publisher-owned **multi-tenant public** app (`az ad app create --sign-in-audience AzureADMultipleOrgs --is-fallback-public-client true`, delegated `user_impersonation` `bce0976a-cb0b-473b-8800-84eda9f8e447` on resource `996def3d…`) signs in cleanly with per-user consent — customers register nothing. Passed as `BC_CLIENT_ID`; the borrowed client remains only as fallback for non-hardened tenants. Which tenant owns the production app is an open business decision.
+   **Client id finding (2026-08-16, live):** the borrowed Azure PowerShell client (`1950a258…`) — and any other Microsoft first-party client (Azure CLI `04b07795…` probed too) — fails at browser sign-in with `AADSTS65002` on tenants with Entra first-party preauthorization hardening (failed on tenant `e48da249…`; still works on `7bcb54ae…`). No tenant admin can consent around a first-party↔first-party pair, and the tool cannot observe the failure — the device code stays `authorization_pending` until its 15-minute expiry. Resolution verified live: a publisher-owned **multi-tenant public** app (`az ad app create --sign-in-audience AzureADMultipleOrgs --is-fallback-public-client true`, delegated `user_impersonation` `bce0976a-cb0b-473b-8800-84eda9f8e447` on resource `996def3d…`) signs in cleanly with per-user consent — customers register nothing. Passed as `BC_CLIENT_ID`, which is required — there is no fallback client. Which tenant owns the production app is an open business decision.
 5. **Refresh cache** at `STATE_DIR/oauth-tokens.json` (mode 0600), keyed by clientId + tenant.
 6. **`bc_query` must not open `/csh`.** Previously `ensureSession()` ran for every tool, so a SaaS `/csh` 404 would have blocked the one tool OAuth can serve.
 7. **OAuth provider still implements `IBCAuthProvider`.** It sends Bearer + any cookies a Bearer GET of the portal produced. A 302 to `login.microsoftonline.com` is treated as "no web session" (cookies cleared), not as success. `invalidate()` drops cookies only, so reconnect does not force another device-code prompt.

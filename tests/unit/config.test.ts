@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { loadConfig } from '../../src/core/config.js';
-import { BC_API_DELEGATED_SCOPE, BC_API_PUBLIC_CLIENT_ID } from '../../src/connection/auth/oauth-defaults.js';
+import { BC_API_DELEGATED_SCOPE } from '../../src/connection/auth/oauth-defaults.js';
 
 describe('loadConfig', () => {
   const originalEnv = process.env;
@@ -101,13 +101,19 @@ describe('loadConfig OAuth / SaaS', () => {
     expect(c.bc.baseUrl).toBe(`https://businesscentral.dynamics.com/${TENANT}/DEV`);
     expect(c.bc.odataUrl).toBe(`https://api.businesscentral.dynamics.com/v2.0/${TENANT}/DEV`);
     expect(c.bc.appendTenantQuery).toBe(false);
-    expect(c.bc.oauth).toEqual({
-      aadTenantId: TENANT,
-      clientId: BC_API_PUBLIC_CLIENT_ID,
-      scope: BC_API_DELEGATED_SCOPE,
-    });
+    expect(c.bc.oauth).toBeUndefined();
     expect(c.bc.username).toBe('');
     expect(c.bc.password).toBe('');
+  });
+
+  it('populates oauth on SaaS when BC_CLIENT_ID is set', () => {
+    process.env.BC_BASE_URL = `https://businesscentral.dynamics.com/${TENANT}/DEV`;
+    process.env.BC_CLIENT_ID = '11111111-1111-1111-1111-111111111111';
+    expect(loadConfig().bc.oauth).toEqual({
+      aadTenantId: TENANT,
+      clientId: '11111111-1111-1111-1111-111111111111',
+      scope: BC_API_DELEGATED_SCOPE,
+    });
   });
 
   it('does not require BC_USERNAME/BC_PASSWORD for SaaS', () => {
@@ -127,13 +133,21 @@ describe('loadConfig OAuth / SaaS', () => {
     expect(() => loadConfig()).toThrow('BC_AAD_TENANT_ID');
   });
 
-  it('BC_AUTH=OAuth on an on-prem URL uses the public client once the tenant is set', () => {
+  it('BC_AUTH=OAuth requires BC_CLIENT_ID', () => {
     process.env.BC_BASE_URL = 'http://cronus28/BC';
     process.env.BC_AUTH = 'OAuth';
     process.env.BC_AAD_TENANT_ID = TENANT;
+    expect(() => loadConfig()).toThrow('BC_CLIENT_ID');
+  });
+
+  it('BC_AUTH=OAuth uses BC_CLIENT_ID once tenant and client are set', () => {
+    process.env.BC_BASE_URL = 'http://cronus28/BC';
+    process.env.BC_AUTH = 'OAuth';
+    process.env.BC_AAD_TENANT_ID = TENANT;
+    process.env.BC_CLIENT_ID = '11111111-1111-1111-1111-111111111111';
     const c = loadConfig();
     expect(c.bc.authMode).toBe('OAuth');
-    expect(c.bc.oauth?.clientId).toBe(BC_API_PUBLIC_CLIENT_ID);
+    expect(c.bc.oauth?.clientId).toBe('11111111-1111-1111-1111-111111111111');
   });
 
   it('BC_AUTH=NavUserPassword keeps requiring username/password even for a SaaS URL', () => {

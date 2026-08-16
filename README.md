@@ -145,7 +145,7 @@ Restart Claude Desktop.
 | `BC_AUTH` | No | `auto` | `auto` (SaaS URL → `SaasWeb`, otherwise NavUserPassword), `OAuth`, `SaasWeb`, or `NavUserPassword` |
 | `BC_AAD_TENANT_ID` | OAuth (if not in URL) | — | Entra tenant GUID. Taken from a SaaS `BC_BASE_URL` when present |
 | `BC_ENVIRONMENT` | No | from URL | SaaS environment name (`DEV`, `sandbox`, `production`) |
-| `BC_CLIENT_ID` | SaaS (hardened tenants) | Azure PowerShell well-known client | Entra app for `bc_query` device-code. Set it to a publisher-owned **multi-tenant public** app; the borrowed Microsoft default fails with `AADSTS65002` on tenants with first-party hardening (see [bc_query on SaaS](#which-client-id-signs-in-bc_client_id)) |
+| `BC_CLIENT_ID` | `bc_query` on SaaS | — | Multi-tenant public Entra app for device-code sign-in (see [bc_query on SaaS](#which-client-id-signs-in-bc_client_id)). UI tools do not need it |
 | `BC_OAUTH_SCOPE` | No | `user_impersonation` + `offline_access` | Override the Entra scope for `bc_query` device-code |
 | `BC_PROFILE` | No | server default | Profile id, e.g. `BUSINESS MANAGER`. Affects which Role Center loads and which pages Tell Me indexes. |
 | `BC_TENANT_ID` | No | `default` | On-prem multi-tenant id. SaaS uses the Entra tenant from the URL. |
@@ -240,9 +240,9 @@ The WebSocket is not on the portal host. After sign-in the server discovers the 
 
 #### Which client id signs in (`BC_CLIENT_ID`)
 
-Microsoft's rule is that delegated (non-S2S) access to the BC API always goes through an Entra app registration — there is no registration-free path. Historically tools borrowed Microsoft's own Azure PowerShell client (`1950a258-…`, the built-in default here, same as `New-BcAuthContext`). Entra is phasing that out: on hardened tenants any borrowed Microsoft first-party client fails **in the browser** with `AADSTS65002` ("consent between first party application and first party resource must be configured via preauthorization"), and no tenant admin can consent around it. Verified live 2026-08-16: the same sign-in that succeeds on one tenant fails with 65002 on another.
+`BC_CLIENT_ID` is required for `bc_query` on BC Online: a **multi-tenant public** Entra app with delegated `Dynamics 365 Business Central / user_impersonation`. The publisher registers it ONE time in their **own** tenant; customer tenants register nothing — each user consents at first sign-in (`user_impersonation` is user-consentable), and tenants that disable user consent need a one-time admin-consent click.
 
-The fix that keeps customers registration-free: the **publisher** registers ONE multi-tenant public app in their **own** tenant and ships its id as `BC_CLIENT_ID`. A third-party app is structurally immune to `AADSTS65002` (that error only gates Microsoft-owned client/resource pairs). Customer tenants register nothing; each user consents at first sign-in (`user_impersonation` is user-consentable). Tenants that disable user consent need a one-time admin-consent click — still no registration.
+Do not borrow a Microsoft first-party client (Azure PowerShell `1950a258-…` as `New-BcAuthContext` does, Azure CLI, …): on tenants with Entra first-party hardening the sign-in fails **in the browser** with `AADSTS65002` ("consent between first party application and first party resource must be configured via preauthorization"), which no tenant admin can consent around. Verified live 2026-08-16 — the same sign-in succeeds on one tenant and fails with 65002 on another. A third-party multi-tenant app is structurally immune (65002 only gates Microsoft-owned client/resource pairs).
 
 Create the app (once, in the publisher tenant):
 

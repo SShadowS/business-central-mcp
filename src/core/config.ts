@@ -1,7 +1,7 @@
 import { resolve } from 'node:path';
 import { deriveODataUrl } from '../odata/odata-client.js';
 import { parseSaasUrl } from '../connection/saas-url.js';
-import { BC_API_DELEGATED_SCOPE, BC_API_PUBLIC_CLIENT_ID } from '../connection/auth/oauth-defaults.js';
+import { BC_API_DELEGATED_SCOPE } from '../connection/auth/oauth-defaults.js';
 
 export type AuthMode = 'NavUserPassword' | 'OAuth' | 'SaasWeb';
 
@@ -153,10 +153,12 @@ export function loadConfig(): AppConfig {
   };
 }
 
-function deviceOAuthConfig(aadTenantId: string): OAuthConfig {
+function deviceOAuthConfig(aadTenantId: string): OAuthConfig | undefined {
+  const clientId = process.env.BC_CLIENT_ID || '';
+  if (!clientId) return undefined;
   return {
     aadTenantId,
-    clientId: process.env.BC_CLIENT_ID || BC_API_PUBLIC_CLIENT_ID,
+    clientId,
     scope: process.env.BC_OAUTH_SCOPE || BC_API_DELEGATED_SCOPE,
   };
 }
@@ -220,13 +222,21 @@ function resolveAuth(saas: ReturnType<typeof parseSaasUrl>): {
       + '(https://businesscentral.dynamics.com/{tenant}/{environment}) or set BC_AAD_TENANT_ID.',
     );
   }
+  const oauth = deviceOAuthConfig(aadTenantId);
+  if (!oauth) {
+    throw new Error(
+      'BC_AUTH=OAuth requires BC_CLIENT_ID: a multi-tenant public Entra app with delegated '
+      + 'Dynamics 365 Business Central user_impersonation and public client flows allowed. '
+      + 'See README "bc_query on SaaS".',
+    );
+  }
   return {
     authMode,
     username: optionalEnv('BC_USERNAME', ''),
     password: optionalEnv('BC_PASSWORD', ''),
     tenantId,
     environmentName,
-    oauth: deviceOAuthConfig(aadTenantId),
+    oauth,
     appendTenantQuery: saas === undefined,
   };
 }

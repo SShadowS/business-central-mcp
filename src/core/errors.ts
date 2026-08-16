@@ -242,7 +242,7 @@ const ERROR_HINTS: Record<string, string> = {
   INVALID_BOOKMARK: 'The anchor bookmark is no longer loaded in BC. Re-read the section with bc_read_data and retry with a current bookmark.',
   MULTI_ROW_ACTION_UNAVAILABLE: 'This page disables the action for multiple selected rows. Retry with a single bookmark, or repeat the action per row.',
   SIGN_IN_REQUIRED: 'Complete Microsoft sign-in in the window that opened (Authenticator number matching), then retry this tool. If no window appeared, run the MCP on a machine with a display or run `npx business-central-mcp login` with the same `STATE_DIR`.',
-  OAUTH_NOT_CONFIGURED: 'bc_query on BC Online could not acquire an OAuth token. Retry to restart the device-code sign-in; check the server logs for the cause. UI tools do not need this.',
+  OAUTH_NOT_CONFIGURED: 'bc_query on BC Online needs BC_CLIENT_ID set to a multi-tenant public Entra app (delegated user_impersonation). If it is set, check the server logs. UI tools do not need this.',
   DEVICE_LOGIN_REQUIRED: 'Show the user the sign-in URL and code from this message. After they complete sign-in, retry this tool — it picks up the pending sign-in automatically.',
   URL_ELICITATION_REQUIRED: 'The host must open the sign-in page. Retry the tool after completing sign-in.',
 };

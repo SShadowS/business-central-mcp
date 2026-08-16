@@ -8,11 +8,13 @@
  */
 import { resolve } from 'node:path';
 import { parseSaasUrl } from '../src/connection/saas-url.js';
-import { BC_API_DELEGATED_SCOPE, BC_API_PUBLIC_CLIENT_ID } from '../src/connection/auth/oauth-defaults.js';
+import { BC_API_DELEGATED_SCOPE } from '../src/connection/auth/oauth-defaults.js';
 import { OAuthTokenClient } from '../src/connection/auth/oauth-token-client.js';
 import { FileTokenCache } from '../src/connection/auth/token-cache.js';
 import { isErr } from '../src/core/result.js';
-import { requireBaseUrl } from './proto-env.js';
+import { requireBaseUrl, requireClientId } from './proto-env.js';
+
+const CLIENT_ID = requireClientId();
 
 function log(msg: string): void {
   process.stderr.write(`${msg}\n`);
@@ -28,7 +30,7 @@ async function main(): Promise<void> {
 
   const stateDir = resolve(process.env.STATE_DIR || './.state');
   const cache = new FileTokenCache(resolve(stateDir, 'proto-saas-tokens.json'));
-  const existing = cache.load(BC_API_PUBLIC_CLIENT_ID, saas.aadTenantId);
+  const existing = cache.load(CLIENT_ID, saas.aadTenantId);
   if (existing && existing.expiresAt - 60_000 > Date.now()) {
     log(`PASS: cached token still valid (expires in ${Math.round((existing.expiresAt - Date.now()) / 1000)}s)`);
     log(`tenant=${saas.aadTenantId} env=${saas.environmentName} hasRefresh=${Boolean(existing.refreshToken)}`);
@@ -37,13 +39,13 @@ async function main(): Promise<void> {
 
   const client = new OAuthTokenClient({
     aadTenantId: saas.aadTenantId,
-    clientId: BC_API_PUBLIC_CLIENT_ID,
+    clientId: CLIENT_ID,
     scope: BC_API_DELEGATED_SCOPE,
   });
 
   log(`Prototype 0: device-code login`);
   log(`tenant=${saas.aadTenantId} env=${saas.environmentName}`);
-  log(`client=${BC_API_PUBLIC_CLIENT_ID}`);
+  log(`client=${CLIENT_ID}`);
   log('');
 
   const started = await client.startDeviceCode();
@@ -68,7 +70,7 @@ async function main(): Promise<void> {
     accessToken: tokens.value.accessToken,
     refreshToken: tokens.value.refreshToken,
     expiresAt: tokens.value.expiresAt,
-    clientId: BC_API_PUBLIC_CLIENT_ID,
+    clientId: CLIENT_ID,
     aadTenantId: saas.aadTenantId,
   });
 

@@ -1,7 +1,7 @@
 # SaaS web-client session (ESTS) — production design
 
 **Date:** 2026-08-15
-**Revised:** 2026-08-16 — `bc_query` is device-code with the built-in public client. Earlier: 2026-08-15 after two review rounds (error channel, constructor call-site consistency, `requireBearer` always on SaaS, mint-only when `clusterBound`, optional `MCPHandler` opts, `nonRetryable` classifier)
+**Revised:** 2026-08-16 — `bc_query` is device-code with a required `BC_CLIENT_ID` (multi-tenant public app). Earlier: 2026-08-15 after two review rounds (error channel, constructor call-site consistency, `requireBearer` always on SaaS, mint-only when `clusterBound`, optional `MCPHandler` opts, `nonRetryable` classifier)
 **Author:** (draft for implementation on `feat/saas-web-session`)
 **Status:** Draft
 **Size:** L
@@ -35,7 +35,7 @@ This document is the production plan: re-implement the proven path as proper mod
 | Web client `/csh` (on-prem) | `{baseUrl}/csh` | `NTLMAuthProvider` (`POST /SignIn`) | all UI tools |
 | Web client `/csh` (SaaS) | **not** `{portal}/{env}/csh` | missing | UI tools fail |
 
-`loadConfig()` (`src/core/config.ts`) auto-selects `authMode: 'SaasWeb'` for any `businesscentral.dynamics.com/{guid}/{env}` URL and always populates `bc.oauth` with the built-in device-code client. `createAuthProvider` returns `SaasWebSessionProvider` for `/csh`. `bc_query` uses a separate `OAuthAuthProvider`. Unauthenticated `GET {portal}/{env}/csh` is 404 `x-servicefabric: ResourceNotFound`.
+`loadConfig()` (`src/core/config.ts`) auto-selects `authMode: 'SaasWeb'` for any `businesscentral.dynamics.com/{guid}/{env}` URL and populates `bc.oauth` when `BC_CLIENT_ID` is set. `createAuthProvider` returns `SaasWebSessionProvider` for `/csh`. `bc_query` uses a separate `OAuthAuthProvider`. Unauthenticated `GET {portal}/{env}/csh` is 404 `x-servicefabric: ResourceNotFound`.
 
 `SessionFactory` (`src/session/session-factory.ts`) passes `config.bc.tenantId` — the AAD GUID parsed from the URL — into `BCSession.initialize` → `InteractionEncoder.encodeOpenSession`. SaaS OpenSession requires the **internal runtime id** (`msft1a6720t30818544`), not that GUID.
 
@@ -114,7 +114,7 @@ Treat these as closed. Do not re-open them as implementation questions. Sources:
 
 1. **Two auth surfaces, two providers — not a god provider.** `/csh` on SaaS uses a new `SaasWebSessionProvider`. `bc_query` keeps `OAuthAuthProvider` (device-code). Composition root always constructs both on a SaaS URL. Optional methods on `IBCAuthProvider` carry tab/Origin/tenant overrides so `ConnectionFactory` / `SessionFactory` stay provider-agnostic.
 
-2. **`AuthMode` gains `SaasWeb`; OAuth becomes orthogonal.** `authMode` describes the `/csh` provider. `bc.oauth` is always populated on SaaS with the built-in device-code client.
+2. **`AuthMode` gains `SaasWeb`; OAuth becomes orthogonal.** `authMode` describes the `/csh` provider. `bc.oauth` is populated on SaaS when `BC_CLIENT_ID` is set.
 
 3. **HTTP-only ESTS, acting as the browser.** We complete Microsoft's own `form_post` to Microsoft's `redirect_uri`. We do not register `996def3d` as our app and we do not send that client id except by following the portal's 302.
 
@@ -241,7 +241,7 @@ export type AuthMode = 'NavUserPassword' | 'OAuth' | 'SaasWeb';
 - `username` = `BC_USERNAME` or `''` (prefill only; not required)
 - `password` = **always `''`**. If `BC_PASSWORD` is set, log a one-line stderr warning that it is ignored (company policy). Do not copy it into `BCConfig`.
 - `tenantId` = AAD GUID from URL / `BC_AAD_TENANT_ID` / `BC_TENANT_ID` (config/health/OData identity, **not** OpenSession)
-- `oauth` = always `deviceOAuthConfig(aadTenant)` (built-in public client)
+- `oauth` = `deviceOAuthConfig(aadTenant)` when `BC_CLIENT_ID` is set, else `undefined`
 - `appendTenantQuery` = `false`
 
 Leave the on-prem missing-password tests alone.
@@ -1507,7 +1507,7 @@ createAuthProvider:
 
 config (`tests/unit/config.test.ts` OAuth / SaaS block):
 
-11. **Change:** SaaS URL does **not** throw. `authMode === 'SaasWeb'`, `oauth` is the built-in device-code client, `password === ''`.
+11. **Change:** SaaS URL does **not** throw. `authMode === 'SaasWeb'`, `oauth` needs `BC_CLIENT_ID`, `password === ''`.
 12. SaaS URL → `authMode === 'SaasWeb'` (not `authMode === 'OAuth'`).
 13. SaaS URL + `BC_PASSWORD=leak` → `password === ''` (ignored).
 14. Existing: on-prem still requires username/password; `BC_AUTH=OAuth` on on-prem still requires `BC_AAD_TENANT_ID`.

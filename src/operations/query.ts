@@ -75,8 +75,9 @@ export class QueryOperation {
         const header = this.getAuthorization ? await this.getAuthorization() : undefined;
         if (!header) {
           return err(new OAuthNotConfiguredError(
-            'bc_query on BC Online could not acquire an OAuth token. '
-            + 'Retry to restart the device-code sign-in; check the server logs for the cause.',
+            'bc_query on BC Online needs BC_CLIENT_ID: a multi-tenant public Entra app with '
+            + 'delegated Dynamics 365 Business Central user_impersonation. '
+            + 'If BC_CLIENT_ID is set, token acquisition failed — check the server logs.',
           ));
         }
       }

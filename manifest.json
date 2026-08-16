@@ -24,6 +24,7 @@
         "BC_BASE_URL": "${user_config.bc_base_url}",
         "BC_USERNAME": "${user_config.bc_username}",
         "BC_PASSWORD": "${user_config.bc_password}",
+        "BC_CLIENT_ID": "${user_config.bc_client_id}",
         "BC_PROFILE": "${user_config.bc_profile}"
       }
     }
@@ -46,6 +47,12 @@
       "title": "BC password",
       "description": "NavUserPassword password. Leave empty for SaaS / OAuth.",
       "sensitive": true,
+      "required": false
+    },
+    "bc_client_id": {
+      "type": "string",
+      "title": "Entra client ID",
+      "description": "For bc_query on BC Online: multi-tenant public Entra app with delegated Dynamics 365 Business Central user_impersonation. UI tools do not need it.",
       "required": false
     },
     "bc_profile": {
