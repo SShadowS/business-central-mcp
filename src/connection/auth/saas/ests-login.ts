@@ -244,6 +244,13 @@ export class EstsLoginClient {
     });
     if (began.FlowToken) flowToken = began.FlowToken;
     if (began.Ctx) ctx = began.Ctx;
+    if (began.Success !== true && began.ResultValue !== 'Success') {
+      // A throttled/unavailable method would otherwise be polled for the full
+      // 90s and surface as a generic timeout, masking Entra's real error.
+      throw new Error(
+        `MFA BeginAuth failed: ${began.Message ?? began.ResultValue ?? 'unknown error'}`,
+      );
+    }
 
     if (preferred === 'PhoneAppNotification') {
       const entropy = began.Entropy !== undefined && began.Entropy !== '' ? String(began.Entropy) : '';

@@ -174,6 +174,47 @@ describe('EstsLoginClient', () => {
     expect(statuses.some((s) => s.entropy === '42')).toBe(true);
   });
 
+  it('MFA push surfaces a failed BeginAuth instead of polling EndAuth', async () => {
+    const steps: Step[] = [
+      { urlMatch: PORTAL, status: 302, location: AUTHORIZE },
+      { urlMatch: AUTHORIZE, status: 200, body: $config() },
+      { urlMatch: 'GetCredentialType', method: 'POST', status: 200, body: '{}' },
+      {
+        urlMatch: LOGIN,
+        method: 'POST',
+        status: 200,
+        body: $config({
+          pgid: 'ConvergedTFA',
+          arrUserProofs: [{ authMethodId: 'PhoneAppNotification' }],
+          urlBeginAuth: BEGIN,
+          urlEndAuth: END,
+        }),
+      },
+      {
+        urlMatch: 'BeginAuth',
+        method: 'POST',
+        status: 200,
+        body: JSON.stringify({
+          Success: false,
+          ResultValue: 'AuthMethodFailed',
+          Message: 'Authentication method is temporarily unavailable',
+        }),
+      },
+      // No EndAuth steps: a failed BeginAuth must not be polled.
+    ];
+    let now = 0;
+    const { ests } = client(scriptedFetch(steps), {
+      sleep: async (ms) => { now += ms; },
+      now: () => now,
+    });
+    const result = await ests.login({ username: 'u@t.com', password: PASSWORD, portalUrl: PORTAL });
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.error.message).toContain('BeginAuth');
+      expect(result.error.message).toContain('temporarily unavailable');
+    }
+  });
+
   it('MFA timeout after 90s of fake time', async () => {
     let now = 0;
     const pending = JSON.stringify({ Success: false, ResultValue: 'PendingAuthentication' });
