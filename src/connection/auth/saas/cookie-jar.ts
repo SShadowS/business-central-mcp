@@ -194,9 +194,10 @@ function isPortalHost(domain: string): boolean {
 /**
  * The portal session cookie is `{tenantGuid}.auth`, named by the RESOLVED AAD
  * GUID — for a domain-form tenant URL (contoso.onmicrosoft.com) it never
- * equals the configured tenant id, so it is matched by suffix. The jar is
- * tenant-scoped (one store file per tenant+environment), so suffix matching
- * cannot cross tenants.
+ * equals the configured tenant id, so it is matched by suffix. Cross-tenant
+ * matches are prevented by FileCookieStore.load, which returns nothing when
+ * the stored aadTenantId/environmentName tag differs from the configured one
+ * — a jar therefore only ever holds cookies for its own tenant.
  */
 function isPortalAuthCookie(c: CookieRecord): boolean {
   if (!isPortalHost(c.domain)) return false;

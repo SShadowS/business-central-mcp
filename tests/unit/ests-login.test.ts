@@ -215,6 +215,76 @@ describe('EstsLoginClient', () => {
     }
   });
 
+  it('MFA push treats BeginAuth Retry:true as transient and keeps polling', async () => {
+    const steps: Step[] = [
+      { urlMatch: PORTAL, status: 302, location: AUTHORIZE },
+      { urlMatch: AUTHORIZE, status: 200, body: $config() },
+      { urlMatch: 'GetCredentialType', method: 'POST', status: 200, body: '{}' },
+      {
+        urlMatch: LOGIN,
+        method: 'POST',
+        status: 200,
+        body: $config({
+          pgid: 'ConvergedTFA',
+          arrUserProofs: [{ authMethodId: 'PhoneAppNotification' }],
+          urlBeginAuth: BEGIN,
+          urlEndAuth: END,
+          urlPost: PROCESS,
+        }),
+      },
+      { urlMatch: 'BeginAuth', method: 'POST', status: 200, body: JSON.stringify({ Success: false, Retry: true, CorrelationId: 'corr' }) },
+      { urlMatch: 'EndAuth', method: 'POST', status: 200, body: JSON.stringify({ Success: true, ResultValue: 'Success' }) },
+      { urlMatch: 'ProcessAuth', method: 'POST', status: 200, body: formPostHtml() },
+      {
+        urlMatch: 'remote-sign-in',
+        method: 'POST',
+        status: 302,
+        location: PORTAL,
+        setCookie: [`${TENANT}.auth=ok; Path=/; Secure`],
+      },
+      { urlMatch: PORTAL, status: 200, body: 'ok' },
+    ];
+    const { ests, jar } = client(scriptedFetch(steps));
+    const result = await ests.login({ username: 'u@t.com', password: PASSWORD, portalUrl: PORTAL });
+    expect(isOk(result)).toBe(true);
+    expect(jar.hasPortalAuth()).toBe(true);
+  });
+
+  it('MFA push tolerates a non-JSON BeginAuth body and still completes via EndAuth', async () => {
+    const steps: Step[] = [
+      { urlMatch: PORTAL, status: 302, location: AUTHORIZE },
+      { urlMatch: AUTHORIZE, status: 200, body: $config() },
+      { urlMatch: 'GetCredentialType', method: 'POST', status: 200, body: '{}' },
+      {
+        urlMatch: LOGIN,
+        method: 'POST',
+        status: 200,
+        body: $config({
+          pgid: 'ConvergedTFA',
+          arrUserProofs: [{ authMethodId: 'PhoneAppNotification' }],
+          urlBeginAuth: BEGIN,
+          urlEndAuth: END,
+          urlPost: PROCESS,
+        }),
+      },
+      { urlMatch: 'BeginAuth', method: 'POST', status: 200, body: '<html>proxy error</html>' },
+      { urlMatch: 'EndAuth', method: 'POST', status: 200, body: JSON.stringify({ Success: true, ResultValue: 'Success' }) },
+      { urlMatch: 'ProcessAuth', method: 'POST', status: 200, body: formPostHtml() },
+      {
+        urlMatch: 'remote-sign-in',
+        method: 'POST',
+        status: 302,
+        location: PORTAL,
+        setCookie: [`${TENANT}.auth=ok; Path=/; Secure`],
+      },
+      { urlMatch: PORTAL, status: 200, body: 'ok' },
+    ];
+    const { ests, jar } = client(scriptedFetch(steps));
+    const result = await ests.login({ username: 'u@t.com', password: PASSWORD, portalUrl: PORTAL });
+    expect(isOk(result)).toBe(true);
+    expect(jar.hasPortalAuth()).toBe(true);
+  });
+
   it('MFA timeout after 90s of fake time', async () => {
     let now = 0;
     const pending = JSON.stringify({ Success: false, ResultValue: 'PendingAuthentication' });

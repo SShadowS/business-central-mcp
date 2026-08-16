@@ -206,6 +206,27 @@ describe('SaasWebSessionProvider', () => {
     expect(provider.isAuthenticated()).toBe(true);
   });
 
+  it('stored cookies + portal 500 fails retryably and keeps the cookies', async () => {
+    seedCookies();
+    const { fetchFn } = recordFetch(() => new Response('outage', { status: 500 }));
+    const provider = makeProvider(fetchFn);
+    const result = await provider.authenticate();
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) expect(result.error.code).toBe('CONNECTION_ERROR');
+    // A transient portal outage must not destroy the stored session.
+    expect(provider.isAuthenticated()).toBe(true);
+  });
+
+  it('authenticate + first prepare fetch the portal shell only once', async () => {
+    seedCookies();
+    const { fetchFn, calls } = recordFetch(defaultRouter());
+    const provider = makeProvider(fetchFn);
+    await provider.authenticate();
+    const prepared = await provider.prepare();
+    expect(isOk(prepared)).toBe(true);
+    expect(calls.filter((c) => c.url === PORTAL && c.method === 'GET').length).toBe(1);
+  });
+
   it('missing cookies returns SignInRequiredError from the owned login window', async () => {
     const { fetchFn } = recordFetch(defaultRouter());
     const provider = makeProvider(fetchFn);

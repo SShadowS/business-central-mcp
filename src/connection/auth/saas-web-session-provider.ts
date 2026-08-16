@@ -16,6 +16,7 @@ import { LoginWindow, type LoginFn } from './saas/login-window.js';
 import {
   SAAS_BROWSER_UA,
   SAAS_PORTAL_ORIGIN,
+  type FixedEndPointAuth,
   type PreparedConnection,
 } from './saas/ests-types.js';
 import type { ClientElicitationPort } from '../../mcp/elicitation-port.js';
@@ -49,6 +50,10 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
   private readonly fetchFn: typeof fetch;
   private tab: PreparedConnection | undefined;
   private clusterMeta: { host: string; runtimeId: string; csrfHint: string } | undefined;
+  /** Shell captured by the last successful portalAlive() probe, consumed
+   * (single-use) by the next bindAndMint so the authenticate()→prepare()
+   * cold-start path fetches the portal shell once, not twice. */
+  private pendingShell: { fceToken: string; auth: FixedEndPointAuth } | undefined;
   private authenticated = false;
   private clusterBound = false;
   private inflight: Promise<Result<AuthResult, AuthFailure>> | null = null;
@@ -153,7 +158,11 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
       return minted;
     }
 
-    const shell = await this.cluster.readPortalShell(this.jar, this.opts.saas);
+    const cachedShell = this.pendingShell;
+    this.pendingShell = undefined;
+    const shell = cachedShell
+      ? ok(cachedShell)
+      : await this.cluster.readPortalShell(this.jar, this.opts.saas);
     if (isErr(shell)) {
       if (shell.error instanceof AuthenticationError) {
         // Portal redirected to Entra: the stored session is dead. Clear the
@@ -286,7 +295,10 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
   private async portalAlive(): Promise<'ok' | 'entra' | 'error'> {
     try {
       const shell = await this.cluster.readPortalShell(this.jar, this.opts.saas);
-      if (!isErr(shell)) return 'ok';
+      if (!isErr(shell)) {
+        this.pendingShell = { fceToken: shell.value.fceToken, auth: shell.value.auth };
+        return 'ok';
+      }
       return shell.error instanceof AuthenticationError ? 'entra' : 'error';
     } catch {
       return 'error';

@@ -14,6 +14,8 @@ import {
   type PreparedConnection,
 } from './ests-types.js';
 
+const MAX_SHELL_REDIRECTS = 5;
+
 export class SaasClusterSession {
   private readonly log: Logger;
 
@@ -32,32 +34,43 @@ export class SaasClusterSession {
     // shell; follow same-origin hops so a signed-in user is not misread as
     // signed out. Entra redirects still mean sign-in is required, and
     // off-origin redirects are never followed (cookies stay on the portal).
+    // Deliberately NOT shared with EstsLoginClient.followRedirects: the login
+    // flow must follow cross-origin hops to Entra and back, exactly what this
+    // read must fail closed on.
     let url = saas.portalUrl;
-    let page: { res: Response; html: string };
-    let hops = 0;
-    const MAX_REDIRECTS = 5;
-    for (;;) {
-      page = await this.request(jar, url, {
-        headers: { Origin: SAAS_PORTAL_ORIGIN, Referer: saas.portalUrl },
-      });
-      if (page.res.status < 300 || page.res.status >= 400) break;
+    let page = await this.request(jar, url, {
+      headers: { Origin: SAAS_PORTAL_ORIGIN, Referer: saas.portalUrl },
+    });
+    for (let hop = 0; page.res.status >= 300 && page.res.status < 400; hop++) {
+      if (hop === MAX_SHELL_REDIRECTS) {
+        return err(new ConnectionError(`Portal redirect chain exceeded ${MAX_SHELL_REDIRECTS} hops`));
+      }
       const location = page.res.headers.get('location') ?? '';
       if (isEntraLoginUrl(location)) {
         return err(new AuthenticationError('Portal redirected to Entra sign-in'));
       }
-      let next: URL;
+      let next: URL | undefined;
       try {
-        next = new URL(location, url);
-      } catch {
+        // new URL('', base) resolves to base itself — an empty Location must
+        // not silently refetch the same URL until the hop cap trips.
+        next = location ? new URL(location, url) : undefined;
+      } catch { /* handled below */ }
+      if (!next) {
         return err(new ConnectionError('Portal redirect has no usable Location'));
       }
       if (next.origin !== saas.origin) {
         return err(new ConnectionError(`Portal redirected off-origin to ${next.host}`));
       }
-      if (++hops > MAX_REDIRECTS) {
-        return err(new ConnectionError('Portal redirect chain exceeded 5 hops'));
-      }
       url = next.href;
+      page = await this.request(jar, url, {
+        headers: { Origin: SAAS_PORTAL_ORIGIN, Referer: saas.portalUrl },
+      });
+    }
+    if (page.res.status >= 400) {
+      // An error/maintenance page carries no FixedEndPoint auth; it must fail
+      // retryably, not fall through to the signed-out-shell classification
+      // (which would destroy valid stored cookies).
+      return err(new ConnectionError(`Portal shell HTTP ${page.res.status}`));
     }
     const fp = parseFixedEndPoint(page.html);
     const auth = fp ? extractFixedEndPointAuth(fp) : {

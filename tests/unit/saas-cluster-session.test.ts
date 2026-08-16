@@ -235,7 +235,34 @@ describe('SaasClusterSession', () => {
     const result = await session.readPortalShell(new CookieJar(), saas);
     expect(isErr(result)).toBe(true);
     if (isErr(result)) expect(result.error.code).toBe('CONNECTION_ERROR');
-    expect(calls.length).toBeLessThanOrEqual(6);
+    // Initial GET + exactly MAX_REDIRECTS (5) follows — deterministic.
+    expect(calls.length).toBe(6);
+  });
+
+  it('readPortalShell returns a retryable ConnectionError on a portal 5xx, never an auth failure', async () => {
+    // A maintenance/error page has no FixedEndPoint auth; without a status
+    // guard it would fall through to the signed-out-shell classification and
+    // destroy valid stored cookies.
+    const { fetchFn } = recordFetch(() => new Response('<html>503 maintenance</html>', { status: 503 }));
+    const session = new SaasClusterSession(fetchFn, capturingLogger().logger);
+    const result = await session.readPortalShell(new CookieJar(), saas);
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.error.code).toBe('CONNECTION_ERROR');
+      expect(result.error.message).toContain('503');
+    }
+  });
+
+  it('readPortalShell errors on a 3xx without a Location instead of refetching itself', async () => {
+    const { fetchFn, calls } = recordFetch(() => new Response('', { status: 302 }));
+    const session = new SaasClusterSession(fetchFn, capturingLogger().logger);
+    const result = await session.readPortalShell(new CookieJar(), saas);
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.error.code).toBe('CONNECTION_ERROR');
+      expect(result.error.message).toContain('Location');
+    }
+    expect(calls.length).toBe(1);
   });
 
   it('readPortalShell parses FixedEndPoint auth and never logs the JWT', async () => {

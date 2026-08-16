@@ -244,9 +244,12 @@ export class EstsLoginClient {
     });
     if (began.FlowToken) flowToken = began.FlowToken;
     if (began.Ctx) ctx = began.Ctx;
-    if (began.Success !== true && began.ResultValue !== 'Success') {
-      // A throttled/unavailable method would otherwise be polled for the full
-      // 90s and surface as a generic timeout, masking Entra's real error.
+    // Only an explicit, non-retriable rejection fails fast — a throttled/
+    // unavailable method would otherwise be polled for the full 90s and
+    // surface as a generic timeout, masking Entra's real error. Retry:true is
+    // transient (the EndAuth loop honors it the same way), and an unparseable
+    // body ({} from sasPost) must fall through to polling, not abort sign-in.
+    if (began.Success === false && began.Retry !== true) {
       throw new Error(
         `MFA BeginAuth failed: ${began.Message ?? began.ResultValue ?? 'unknown error'}`,
       );
