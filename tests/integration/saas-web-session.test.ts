@@ -69,7 +69,9 @@ describe('SaaS web session smoke', () => {
       const runtimeId = factory.sessionTenantId;
       expect(runtimeId).toBeTruthy();
       expect(runtimeId).not.toBe(saas.aadTenantId);
-      expect(runtimeId).toMatch(/^msft/i);
+      // Runtime id prefix varies by cluster (msft1…, msweua…); the invariant
+      // is that it is BC's internal id, not the AAD tenant GUID.
+      expect(runtimeId).not.toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
 
       const repo = new PageContextRepository();
       const pages = new PageService(session, repo, logger);
