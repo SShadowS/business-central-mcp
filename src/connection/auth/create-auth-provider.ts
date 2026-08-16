@@ -77,7 +77,11 @@ export function composeAuthProviders(
   elicitation: ClientElicitationPort,
 ): { uiAuth: IBCAuthProvider; apiAuth: IBCAuthProvider } {
   const uiAuth = createAuthProvider(config, logger, { elicitation });
-  const apiAuth = config.bc.oauth
+  // In OAuth mode uiAuth already IS the device-code provider. A second
+  // instance over the same oauth-tokens.json/oauth-pending.json races
+  // Entra's refresh-token rotation and clobbers pending device codes,
+  // so UI and API must share the one instance.
+  const apiAuth = config.bc.authMode !== 'OAuth' && config.bc.oauth
     ? new OAuthAuthProvider({
         baseUrl: config.bc.baseUrl,
         aadTenantId: config.bc.oauth.aadTenantId,

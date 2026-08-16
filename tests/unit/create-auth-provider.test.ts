@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { createAuthProvider } from '../../src/connection/auth/create-auth-provider.js';
+import { createAuthProvider, composeAuthProviders } from '../../src/connection/auth/create-auth-provider.js';
+import { ClientElicitationPort } from '../../src/mcp/elicitation-port.js';
 import { NTLMAuthProvider } from '../../src/connection/auth/ntlm-provider.js';
 import { OAuthAuthProvider } from '../../src/connection/auth/oauth-provider.js';
 import { SaasWebSessionProvider } from '../../src/connection/auth/saas-web-session-provider.js';
@@ -68,5 +69,52 @@ describe('createAuthProvider', () => {
       },
     }), createNullLogger());
     expect(p).toBeInstanceOf(OAuthAuthProvider);
+  });
+});
+
+describe('composeAuthProviders', () => {
+  const OAUTH = {
+    aadTenantId: '7bcb54ae-6d5e-43c7-9402-928aed68ad00',
+    clientId: 'c',
+    scope: 'https://api.businesscentral.dynamics.com/user_impersonation offline_access',
+  };
+
+  it('OAuth mode shares ONE provider for UI and API (same token/pending files)', () => {
+    // Two instances over the same oauth-tokens.json race refresh rotation
+    // and clobber each other's pending device codes.
+    const { uiAuth, apiAuth } = composeAuthProviders(
+      app({ authMode: 'OAuth', oauth: OAUTH }),
+      createNullLogger(),
+      new ClientElicitationPort(),
+    );
+    expect(uiAuth).toBeInstanceOf(OAuthAuthProvider);
+    expect(apiAuth).toBe(uiAuth);
+  });
+
+  it('SaasWeb mode keeps a distinct OAuth provider for bc_query', () => {
+    const { uiAuth, apiAuth } = composeAuthProviders(
+      app({
+        authMode: 'SaasWeb',
+        baseUrl: 'https://businesscentral.dynamics.com/7bcb54ae-6d5e-43c7-9402-928aed68ad00/DEV',
+        oauth: OAUTH,
+      }),
+      createNullLogger(),
+      new ClientElicitationPort(),
+    );
+    expect(uiAuth).toBeInstanceOf(SaasWebSessionProvider);
+    expect(apiAuth).toBeInstanceOf(OAuthAuthProvider);
+    expect(apiAuth).not.toBe(uiAuth);
+  });
+
+  it('SaasWeb mode without BC_CLIENT_ID falls back to the UI provider', () => {
+    const { uiAuth, apiAuth } = composeAuthProviders(
+      app({
+        authMode: 'SaasWeb',
+        baseUrl: 'https://businesscentral.dynamics.com/7bcb54ae-6d5e-43c7-9402-928aed68ad00/DEV',
+      }),
+      createNullLogger(),
+      new ClientElicitationPort(),
+    );
+    expect(apiAuth).toBe(uiAuth);
   });
 });
