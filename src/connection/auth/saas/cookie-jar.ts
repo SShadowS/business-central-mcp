@@ -133,6 +133,11 @@ function parseSetCookie(header: string, req: URL): CookieRecord | undefined {
     const val = aEq < 0 ? '' : attr.slice(aEq + 1).trim();
     if (key === 'domain' && val) {
       const d = val.replace(/^\./, '').toLowerCase();
+      // Reject a Domain scoped to a bare public suffix (a single label such as
+      // "com" or "localhost"). Such a cookie would otherwise attach to every
+      // host under that suffix the jar later contacts. A real registrable
+      // domain (dynamics.com) has at least two labels and is kept.
+      if (isBarePublicSuffix(d)) return undefined;
       if (!hostInDomain(req.hostname, d)) return undefined;
       domain = d;
       hostOnly = false;
@@ -157,6 +162,16 @@ function defaultPath(pathname: string): string {
   const i = pathname.lastIndexOf('/');
   if (i <= 0) return '/';
   return pathname.slice(0, i);
+}
+
+/**
+ * A domain with no dot is a bare public suffix / TLD (e.g. "com", "localhost").
+ * No legitimate cookie for a BC/ESTS host is scoped this broadly. This is a
+ * pragmatic guard, not a full Public Suffix List: multi-label registrable
+ * domains (dynamics.com) are allowed exactly as a browser would.
+ */
+function isBarePublicSuffix(domain: string): boolean {
+  return !domain.includes('.');
 }
 
 function hostInDomain(host: string, domain: string): boolean {

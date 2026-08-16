@@ -36,6 +36,11 @@ describe('tool descriptions', () => {
     }
   });
 
+  it('marks bc_query as the only session-independent tool', () => {
+    const independent = tools.filter(t => t.sessionIndependent).map(t => t.name);
+    expect(independent).toEqual(['bc_query']);
+  });
+
   it('bc_execute_action describes create/delete workflow', () => {
     const tool = tools.find(t => t.name === 'bc_execute_action')!;
     expect(tool.description).toContain('New');

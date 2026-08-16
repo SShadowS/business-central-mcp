@@ -1,5 +1,11 @@
 import type { DeploymentReady, FixedEndPointAuth } from './ests-types.js';
 
+/** BC Online clusters always live under dynamics.com (e.g. *.appservices.*.businesscentral.dynamics.com). */
+function isBcClusterHost(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  return h === 'dynamics.com' || h.endsWith('.dynamics.com');
+}
+
 export function parseBalancedObject(src: string, from: number): Record<string, unknown> | undefined {
   const start = src.indexOf('{', from);
   if (start < 0) return undefined;
@@ -143,6 +149,11 @@ export function parseDeploymentJson(text: string): DeploymentReady | undefined {
   let tid = '';
   try {
     const url = new URL(clusterAddress);
+    // The cluster address drives the /csh WebSocket and the AUTHENTICATETOKEN
+    // POST that carries the access token. Only accept an https host under
+    // dynamics.com so a tampered deployment response cannot redirect either to
+    // an attacker-controlled origin.
+    if (url.protocol !== 'https:' || !isBcClusterHost(url.hostname)) return undefined;
     if (!runtimeId) runtimeId = url.searchParams.get('tenant') ?? '';
     tid = url.searchParams.get('tid') ?? '';
   } catch {

@@ -105,9 +105,6 @@ export class SaasClusterSession {
     const qs = new URLSearchParams({ tenant: runtimeId, deviceCategory: '0' });
     if (tid) qs.set('tid', tid);
     const authUrl = `https://${clusterHost}/auth?${qs}`;
-    if (authUrl.includes('/tab/')) {
-      return err(new ConnectionError('AUTHENTICATETOKEN must not use a tab path'));
-    }
     this.log.info('saas-web: AUTHENTICATETOKEN', { hasAccess: Boolean(auth.accessToken), hasCode: Boolean(auth.authorizationCode) });
     const id = `|${randomUUID().replace(/-/g, '')}.${randomUUID().replace(/-/g, '').slice(0, 16)}`;
     const page = await this.request(jar, authUrl, {

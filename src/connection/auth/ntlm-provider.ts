@@ -2,6 +2,7 @@ import * as cheerio from 'cheerio';
 import { ok, err, type Result } from '../../core/result.js';
 import { AuthenticationError } from '../../core/errors.js';
 import { bindingFromBaseUrl, type IBCAuthProvider, type AuthResult, type ConnectionBinding } from './auth-provider.js';
+import { mergeSetCookies } from './set-cookie-merge.js';
 import type { Logger } from '../../core/logger.js';
 
 interface NTLMProviderConfig {
@@ -32,7 +33,7 @@ export class NTLMAuthProvider implements IBCAuthProvider {
       });
 
       const setCookies = getResponse.headers.getSetCookie?.() ?? [];
-      this.cookies = setCookies.map(c => c.split(';')[0]!).join('; ');
+      this.cookies = mergeSetCookies('', setCookies);
 
       const html = await getResponse.text();
       const $ = cheerio.load(html);
@@ -76,23 +77,10 @@ export class NTLMAuthProvider implements IBCAuthProvider {
         }
       }
 
-      // Merge updated cookies
+      // Merge updated cookies (honors server cookie deletions via Max-Age/Expires)
       const postCookies = postResponse.headers.getSetCookie?.() ?? [];
       if (postCookies.length > 0) {
-        const existingMap = new Map(this.cookies.split('; ').filter(c => c).map(c => {
-          const eqIdx = c.indexOf('=');
-          return eqIdx >= 0 ? [c.substring(0, eqIdx), c.substring(eqIdx + 1)] as [string, string] : [c, ''] as [string, string];
-        }));
-        for (const cookie of postCookies) {
-          const [nameValue] = cookie.split(';');
-          if (nameValue) {
-            const eqIdx = nameValue.indexOf('=');
-            if (eqIdx >= 0) {
-              existingMap.set(nameValue.substring(0, eqIdx), nameValue.substring(eqIdx + 1));
-            }
-          }
-        }
-        this.cookies = Array.from(existingMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
+        this.cookies = mergeSetCookies(this.cookies, postCookies);
       }
 
       // Extract CSRF token from antiforgery cookie. Prefer the cookie whose

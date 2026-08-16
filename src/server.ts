@@ -32,7 +32,7 @@ import { WizardNavigateOperation } from './operations/wizard-navigate.js';
 import { DownloadService } from './services/download-service.js';
 import { LookupService } from './services/lookup-service.js';
 import { LookupOperation } from './operations/lookup.js';
-import { QueryOperation, createQueryOperation } from './operations/query.js';
+import { createQueryOperation } from './operations/query.js';
 import { buildToolRegistry, type Operations } from './mcp/tool-registry.js';
 import { MCPHandler } from './mcp/handler.js';
 import { PROMPTS } from './mcp/prompts.js';
@@ -120,14 +120,15 @@ async function main() {
     await ensureSessionTools();
   }
 
-  // MCP tools/list and bc_query must work before a /csh session exists
-  // (SaaS OAuth can serve OData without the first-party web-client cookie).
+  // MCP tools/list and session-independent tools (e.g. bc_query over OData)
+  // must work before a /csh session exists. A session-independent tool's own
+  // execute already reaches BC without a session, so run it directly.
   const staticTools = buildServices({} as BCSession).tools;
   const lazyTools = staticTools.map(toolDef => ({
     ...toolDef,
     execute: async (input: unknown) => {
-      if (toolDef.name === 'bc_query') {
-        return queryOperation.execute(input as Parameters<QueryOperation['execute']>[0]);
+      if (toolDef.sessionIndependent) {
+        return toolDef.execute(input);
       }
       const tools = await ensureSessionTools();
       const resolved = tools.find(t => t.name === toolDef.name);

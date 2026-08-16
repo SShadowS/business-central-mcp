@@ -25,6 +25,21 @@ describe('CookieJar', () => {
     expect(jar.hasPortalAuth(TENANT)).toBe(true);
   });
 
+  it('rejects a Set-Cookie scoped to a bare public suffix so it cannot over-scope', () => {
+    const jar = new CookieJar();
+    jar.absorb(response(['tracker=1; Domain=com; Path=/; Secure']), PORTAL);
+    // A Domain of a bare public suffix (e.g. "com") would otherwise attach to
+    // every *.com host the jar contacts. It must not be stored at all.
+    expect(jar.headerFor(PORTAL)).not.toContain('tracker');
+    expect(jar.headerFor('https://evil.example.com/')).not.toContain('tracker');
+  });
+
+  it('keeps a Set-Cookie scoped to a real registrable domain (dynamics.com)', () => {
+    const jar = new CookieJar();
+    jar.absorb(response(['shared=1; Domain=businesscentral.dynamics.com; Path=/; Secure']), PORTAL);
+    expect(jar.headerFor(PORTAL)).toContain('shared=1');
+  });
+
   it('does not send ESTSAUTH from login.microsoftonline.com to the cluster', () => {
     const jar = new CookieJar();
     jar.absorb(response([
