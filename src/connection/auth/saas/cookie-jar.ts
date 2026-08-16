@@ -52,15 +52,11 @@ export class CookieJar {
     return [...new Set(this.cookies.filter((c) => c.expires === undefined || c.expires > now).map((c) => c.name))];
   }
 
-  hasPortalAuth(aadTenantId: string): boolean {
+  hasPortalAuth(): boolean {
     const now = Date.now();
-    const authName = `${aadTenantId}.auth`;
-    for (const c of this.cookies) {
-      if (c.expires !== undefined && c.expires <= now) continue;
-      if (c.name === authName) return true;
-      if (c.name === '.AspNetCore.Cookies' && isPortalHost(c.domain)) return true;
-    }
-    return false;
+    return this.cookies.some((c) =>
+      (c.expires === undefined || c.expires > now) && isPortalAuthCookie(c),
+    );
   }
 
   persistable(): CookieRecord[] {
@@ -75,15 +71,12 @@ export class CookieJar {
   }
 
   /**
-   * Drop the portal auth cookies for a tenant. Used when the portal stops
-   * honoring the stored session (redirect to Entra), so isAuthenticated()
-   * flips false and a fresh sign-in can run.
+   * Drop the portal auth cookies. Used when the portal stops honoring the
+   * stored session (redirect to Entra), so isAuthenticated() flips false and
+   * a fresh sign-in can run.
    */
-  clearPortalAuth(aadTenantId: string): void {
-    const authName = `${aadTenantId}.auth`;
-    this.cookies = this.cookies.filter((c) =>
-      c.name !== authName && !(c.name === '.AspNetCore.Cookies' && isPortalHost(c.domain)),
-    );
+  clearPortalAuth(): void {
+    this.cookies = this.cookies.filter((c) => !isPortalAuthCookie(c));
   }
 
   /**
@@ -196,6 +189,18 @@ function pathMatches(cookiePath: string, requestPath: string): boolean {
 
 function isPortalHost(domain: string): boolean {
   return domain.toLowerCase() === SAAS_PORTAL_HOST;
+}
+
+/**
+ * The portal session cookie is `{tenantGuid}.auth`, named by the RESOLVED AAD
+ * GUID — for a domain-form tenant URL (contoso.onmicrosoft.com) it never
+ * equals the configured tenant id, so it is matched by suffix. The jar is
+ * tenant-scoped (one store file per tenant+environment), so suffix matching
+ * cannot cross tenants.
+ */
+function isPortalAuthCookie(c: CookieRecord): boolean {
+  if (!isPortalHost(c.domain)) return false;
+  return c.name.endsWith('.auth') || c.name === '.AspNetCore.Cookies';
 }
 
 function isPersistableDomain(domain: string): boolean {

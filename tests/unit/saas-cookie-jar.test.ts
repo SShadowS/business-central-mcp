@@ -22,7 +22,7 @@ describe('CookieJar', () => {
     const header = jar.headerFor(PORTAL);
     expect(header).toContain(`${TENANT}.auth=portal-auth`);
     expect(header).toContain(`${TENANT}.Antiforgery.FCE=fce`);
-    expect(jar.hasPortalAuth(TENANT)).toBe(true);
+    expect(jar.hasPortalAuth()).toBe(true);
   });
 
   it('rejects a Set-Cookie scoped to a bare public suffix so it cannot over-scope', () => {
@@ -57,15 +57,39 @@ describe('CookieJar', () => {
 
   it('hasPortalAuth is true for {tid}.auth', () => {
     const jar = new CookieJar();
-    expect(jar.hasPortalAuth(TENANT)).toBe(false);
+    expect(jar.hasPortalAuth()).toBe(false);
     jar.absorb(response([`${TENANT}.auth=x; Path=/`]), PORTAL);
-    expect(jar.hasPortalAuth(TENANT)).toBe(true);
+    expect(jar.hasPortalAuth()).toBe(true);
+  });
+
+  it('hasPortalAuth matches the resolved-GUID auth cookie for a domain-form tenant', () => {
+    // A domain-form portal URL (contoso.onmicrosoft.com) still gets a cookie
+    // named by the resolved AAD GUID; presence must not depend on the
+    // configured tenant id spelling.
+    const jar = new CookieJar();
+    jar.absorb(response([`${TENANT}.auth=x; Path=/`]), 'https://businesscentral.dynamics.com/contoso.onmicrosoft.com/DEV');
+    expect(jar.hasPortalAuth()).toBe(true);
+    jar.clearPortalAuth();
+    expect(jar.hasPortalAuth()).toBe(false);
+    expect(jar.headerFor(PORTAL)).not.toContain(`${TENANT}.auth`);
+  });
+
+  it('hasPortalAuth ignores a *.auth cookie on a non-portal host', () => {
+    const jar = new CookieJar();
+    jar.absorb(response(['msft.auth=x; Path=/']), CLUSTER);
+    expect(jar.hasPortalAuth()).toBe(false);
+  });
+
+  it('hasPortalAuth ignores non-auth portal cookies', () => {
+    const jar = new CookieJar();
+    jar.absorb(response([`${TENANT}.Antiforgery.FCE=fce; Path=/`]), PORTAL);
+    expect(jar.hasPortalAuth()).toBe(false);
   });
 
   it('hasPortalAuth is true for .AspNetCore.Cookies on the portal host', () => {
     const jar = new CookieJar();
     jar.absorb(response(['.AspNetCore.Cookies=sess; Path=/']), PORTAL);
-    expect(jar.hasPortalAuth(TENANT)).toBe(true);
+    expect(jar.hasPortalAuth()).toBe(true);
   });
 
   it('persistable() drops ESTS-domain cookies and keeps portal cookies', () => {
@@ -88,7 +112,7 @@ describe('CookieJar', () => {
     jar.absorb(response([`${TENANT}.auth=keep; Path=/; Secure`]), PORTAL);
     const other = new CookieJar();
     other.load(jar.persistable());
-    expect(other.hasPortalAuth(TENANT)).toBe(true);
+    expect(other.hasPortalAuth()).toBe(true);
     expect(other.headerFor(PORTAL)).toContain(`${TENANT}.auth=keep`);
   });
 

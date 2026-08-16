@@ -76,7 +76,7 @@ export class EstsLoginClient {
     this.onStatus({ phase: 'signing-in', message: 'Contacting Microsoft sign-in…' });
     try {
       await this.loginInner(opts.username, opts.password, saas.portalUrl, saas.aadTenantId, opts.waitForOtp);
-      if (!this.jar.hasPortalAuth(saas.aadTenantId)) {
+      if (!this.jar.hasPortalAuth()) {
         return err(new AuthenticationError('ESTS finished without a portal session cookie', { nonRetryable: true }));
       }
       this.log.info('saas-web: ESTS phase=done');

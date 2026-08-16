@@ -134,7 +134,7 @@ describe('EstsLoginClient', () => {
     const { ests, jar } = client(fetchFn);
     const result = await ests.login({ username: 'u@t.com', password: PASSWORD, portalUrl: PORTAL });
     expect(isOk(result)).toBe(true);
-    expect(jar.hasPortalAuth(TENANT)).toBe(true);
+    expect(jar.hasPortalAuth()).toBe(true);
   });
 
   it('MFA number matching: BeginAuth entropy then EndAuth success', async () => {
@@ -170,7 +170,7 @@ describe('EstsLoginClient', () => {
     const { ests, jar, statuses } = client(scriptedFetch(steps));
     const result = await ests.login({ username: 'u@t.com', password: PASSWORD, portalUrl: PORTAL });
     expect(isOk(result)).toBe(true);
-    expect(jar.hasPortalAuth(TENANT)).toBe(true);
+    expect(jar.hasPortalAuth()).toBe(true);
     expect(statuses.some((s) => s.entropy === '42')).toBe(true);
   });
 

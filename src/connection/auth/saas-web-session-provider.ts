@@ -87,7 +87,7 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
 
   private async authenticateOnce(): Promise<Result<AuthResult, AuthFailure>> {
     this.loadStoredCookies();
-    if (this.jar.hasPortalAuth(this.opts.saas.aadTenantId)) {
+    if (this.jar.hasPortalAuth()) {
       const probe = await this.portalAlive();
       if (probe === 'ok') {
         this.persistPortalCookies();
@@ -104,14 +104,14 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
       }
       // probe === 'entra': the portal no longer honors the stored session.
       // Drop the stale auth cookies so a fresh sign-in replaces them.
-      this.jar.clearPortalAuth(this.opts.saas.aadTenantId);
+      this.jar.clearPortalAuth();
       this.authenticated = false;
     }
 
     const signedIn = await this.login.run();
     if (isErr(signedIn)) return signedIn;
 
-    if (!this.jar.hasPortalAuth(this.opts.saas.aadTenantId)) {
+    if (!this.jar.hasPortalAuth()) {
       return err(new AuthenticationError(
         'Sign-in completed but portal cookies are missing',
         { nonRetryable: true },
@@ -161,7 +161,7 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
         // ConnectionFactory never re-runs authenticate() (sign-in window
         // could never reopen for the lifetime of the process).
         this.authenticated = false;
-        this.jar.clearPortalAuth(this.opts.saas.aadTenantId);
+        this.jar.clearPortalAuth();
       }
       return shell;
     }
@@ -224,7 +224,7 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
   }
 
   isAuthenticated(): boolean {
-    return this.authenticated || this.jar.hasPortalAuth(this.opts.saas.aadTenantId);
+    return this.authenticated || this.jar.hasPortalAuth();
   }
 
   invalidate(): void {

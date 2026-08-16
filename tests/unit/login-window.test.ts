@@ -173,7 +173,7 @@ describe('LoginWindow', () => {
       body: JSON.stringify({ username: 'u@t.com', password: 'x' }),
     });
     expect(isOk(await runP)).toBe(true);
-    expect(jar.hasPortalAuth(TENANT)).toBe(true);
+    expect(jar.hasPortalAuth()).toBe(true);
   });
 
   it('close() during loginFn does not let a late success finish a later run()', async () => {
