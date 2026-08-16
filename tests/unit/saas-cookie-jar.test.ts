@@ -74,6 +74,17 @@ describe('CookieJar', () => {
     expect(jar.headerFor(PORTAL)).not.toContain(`${TENANT}.auth`);
   });
 
+  it('hasPortalAuth accepts the auth cookie when scoped to a parent domain of the portal host', () => {
+    // The cookie is host-only today, but a Domain=dynamics.com auth cookie
+    // would still be SENT to the portal (headerFor suffix match) — presence
+    // detection must agree with sending, or a live session reads as absent.
+    const jar = new CookieJar();
+    jar.absorb(response([`${TENANT}.auth=x; Domain=dynamics.com; Path=/; Secure`]), PORTAL);
+    expect(jar.hasPortalAuth()).toBe(true);
+    jar.clearPortalAuth();
+    expect(jar.hasPortalAuth()).toBe(false);
+  });
+
   it('hasPortalAuth ignores a *.auth cookie on a non-portal host', () => {
     const jar = new CookieJar();
     jar.absorb(response(['msft.auth=x; Path=/']), CLUSTER);

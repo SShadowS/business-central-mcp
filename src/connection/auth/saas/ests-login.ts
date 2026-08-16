@@ -236,7 +236,7 @@ export class EstsLoginClient {
     let flowToken = str(cfg, 'sFT');
     let ctx = str(cfg, 'sCtx');
 
-    const began = await this.sasPost(beginUrl, {
+    let began = await this.sasPost(beginUrl, {
       AuthMethodId: preferred,
       Method: 'BeginAuth',
       ctx,
@@ -244,13 +244,29 @@ export class EstsLoginClient {
     });
     if (began.FlowToken) flowToken = began.FlowToken;
     if (began.Ctx) ctx = began.Ctx;
-    // Only an explicit, non-retriable rejection fails fast — a throttled/
-    // unavailable method would otherwise be polled for the full 90s and
-    // surface as a generic timeout, masking Entra's real error. Retry:true
-    // and ResultValue 'PendingAuthentication' are in-progress (the EndAuth
-    // loop honors both the same way), and an unparseable body ({} from
-    // sasPost) must fall through to polling, not abort sign-in.
-    if (began.Success === false && began.Retry !== true && began.ResultValue !== 'PendingAuthentication') {
+    if (began.Success === false && began.Retry === true) {
+      // Retry:true means retry BeginAuth ITSELF (throttle) — the response
+      // carries no CorrelationId, so falling through would poll EndAuth with
+      // an undefined SessionId for 90s (or prompt for a TOTP code against an
+      // auth session that never began). One retry, then the gate below
+      // judges the real outcome.
+      await this.sleep(MFA_POLL_MS);
+      began = await this.sasPost(beginUrl, {
+        AuthMethodId: preferred,
+        Method: 'BeginAuth',
+        ctx,
+        flowToken,
+      });
+      if (began.FlowToken) flowToken = began.FlowToken;
+      if (began.Ctx) ctx = began.Ctx;
+    }
+    // Only an explicit rejection fails fast — a throttled/unavailable method
+    // would otherwise be polled for the full 90s and surface as a generic
+    // timeout, masking Entra's real error. ResultValue 'PendingAuthentication'
+    // is in-progress (the EndAuth loop treats it the same way), and an
+    // unparseable body ({} from sasPost) must fall through to polling, not
+    // abort sign-in.
+    if (began.Success === false && began.ResultValue !== 'PendingAuthentication') {
       throw new Error(
         `MFA BeginAuth failed: ${began.Message ?? began.ResultValue ?? 'unknown error'}`,
       );

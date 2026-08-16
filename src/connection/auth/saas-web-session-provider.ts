@@ -37,6 +37,14 @@ export interface SaasWebSessionProviderOpts {
 }
 
 const DEAD_TAB = /HTTP (401|403|500)\b/;
+/** Consecutive unclassifiable probe failures before the stored session is
+ * treated as dead and interactive sign-in reopens. Below this, failures stay
+ * retryable so a transient outage never destroys valid cookies. */
+const PROBE_ERROR_ESCALATION = 3;
+/** A cached probe shell holds a short-lived portal JWT and a single-use
+ * authorization code; it is only good for the prepare() that immediately
+ * follows authenticate(). */
+const PENDING_SHELL_TTL_MS = 60_000;
 
 /**
  * Cookie-session provider for BC Online `/csh`. Owns the jar, the store,
@@ -51,9 +59,11 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
   private tab: PreparedConnection | undefined;
   private clusterMeta: { host: string; runtimeId: string; csrfHint: string } | undefined;
   /** Shell captured by the last successful portalAlive() probe, consumed
-   * (single-use) by the next bindAndMint so the authenticate()→prepare()
-   * cold-start path fetches the portal shell once, not twice. */
-  private pendingShell: { fceToken: string; auth: FixedEndPointAuth } | undefined;
+   * (single-use, TTL-guarded) by the next bindAndMint so the
+   * authenticate()→prepare() cold-start path fetches the portal shell once,
+   * not twice. */
+  private pendingShell: { fceToken: string; auth: FixedEndPointAuth; at: number } | undefined;
+  private probeErrorStreak = 0;
   private authenticated = false;
   private clusterBound = false;
   private inflight: Promise<Result<AuthResult, AuthFailure>> | null = null;
@@ -95,11 +105,12 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
     if (this.jar.hasPortalAuth()) {
       const probe = await this.portalAlive();
       if (probe === 'ok') {
+        this.probeErrorStreak = 0;
         this.persistPortalCookies();
         this.authenticated = true;
         return ok(this.authResult());
       }
-      if (probe === 'error') {
+      if (probe === 'error' && ++this.probeErrorStreak < PROBE_ERROR_ESCALATION) {
         // Transient network/portal failure with stored cookies present:
         // fail retryably instead of popping a sign-in window for a session
         // that is probably still valid.
@@ -107,8 +118,12 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
           'BC Online portal is unreachable (network or portal error); retrying',
         ));
       }
-      // probe === 'entra': the portal no longer honors the stored session.
-      // Drop the stale auth cookies so a fresh sign-in replaces them.
+      // probe === 'entra' (the portal no longer honors the stored session),
+      // or the error streak hit the escalation limit (a persistent state the
+      // probe cannot classify — e.g. a signed-out page without
+      // FixedEndPoint.start — must not wedge retryable forever). Drop the
+      // stale auth cookies so a fresh sign-in replaces them.
+      this.probeErrorStreak = 0;
       this.jar.clearPortalAuth();
       this.authenticated = false;
       this.pendingShell = undefined;
@@ -161,8 +176,8 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
 
     const cachedShell = this.pendingShell;
     this.pendingShell = undefined;
-    const shell = cachedShell
-      ? ok(cachedShell)
+    const shell = cachedShell && Date.now() - cachedShell.at < PENDING_SHELL_TTL_MS
+      ? ok({ fceToken: cachedShell.fceToken, auth: cachedShell.auth })
       : await this.cluster.readPortalShell(this.jar, this.opts.saas);
     if (isErr(shell)) {
       if (shell.error instanceof AuthenticationError) {
@@ -172,7 +187,6 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
         // could never reopen for the lifetime of the process).
         this.authenticated = false;
         this.jar.clearPortalAuth();
-        this.pendingShell = undefined;
       }
       return shell;
     }
@@ -300,7 +314,7 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
     try {
       const shell = await this.cluster.readPortalShell(this.jar, this.opts.saas);
       if (!isErr(shell)) {
-        this.pendingShell = { fceToken: shell.value.fceToken, auth: shell.value.auth };
+        this.pendingShell = { fceToken: shell.value.fceToken, auth: shell.value.auth, at: Date.now() };
         return 'ok';
       }
       return shell.error instanceof AuthenticationError ? 'entra' : 'error';

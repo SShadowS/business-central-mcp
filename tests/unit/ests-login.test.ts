@@ -215,7 +215,7 @@ describe('EstsLoginClient', () => {
     }
   });
 
-  it('MFA push treats BeginAuth Retry:true as transient and keeps polling', async () => {
+  it('MFA push retries BeginAuth once on Retry:true instead of polling a session that never began', async () => {
     const steps: Step[] = [
       { urlMatch: PORTAL, status: 302, location: AUTHORIZE },
       { urlMatch: AUTHORIZE, status: 200, body: $config() },
@@ -232,7 +232,11 @@ describe('EstsLoginClient', () => {
           urlPost: PROCESS,
         }),
       },
-      { urlMatch: 'BeginAuth', method: 'POST', status: 200, body: JSON.stringify({ Success: false, Retry: true, CorrelationId: 'corr' }) },
+      // A throttled BeginAuth (Retry:true) carries no CorrelationId — polling
+      // EndAuth against it would use an undefined SessionId for 90s. The
+      // client must re-run BeginAuth itself.
+      { urlMatch: 'BeginAuth', method: 'POST', status: 200, body: JSON.stringify({ Success: false, Retry: true }) },
+      { urlMatch: 'BeginAuth', method: 'POST', status: 200, body: JSON.stringify({ Success: true, ResultValue: 'Success', CorrelationId: 'corr' }) },
       { urlMatch: 'EndAuth', method: 'POST', status: 200, body: JSON.stringify({ Success: true, ResultValue: 'Success' }) },
       { urlMatch: 'ProcessAuth', method: 'POST', status: 200, body: formPostHtml() },
       {

@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { createApiRoutes } from '../../src/api/routes.js';
 import type { Operations } from '../../src/mcp/tool-registry.js';
 import type { Logger } from '../../src/core/logger.js';
+import { ConnectionError, SessionLostError } from '../../src/core/errors.js';
 import type { ServerResponse } from 'node:http';
 
 // ---------------------------------------------------------------------------
@@ -247,31 +248,33 @@ describe('error path (err result)', () => {
     expect(bodyJson(res)).toEqual({ error: 'Page not found', code: 'PAGE_NOT_FOUND' });
   });
 
-  it('POST /api/v1/pages/read returns 400 when operation fails', async () => {
+  it('POST /api/v1/pages/read returns 503 when the operation fails with SessionLostError', async () => {
+    // A real BCError on the Result channel gets the same HTTP classification
+    // as one thrown from ensureReady — one serializer, not two.
     const ops = makeMockOps();
     (ops.readData.execute as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: false,
-      error: { message: 'Session expired', code: 'SESSION_LOST' },
+      error: new SessionLostError('Session expired', []),
     });
     const routes = createApiRoutes(ops, makeLogger());
     const handler = routes.get('POST /api/v1/pages/read')!;
     const res = makeRes();
     await handler(fakeReq, res as unknown as ServerResponse, { pageContextId: 'ctx1' });
-    expect(statusCode(res)).toBe(400);
+    expect(statusCode(res)).toBe(503);
     expect(bodyJson(res)).toMatchObject({ error: 'Session expired', code: 'SESSION_LOST' });
   });
 
-  it('POST /api/v1/search returns 400 when operation fails', async () => {
+  it('POST /api/v1/search returns 503 when the operation fails with ConnectionError', async () => {
     const ops = makeMockOps();
     (ops.searchPages.execute as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: false,
-      error: { message: 'BC unreachable', code: 'CONNECTION_ERROR' },
+      error: new ConnectionError('BC unreachable'),
     });
     const routes = createApiRoutes(ops, makeLogger());
     const handler = routes.get('POST /api/v1/search')!;
     const res = makeRes();
     await handler(fakeReq, res as unknown as ServerResponse, { query: 'x' });
-    expect(statusCode(res)).toBe(400);
+    expect(statusCode(res)).toBe(503);
     expect(bodyJson(res)).toMatchObject({ error: 'BC unreachable', code: 'CONNECTION_ERROR' });
   });
 

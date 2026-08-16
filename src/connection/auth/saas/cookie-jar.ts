@@ -187,10 +187,6 @@ function pathMatches(cookiePath: string, requestPath: string): boolean {
   return cookiePath.endsWith('/') || path.charAt(cookiePath.length) === '/';
 }
 
-function isPortalHost(domain: string): boolean {
-  return domain.toLowerCase() === SAAS_PORTAL_HOST;
-}
-
 /**
  * The portal session cookie is `{tenantGuid}.auth`, named by the RESOLVED AAD
  * GUID — for a domain-form tenant URL (contoso.onmicrosoft.com) it never
@@ -198,9 +194,15 @@ function isPortalHost(domain: string): boolean {
  * matches are prevented by FileCookieStore.load, which returns nothing when
  * the stored aadTenantId/environmentName tag differs from the configured one
  * — a jar therefore only ever holds cookies for its own tenant.
+ *
+ * The domain check accepts the portal host and its parent domains: any such
+ * cookie is SENT to the portal by headerFor, and presence detection must
+ * agree with sending or a live session reads as absent. Cluster hosts are
+ * longer than the portal host and never match.
  */
 function isPortalAuthCookie(c: CookieRecord): boolean {
-  if (!isPortalHost(c.domain)) return false;
+  const d = c.domain.toLowerCase();
+  if (d !== SAAS_PORTAL_HOST && !SAAS_PORTAL_HOST.endsWith(`.${d}`)) return false;
   return c.name.endsWith('.auth') || c.name === '.AspNetCore.Cookies';
 }
 

@@ -232,6 +232,60 @@ describe('SaasWebSessionProvider', () => {
     expect(calls.filter((c) => c.url === PORTAL && c.method === 'GET').length).toBe(1);
   });
 
+  it('escalates to sign-in after three consecutive unclassifiable probe failures', async () => {
+    // A persistently unclassifiable portal state (e.g. a signed-out state
+    // that renders without FixedEndPoint.start) must not wedge retryable
+    // forever — after a short streak the stored cookies are treated as dead.
+    seedCookies();
+    const { fetchFn } = recordFetch(() => new Response('<html>one moment…</html>', { status: 200 }));
+    const provider = makeProvider(fetchFn);
+    const first = await provider.authenticate();
+    const second = await provider.authenticate();
+    expect(isErr(first) && first.error.code === 'CONNECTION_ERROR').toBe(true);
+    expect(isErr(second) && second.error.code === 'CONNECTION_ERROR').toBe(true);
+    const third = await provider.authenticate();
+    expect(isErr(third)).toBe(true);
+    if (isErr(third)) expect(third.error.code).toBe('SIGN_IN_REQUIRED');
+    expect(provider.isAuthenticated()).toBe(false);
+  });
+
+  it('a successful probe resets the failure streak', async () => {
+    seedCookies();
+    let broken = true;
+    const base = defaultRouter();
+    const { fetchFn } = recordFetch((url) =>
+      broken && url === PORTAL ? new Response('<html>one moment…</html>', { status: 200 }) : base(url),
+    );
+    const provider = makeProvider(fetchFn);
+    await provider.authenticate();
+    await provider.authenticate();
+    broken = false;
+    const recovered = await provider.authenticate();
+    expect(isOk(recovered)).toBe(true);
+    broken = true;
+    // Streak restarted: two more failures stay retryable, no sign-in pop.
+    const again = await provider.authenticate();
+    expect(isErr(again) && again.error.code === 'CONNECTION_ERROR').toBe(true);
+  });
+
+  it('a cached probe shell older than its TTL is discarded, not replayed', async () => {
+    vi.useFakeTimers();
+    try {
+      seedCookies();
+      const { fetchFn, calls } = recordFetch(defaultRouter());
+      const provider = makeProvider(fetchFn);
+      await provider.authenticate();
+      vi.advanceTimersByTime(5 * 60_000);
+      const prepared = await provider.prepare();
+      expect(isOk(prepared)).toBe(true);
+      // The stale shell (short-lived JWT) must not feed AUTHENTICATETOKEN;
+      // prepare refetches instead of consuming the cache.
+      expect(calls.filter((c) => c.url === PORTAL && c.method === 'GET').length).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('unboundCluster clears the cached probe shell so the next prepare refetches it', async () => {
     seedCookies();
     const { fetchFn, calls } = recordFetch(defaultRouter());
