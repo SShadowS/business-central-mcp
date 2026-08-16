@@ -7,10 +7,6 @@ export abstract class BCError extends Error {
    * own HTTP-401 classification instead of needing registration in a
    * hand-maintained code list elsewhere. */
   public readonly authRequired: boolean = false;
-  /** True for transient conditions a client should retry (maps to HTTP 503
-   * on the REST path). Same rationale as authRequired: classification lives
-   * on the class, not in a code list elsewhere. */
-  public readonly transient: boolean = false;
   protected constructor(message: string, code: string, context?: Record<string, unknown>) {
     super(message);
     this.name = this.constructor.name;
@@ -24,7 +20,6 @@ export abstract class BCError extends Error {
   }
 }
 export class ConnectionError extends BCError {
-  public override readonly transient = true;
   public readonly status?: number;
   constructor(message: string, context?: Record<string, unknown>) {
     super(message, 'CONNECTION_ERROR', context);
@@ -100,7 +95,6 @@ export class DeviceLoginRequiredError extends BCError {
   }
 }
 export class TimeoutError extends BCError {
-  public override readonly transient = true;
   constructor(message: string, context?: Record<string, unknown>) { super(message, 'TIMEOUT_ERROR', context); }
 }
 export class AbortedError extends BCError {
@@ -110,7 +104,6 @@ export class ProtocolError extends BCError {
   constructor(message: string, context?: Record<string, unknown>, code: string = 'PROTOCOL_ERROR') { super(message, code, context); }
 }
 export class SessionLostError extends BCError {
-  public override readonly transient = true;
   public readonly impactedPageContextIds: string[];
   public readonly reconnectFailed: boolean;
   constructor(message: string, impactedPageContextIds: string[], options?: { reconnectFailed?: boolean; context?: Record<string, unknown> }) {

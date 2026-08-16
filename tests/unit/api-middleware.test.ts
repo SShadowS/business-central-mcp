@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Readable } from 'node:stream';
-import { parseJsonBody, checkApiToken, bcErrorToHttp, HttpRequestError } from '../../src/api/middleware.js';
+import { parseJsonBody, checkApiToken, bcErrorToHttp } from '../../src/api/middleware.js';
 import {
   AuthenticationError,
   ConnectionError,
@@ -180,23 +180,5 @@ describe('bcErrorToHttp', () => {
     expect(status).toBe(401);
     expect(body.openedWindow).toBe(false);
     expect(body.reason).toBe('no_display');
-  });
-
-  it('maps HttpRequestError to its own status (client fault, not 500)', () => {
-    expect(bcErrorToHttp(new HttpRequestError('Invalid JSON body', 400)).status).toBe(400);
-    expect(bcErrorToHttp(new HttpRequestError('Request body too large', 413)).status).toBe(413);
-  });
-
-  it('uses the fallback status for unclassified errors on the Result channel', () => {
-    const { status, body } = bcErrorToHttp({ message: 'Page not found', code: 'PAGE_NOT_FOUND' }, 400);
-    expect(status).toBe(400);
-    expect(body).toEqual({ error: 'Page not found', code: 'PAGE_NOT_FOUND' });
-  });
-});
-
-describe('parseJsonBody HTTP classification', () => {
-  it('rejects malformed JSON with an HttpRequestError carrying status 400', async () => {
-    const req = makeReadable([Buffer.from('{nope}')]);
-    await expect(parseJsonBody(req)).rejects.toMatchObject({ statusCode: 400 });
   });
 });

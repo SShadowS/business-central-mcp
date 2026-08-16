@@ -2,7 +2,6 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { z } from 'zod';
 import type { Operations } from '../mcp/tool-registry.js';
 import type { Logger } from '../core/logger.js';
-import { bcErrorToHttp } from './middleware.js';
 import {
   OpenPageSchema,
   ReadDataSchema,
@@ -89,16 +88,12 @@ function validateBody<T extends z.ZodType>(schema: T, body: unknown, res: Server
 }
 
 function sendResult(res: ServerResponse, result: unknown): void {
-  const r = result as { ok: boolean; value?: unknown; error?: unknown };
+  const r = result as { ok: boolean; value?: unknown; error?: { message: string; code: string } };
   if (r.ok) {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(r.value));
   } else {
-    // Same serializer as the thrown path (server.ts catch-all), so a given
-    // BCError maps to one status/body shape regardless of which channel
-    // carried it; operation-level failures default to 400.
-    const { status, body } = bcErrorToHttp(r.error, 400);
-    res.writeHead(status, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(body));
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: r.error?.message, code: r.error?.code }));
   }
 }
