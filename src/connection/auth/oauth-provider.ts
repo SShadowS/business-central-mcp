@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import { ok, err, isErr, type Result } from '../../core/result.js';
 import { AuthenticationError } from '../../core/errors.js';
 import type { Logger } from '../../core/logger.js';
-import type { IBCAuthProvider, AuthResult } from './auth-provider.js';
+import { bindingFromBaseUrl, type IBCAuthProvider, type AuthResult, type ConnectionBinding } from './auth-provider.js';
 import { OAuthTokenClient, type TokenSet } from './oauth-token-client.js';
 import { FileTokenCache } from './token-cache.js';
 
@@ -109,6 +109,12 @@ export class OAuthAuthProvider implements IBCAuthProvider {
     // /csh upgrade (stale cookies); dropping the refresh token would force
     // another device-code prompt on every reconnect.
   }
+
+  async prepare(): Promise<Result<ConnectionBinding, AuthenticationError>> {
+    return ok(bindingFromBaseUrl(this.config.baseUrl, this.config.aadTenantId));
+  }
+
+  unboundCluster(): void {}
 
   private async ensureToken(): Promise<Result<TokenSet, AuthenticationError>> {
     if (this.tokens && this.tokens.expiresAt - EXPIRY_SKEW_MS > Date.now()) {

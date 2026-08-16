@@ -1,3 +1,5 @@
+import type { Logger } from '../../../core/logger.js';
+
 const SENSITIVE_KEYS = new Set([
   'password', 'passwd', 'accesstoken', 'authorizationcode', 'authorization',
   'cookie', 'cookies', 'flowtoken', 'canary', 'ppft', 'sft', 'code',
@@ -43,4 +45,21 @@ export function redactLog(
   const redactedMsg = redactString(msg);
   if (!context) return { msg: redactedMsg };
   return { msg: redactedMsg, context: redactValue(context) as Record<string, unknown> };
+}
+
+export function redactingLogger(inner: Logger): Logger {
+  const pass = (fn: (msg: string, ctx?: Record<string, unknown>) => void) =>
+    (msg: string, ctx?: Record<string, unknown>) => {
+      const r = redactLog(msg, ctx);
+      fn(r.msg, r.context);
+    };
+  return {
+    info: pass(inner.info.bind(inner)),
+    warn: pass(inner.warn.bind(inner)),
+    error: pass(inner.error.bind(inner)),
+    debug: (ch, msg, ctx) => {
+      const r = redactLog(msg, ctx);
+      inner.debug(ch, r.msg, r.context);
+    },
+  };
 }

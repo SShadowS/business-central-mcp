@@ -5,7 +5,7 @@ import type { Logger } from '../../../core/logger.js';
 import { isEntraLoginUrl, type SaasTarget } from '../../saas-url.js';
 import { CookieJar } from './cookie-jar.js';
 import { extractFceToken, extractFixedEndPointAuth, parseDeploymentJson, parseFixedEndPoint } from './html-extract.js';
-import { redactLog } from './redact.js';
+import { redactingLogger } from './redact.js';
 import {
   SAAS_BROWSER_UA,
   SAAS_PORTAL_ORIGIN,
@@ -14,23 +14,6 @@ import {
   type PreparedConnection,
 } from './ests-types.js';
 
-function wrapLogger(inner: Logger): Logger {
-  const pass = (fn: (msg: string, ctx?: Record<string, unknown>) => void) =>
-    (msg: string, ctx?: Record<string, unknown>) => {
-      const r = redactLog(msg, ctx);
-      fn(r.msg, r.context);
-    };
-  return {
-    info: pass(inner.info.bind(inner)),
-    warn: pass(inner.warn.bind(inner)),
-    error: pass(inner.error.bind(inner)),
-    debug: (ch, msg, ctx) => {
-      const r = redactLog(msg, ctx);
-      inner.debug(ch, r.msg, r.context);
-    },
-  };
-}
-
 export class SaasClusterSession {
   private readonly log: Logger;
 
@@ -38,7 +21,7 @@ export class SaasClusterSession {
     private readonly fetchFn: typeof fetch,
     logger: Logger,
   ) {
-    this.log = wrapLogger(logger);
+    this.log = redactingLogger(logger);
   }
 
   async readPortalShell(

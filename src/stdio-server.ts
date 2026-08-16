@@ -66,7 +66,6 @@ async function main() {
   // Session — created lazily on first tools/call, with automatic recovery
   const sessionFactory = new SessionFactory(
     connectionFactory, decoder, encoder, logger, config.bc.tenantId, config.bc.invokeTimeoutMs, config.bc.profile,
-    () => uiAuth.getSessionTenantId?.() ?? config.bc.tenantId,
   );
   const sessionManager = new SessionManager(sessionFactory, pageContextRepo, logger, {
     maxRetries: config.bc.reconnectMaxRetries,

@@ -1,7 +1,7 @@
 import * as cheerio from 'cheerio';
 import { ok, err, type Result } from '../../core/result.js';
 import { AuthenticationError } from '../../core/errors.js';
-import type { IBCAuthProvider, AuthResult } from './auth-provider.js';
+import { bindingFromBaseUrl, type IBCAuthProvider, type AuthResult, type ConnectionBinding } from './auth-provider.js';
 import type { Logger } from '../../core/logger.js';
 
 interface NTLMProviderConfig {
@@ -154,4 +154,10 @@ export class NTLMAuthProvider implements IBCAuthProvider {
     this.csrfToken = '';
     this.authenticated = false;
   }
+
+  async prepare(): Promise<Result<ConnectionBinding, AuthenticationError>> {
+    return ok(bindingFromBaseUrl(this.config.baseUrl, this.config.tenantId));
+  }
+
+  unboundCluster(): void {}
 }

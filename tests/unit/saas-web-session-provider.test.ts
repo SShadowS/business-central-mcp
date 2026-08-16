@@ -1,11 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SaasWebSessionProvider } from '../../src/connection/auth/saas-web-session-provider.js';
 import { FileCookieStore } from '../../src/connection/auth/saas/cookie-store.js';
+import { CookieJar } from '../../src/connection/auth/saas/cookie-jar.js';
 import { parseSaasUrl } from '../../src/connection/saas-url.js';
-import { err, isErr, isOk, ok } from '../../src/core/result.js';
+import { isErr, isOk, ok } from '../../src/core/result.js';
 import { SignInRequiredError } from '../../src/core/errors.js';
 import { createNullLogger } from '../../src/core/logger.js';
 import type { CookieRecord } from '../../src/connection/auth/saas/cookie-jar.js';
@@ -73,14 +74,9 @@ function defaultRouter(opts?: { csrfStatus?: number; skipJwt?: boolean; entra?: 
 
 describe('SaasWebSessionProvider', () => {
   let dir: string;
-  let ensurePortalSession: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'bc-saas-prov-'));
-    ensurePortalSession = vi.fn(async () => err(new SignInRequiredError(
-      'A display is required to sign in to Business Central Online.',
-      { openedWindow: false, reason: 'no_display' },
-    )));
   });
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
@@ -90,64 +86,66 @@ describe('SaasWebSessionProvider', () => {
     new FileCookieStore(join(dir, 'saas-web-cookies.json')).save(TENANT, 'DEV', [authCookie]);
   }
 
-  function makeProvider(fetchFn: typeof fetch): SaasWebSessionProvider {
+  function makeProvider(fetchFn: typeof fetch, extras: { jar?: CookieJar; loginFn?: () => Promise<ReturnType<typeof ok<void>>> } = {}): SaasWebSessionProvider {
     return new SaasWebSessionProvider({
       saas,
       stateDir: dir,
       usernamePrefill: 'user@t.com',
       loginTimeoutMs: 1000,
       opener: { open: () => false },
-      ensurePortalSession,
       fetchFn,
       logger: createNullLogger(),
+      jar: extras.jar,
+      loginFn: extras.loginFn,
     });
   }
 
-  it('authenticate with valid stored cookies and portal GET 200 does not call ensurePortalSession', async () => {
+  it('authenticate with valid stored cookies and portal GET 200 does not open login', async () => {
     seedCookies();
     const { fetchFn } = recordFetch(defaultRouter());
     const provider = makeProvider(fetchFn);
     const result = await provider.authenticate();
     expect(isOk(result)).toBe(true);
-    expect(ensurePortalSession).not.toHaveBeenCalled();
     expect(provider.isAuthenticated()).toBe(true);
     expect(provider.getAccessToken).toBeUndefined();
   });
 
-  it('stored cookies + portal 302 Entra invokes ensurePortalSession', async () => {
+  it('stored cookies + portal 302 Entra opens login and returns SIGN_IN_REQUIRED when no display', async () => {
     seedCookies();
     const { fetchFn } = recordFetch(defaultRouter({ entra: true }));
     const provider = makeProvider(fetchFn);
     const result = await provider.authenticate();
-    expect(ensurePortalSession).toHaveBeenCalledOnce();
     expect(isErr(result)).toBe(true);
     if (isErr(result)) expect(result.error.code).toBe('SIGN_IN_REQUIRED');
   });
 
-  it('isAuthenticated stays true after invalidate; getWebSocketUrl is undefined', async () => {
+  it('isAuthenticated stays true after invalidate; lastTabWsUrl is undefined', async () => {
     seedCookies();
     const { fetchFn } = recordFetch(defaultRouter());
     const provider = makeProvider(fetchFn);
     await provider.authenticate();
-    await provider.prepareConnection();
-    expect(provider.getWebSocketUrl()).toMatch(/\/csh$/);
+    const prepared = await provider.prepare();
+    expect(isOk(prepared)).toBe(true);
+    if (isOk(prepared)) expect(prepared.value.wsUrl).toMatch(/\/csh$/);
+    expect(provider.lastTabWsUrl).toMatch(/\/csh$/);
     provider.invalidate();
     expect(provider.isAuthenticated()).toBe(true);
-    expect(provider.getWebSocketUrl()).toBeUndefined();
+    expect(provider.lastTabWsUrl).toBeUndefined();
   });
 
-  it('second prepareConnection does not GET the portal or POST /auth', async () => {
+  it('second prepare does not GET the portal or POST /auth', async () => {
     seedCookies();
     const { fetchFn, calls } = recordFetch(defaultRouter());
     const provider = makeProvider(fetchFn);
     await provider.authenticate();
-    const first = await provider.prepareConnection();
+    const first = await provider.prepare();
     expect(isOk(first)).toBe(true);
     const afterFirst = calls.length;
-    const second = await provider.prepareConnection();
+    const second = await provider.prepare();
     expect(isOk(second)).toBe(true);
     if (isOk(first) && isOk(second)) {
-      expect(second.value.tabId).not.toBe(first.value.tabId);
+      expect(second.value.sessionTenantId).toBe(first.value.sessionTenantId);
+      expect(second.value.wsUrl).not.toBe(first.value.wsUrl);
     }
     const extra = calls.slice(afterFirst);
     expect(extra.some((c) => c.url === PORTAL && c.method === 'GET')).toBe(false);
@@ -160,7 +158,7 @@ describe('SaasWebSessionProvider', () => {
     const { fetchFn, calls } = recordFetch(defaultRouter({ skipJwt: true }));
     const provider = makeProvider(fetchFn);
     await provider.authenticate();
-    const result = await provider.prepareConnection();
+    const result = await provider.prepare();
     expect(isErr(result)).toBe(true);
     expect(calls.some((c) => c.url.includes('/csrf'))).toBe(false);
     expect(calls.some((c) => c.url.includes('/auth?'))).toBe(false);
@@ -172,17 +170,17 @@ describe('SaasWebSessionProvider', () => {
     const { fetchFn, calls } = recordFetch((url) => defaultRouter({ csrfStatus })(url));
     const provider = makeProvider(fetchFn);
     await provider.authenticate();
-    const first = await provider.prepareConnection();
+    const first = await provider.prepare();
     expect(isErr(first)).toBe(true);
     expect(provider.isClusterBound).toBe(false);
     csrfStatus = 200;
     const authCallsBefore = calls.filter((c) => c.url.includes('/auth?')).length;
-    const second = await provider.prepareConnection();
+    const second = await provider.prepare();
     expect(isOk(second)).toBe(true);
     expect(calls.filter((c) => c.url.includes('/auth?')).length).toBeGreaterThan(authCallsBefore);
   });
 
-  it('missing cookies returns SignInRequiredError from ensurePortalSession', async () => {
+  it('missing cookies returns SignInRequiredError from the owned login window', async () => {
     const { fetchFn } = recordFetch(defaultRouter());
     const provider = makeProvider(fetchFn);
     const result = await provider.authenticate();
@@ -191,5 +189,14 @@ describe('SaasWebSessionProvider', () => {
       expect(result.error).toBeInstanceOf(SignInRequiredError);
       expect(result.error.code).toBe('SIGN_IN_REQUIRED');
     }
+  });
+
+  it('authenticate succeeds from a shared in-memory jar without a store file', async () => {
+    const jar = new CookieJar();
+    jar.load([authCookie]);
+    const { fetchFn } = recordFetch(defaultRouter());
+    const provider = makeProvider(fetchFn, { jar });
+    const result = await provider.authenticate();
+    expect(isOk(result)).toBe(true);
   });
 });

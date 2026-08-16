@@ -14,9 +14,16 @@ import type { BCConfig } from '../../src/core/config.js';
 const auth: IBCAuthProvider = {
   isAuthenticated: () => true,
   authenticate: async () => ok({ cookies: 'c=1', csrfToken: 'tok' }),
+  prepare: async () => ok({
+    wsUrl: 'ws://cronus28/BC/csh',
+    origin: 'http://cronus28',
+    httpBaseUrl: 'http://cronus28/BC',
+    sessionTenantId: 'default',
+  }),
   getWebSocketHeaders: () => ({ Cookie: 'c=1' }),
   getWebSocketQueryParams: () => ({ csrftoken: 'tok' }),
   invalidate: () => {},
+  unboundCluster: () => {},
 };
 
 function cfg(): BCConfig {
@@ -41,10 +48,19 @@ function cfg(): BCConfig {
 describe('SessionFactory tenant override', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it('initializes BCSession with resolveTenantId, not the AAD GUID', async () => {
+  it('initializes BCSession with prepare() sessionTenantId, not the AAD GUID', async () => {
     vi.spyOn(BCWebSocket.prototype, 'connect').mockResolvedValue(ok(undefined));
     const initialize = vi.spyOn(BCSession.prototype, 'initialize').mockResolvedValue(ok([]));
-    const factory = new ConnectionFactory(auth, cfg(), createNullLogger());
+    const saasAuth: IBCAuthProvider = {
+      ...auth,
+      prepare: async () => ok({
+        wsUrl: 'wss://cluster.example/tenant/msft1/tab/TAB/csh',
+        origin: 'https://businesscentral.dynamics.com',
+        httpBaseUrl: 'https://cluster.example/tenant/msft1/tab/TAB',
+        sessionTenantId: 'msft1a6720t30818544',
+      }),
+    };
+    const factory = new ConnectionFactory(saasAuth, cfg(), createNullLogger());
     const sf = new SessionFactory(
       factory,
       new EventDecoder(),
@@ -53,7 +69,6 @@ describe('SessionFactory tenant override', () => {
       '7bcb54ae-6d5e-43c7-9402-928aed68ad00',
       1000,
       '',
-      () => 'msft1a6720t30818544',
     );
     const result = await sf.create();
     expect(result.ok).toBe(true);

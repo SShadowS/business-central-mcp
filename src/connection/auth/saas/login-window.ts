@@ -44,6 +44,8 @@ export interface LoginWindowOptions {
   fetchFn?: typeof fetch;
   logger: Logger;
   loginFn?: LoginFn;
+  jar?: CookieJar;
+  store?: FileCookieStore;
 }
 
 /**
@@ -61,7 +63,7 @@ export class LoginWindow {
     busy: false,
   };
   private readonly otp = new OtpGate();
-  private readonly jar = new CookieJar();
+  private readonly jar: CookieJar;
   private readonly store: FileCookieStore;
   private readonly loginFn: LoginFn;
   private waiters: Array<(result: LoginWindowResult) => void> = [];
@@ -72,7 +74,8 @@ export class LoginWindow {
   private openAttempted = false;
 
   constructor(private readonly opts: LoginWindowOptions) {
-    this.store = new FileCookieStore(saasCookieStorePath(opts.stateDir));
+    this.jar = opts.jar ?? new CookieJar();
+    this.store = opts.store ?? new FileCookieStore(saasCookieStorePath(opts.stateDir));
     this.loginFn = opts.loginFn ?? ((loginOpts) => {
       const client = new EstsLoginClient(
         opts.fetchFn ?? fetch,

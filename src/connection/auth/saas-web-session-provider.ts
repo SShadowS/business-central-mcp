@@ -1,16 +1,18 @@
 import { err, isErr, ok, type Result } from '../../core/result.js';
-import {
-  AuthenticationError,
-  SignInRequiredError,
-  UrlElicitationRequiredError,
-} from '../../core/errors.js';
+import { AuthenticationError } from '../../core/errors.js';
 import type { Logger } from '../../core/logger.js';
 import { isEntraLoginUrl, type SaasTarget } from '../saas-url.js';
-import type { AuthFailure, AuthResult, IBCAuthProvider } from './auth-provider.js';
+import type {
+  AuthFailure,
+  AuthResult,
+  ConnectionBinding,
+  IBCAuthProvider,
+} from './auth-provider.js';
 import type { BrowserOpener } from './saas/browser-opener.js';
 import { CookieJar } from './saas/cookie-jar.js';
 import { FileCookieStore, saasCookieStorePath } from './saas/cookie-store.js';
 import { SaasClusterSession } from './saas/cluster-session.js';
+import { LoginWindow, type LoginFn } from './saas/login-window.js';
 import {
   SAAS_BROWSER_UA,
   SAAS_PORTAL_ORIGIN,
@@ -22,29 +24,30 @@ export interface SaasWebSessionProviderOpts {
   saas: SaasTarget;
   stateDir: string;
   usernamePrefill: string;
-  loginTimeoutMs: number;
+  loginTimeoutMs?: number;
   opener: BrowserOpener;
-  ensurePortalSession: () => Promise<
-    Result<void, SignInRequiredError | AuthenticationError | UrlElicitationRequiredError>
-  >;
-  elicitation?: ClientElicitationPort;
   fetchFn?: typeof fetch;
   logger: Logger;
+  elicitation?: ClientElicitationPort;
+  loginFn?: LoginFn;
+  /** Test seam: share identity with LoginWindow. */
+  jar?: CookieJar;
+  store?: FileCookieStore;
 }
 
 const DEAD_TAB = /HTTP (401|403|500)\b/;
 
 /**
- * Cookie-session provider for BC Online `/csh`. Portal cookies persist on
- * disk; every WebSocket mints a new cluster tab. Does not implement
- * getAccessToken — `bc_query` uses a separate OAuthAuthProvider.
+ * Cookie-session provider for BC Online `/csh`. Owns the jar, the store,
+ * and the loopback login window. Does not implement getAccessToken.
  */
 export class SaasWebSessionProvider implements IBCAuthProvider {
-  private readonly jar = new CookieJar();
+  private readonly jar: CookieJar;
   private readonly store: FileCookieStore;
   private readonly cluster: SaasClusterSession;
+  private readonly login: LoginWindow;
   private readonly fetchFn: typeof fetch;
-  private prepared: PreparedConnection | undefined;
+  private tab: PreparedConnection | undefined;
   private clusterMeta: { host: string; runtimeId: string; csrfHint: string } | undefined;
   private authenticated = false;
   private clusterBound = false;
@@ -52,8 +55,24 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
 
   constructor(private readonly opts: SaasWebSessionProviderOpts) {
     this.fetchFn = opts.fetchFn ?? fetch;
-    this.store = new FileCookieStore(saasCookieStorePath(opts.stateDir));
+    this.jar = opts.jar ?? new CookieJar();
+    this.store = opts.store ?? new FileCookieStore(saasCookieStorePath(opts.stateDir));
     this.cluster = new SaasClusterSession(this.fetchFn, opts.logger);
+    this.login = new LoginWindow({
+      opener: opts.opener,
+      portalUrl: opts.saas.portalUrl,
+      stateDir: opts.stateDir,
+      aadTenantId: opts.saas.aadTenantId,
+      environmentName: opts.saas.environmentName,
+      usernamePrefill: opts.usernamePrefill,
+      timeoutMs: opts.loginTimeoutMs,
+      elicitation: opts.elicitation,
+      fetchFn: this.fetchFn,
+      logger: opts.logger,
+      loginFn: opts.loginFn,
+      jar: this.jar,
+      store: this.store,
+    });
   }
 
   async authenticate(): Promise<Result<AuthResult, AuthFailure>> {
@@ -69,7 +88,7 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
   private async authenticateOnce(): Promise<Result<AuthResult, AuthFailure>> {
     this.loadStoredCookies();
     if (this.jar.hasPortalAuth(this.opts.saas.aadTenantId)) {
-      const probe = await this.probePortal();
+      const probe = await this.portalAlive();
       if (probe === 'ok') {
         this.persistPortalCookies();
         this.authenticated = true;
@@ -77,10 +96,9 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
       }
     }
 
-    const signedIn = await this.opts.ensurePortalSession();
+    const signedIn = await this.login.run();
     if (isErr(signedIn)) return signedIn;
 
-    this.loadStoredCookies();
     if (!this.jar.hasPortalAuth(this.opts.saas.aadTenantId)) {
       return err(new AuthenticationError(
         'Sign-in completed but portal cookies are missing',
@@ -91,11 +109,23 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
     this.authenticated = true;
     this.clusterBound = false;
     this.clusterMeta = undefined;
-    this.prepared = undefined;
+    this.tab = undefined;
     return ok(this.authResult());
   }
 
-  async prepareConnection(): Promise<Result<PreparedConnection, AuthFailure>> {
+  async prepare(): Promise<Result<ConnectionBinding, AuthFailure>> {
+    const minted = await this.bindAndMint();
+    if (isErr(minted)) return minted;
+    this.tab = minted.value;
+    return ok({
+      wsUrl: `${wsOrigin(minted.value.tabBaseUrl)}/csh`,
+      origin: SAAS_PORTAL_ORIGIN,
+      httpBaseUrl: minted.value.tabBaseUrl,
+      sessionTenantId: minted.value.runtimeId,
+    });
+  }
+
+  private async bindAndMint(): Promise<Result<PreparedConnection, AuthFailure>> {
     if (this.clusterBound && this.clusterMeta) {
       const minted = await this.cluster.mintTab(
         this.jar,
@@ -108,7 +138,6 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
         if (DEAD_TAB.test(minted.error.message)) this.clusterBound = false;
         return minted;
       }
-      this.prepared = minted.value;
       return minted;
     }
 
@@ -157,7 +186,6 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
       if (DEAD_TAB.test(minted.error.message)) this.clusterBound = false;
       return minted;
     }
-    this.prepared = minted.value;
     return minted;
   }
 
@@ -166,14 +194,14 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
       'User-Agent': SAAS_BROWSER_UA,
       Referer: this.opts.saas.portalUrl,
     };
-    const cookieUrl = this.prepared?.tabBaseUrl ?? this.opts.saas.portalUrl;
+    const cookieUrl = this.tab?.tabBaseUrl ?? this.opts.saas.portalUrl;
     const cookie = this.jar.headerFor(cookieUrl);
     if (cookie) headers['Cookie'] = cookie;
     return headers;
   }
 
   getWebSocketQueryParams(): Record<string, string> {
-    return this.prepared?.csrfToken ? { csrftoken: this.prepared.csrfToken } : {};
+    return this.tab?.csrfToken ? { csrftoken: this.tab.csrfToken } : {};
   }
 
   isAuthenticated(): boolean {
@@ -181,35 +209,21 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
   }
 
   invalidate(): void {
-    this.prepared = undefined;
+    this.tab = undefined;
   }
 
-  markClusterUnbound(): void {
+  unboundCluster(): void {
     this.clusterBound = false;
     this.clusterMeta = undefined;
-    this.prepared = undefined;
+    this.tab = undefined;
   }
 
-  getWebSocketUrl(): string | undefined {
-    if (!this.prepared) return undefined;
-    return `${wsOrigin(this.prepared.tabBaseUrl)}/csh`;
-  }
-
-  getOrigin(): string {
-    return SAAS_PORTAL_ORIGIN;
-  }
-
-  getHttpBaseUrl(): string | undefined {
-    return this.prepared?.tabBaseUrl;
-  }
-
-  getSessionTenantId(): string | undefined {
-    return this.prepared?.runtimeId ?? this.clusterMeta?.runtimeId;
-  }
-
-  /** Test/inspection: whether AUTHENTICATETOKEN has been applied this login. */
   get isClusterBound(): boolean {
     return this.clusterBound;
+  }
+
+  get lastTabWsUrl(): string | undefined {
+    return this.tab ? `${wsOrigin(this.tab.tabBaseUrl)}/csh` : undefined;
   }
 
   private loadStoredCookies(): void {
@@ -228,11 +242,11 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
   private authResult(): AuthResult {
     return {
       cookies: this.jar.headerFor(this.opts.saas.portalUrl),
-      csrfToken: this.prepared?.csrfToken ?? '',
+      csrfToken: '',
     };
   }
 
-  private async probePortal(): Promise<'ok' | 'entra' | 'error'> {
+  private async portalAlive(): Promise<'ok' | 'entra' | 'error'> {
     try {
       const headers: Record<string, string> = {
         'User-Agent': SAAS_BROWSER_UA,

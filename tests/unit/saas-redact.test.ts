@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { redactLog } from '../../src/connection/auth/saas/redact.js';
+import { redactLog, redactingLogger } from '../../src/connection/auth/saas/redact.js';
 
 describe('redactLog', () => {
   it('redacts password, passwd, cookies, authorization, and JWT prefixes in msg and context', () => {
@@ -24,6 +24,23 @@ describe('redactLog', () => {
     expect(dumped).not.toContain('ppft-1');
     expect(dumped).not.toContain('sft-1');
     expect(dumped).not.toContain('authz-code');
+  });
+
+  it('redactingLogger redacts both message and context before the inner logger', () => {
+    const seen: string[] = [];
+    const inner = {
+      info: (msg: string, ctx?: Record<string, unknown>) => {
+        seen.push(msg);
+        if (ctx) seen.push(JSON.stringify(ctx));
+      },
+      warn: () => {},
+      error: () => {},
+      debug: () => {},
+    };
+    redactingLogger(inner).info('passwd=s3cretPASS', { password: 's3cretPASS', accessToken: 'eyJfixture.payload.sig' });
+    const dumped = seen.join(' ');
+    expect(dumped).not.toContain('s3cretPASS');
+    expect(dumped).not.toContain('eyJfixture');
   });
 
   it('leaves ordinary log text intact', () => {

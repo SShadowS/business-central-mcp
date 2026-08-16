@@ -16,14 +16,16 @@ export class SessionFactory {
     private readonly tenantId: string,
     private readonly timeoutMs: number = 30000,
     private readonly profile: string = '',
-    private readonly resolveTenantId: () => string = () => this.tenantId,
+    private readonly resolveTenantId?: () => string,
   ) {}
 
   async create(): Promise<Result<BCSession, SessionCreateError>> {
     const wsResult = await this.connectionFactory.create();
     if (isErr(wsResult)) return wsResult;
 
-    const tenantId = this.resolveTenantId();
+    const tenantId = this.resolveTenantId?.()
+      ?? this.connectionFactory.sessionTenantId
+      ?? this.tenantId;
     const session = new BCSession(
       wsResult.value,
       this.decoder,

@@ -161,17 +161,18 @@ describe('QueryOperation requireBearer', () => {
 });
 
 describe('createQueryOperation requireBearer on SaasWeb', () => {
-  it('does not call uiAuth.prepareConnection and rejects without a Bearer', async () => {
+  it('does not call uiAuth.prepare and rejects without a Bearer', async () => {
     const fetchMock = vi.fn();
     global.fetch = fetchMock as unknown as typeof fetch;
-    const prepareConnection = vi.fn();
+    const prepare = vi.fn();
     const uiAuth = {
       authenticate: async () => ({ ok: true, value: { cookies: '', csrfToken: '' } }),
+      prepare,
       getWebSocketHeaders: () => ({}),
       getWebSocketQueryParams: () => ({}),
       isAuthenticated: () => false,
       invalidate: () => {},
-      prepareConnection,
+      unboundCluster: () => {},
     } as unknown as IBCAuthProvider;
     const config = {
       bc: {
@@ -189,7 +190,7 @@ describe('createQueryOperation requireBearer on SaasWeb', () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe('OAUTH_NOT_CONFIGURED');
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(prepareConnection).not.toHaveBeenCalled();
+    expect(prepare).not.toHaveBeenCalled();
   });
 });
 

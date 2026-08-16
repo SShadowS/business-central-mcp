@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LoginWindow } from '../../src/connection/auth/saas/login-window.js';
+import { CookieJar } from '../../src/connection/auth/saas/cookie-jar.js';
 import { ClientElicitationPort } from '../../src/mcp/elicitation-port.js';
 import { isErr, isOk, ok } from '../../src/core/result.js';
 import { SignInRequiredError, UrlElicitationRequiredError } from '../../src/core/errors.js';
@@ -127,5 +128,49 @@ describe('LoginWindow', () => {
     });
     const second = await secondP;
     expect(isOk(second)).toBe(true);
+  });
+
+  it('loginFn mutates the injected jar (shared with the provider)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bc-login-jar-'));
+    dirs.push(dir);
+    const jar = new CookieJar();
+    let opened = '';
+    const window = new LoginWindow({
+      opener: {
+        open: (url) => {
+          opened = url;
+          return true;
+        },
+      },
+      portalUrl: PORTAL,
+      stateDir: dir,
+      aadTenantId: TENANT,
+      environmentName: 'DEV',
+      timeoutMs: 8_000,
+      closeDelayMs: 100,
+      logger: createNullLogger(),
+      jar,
+      loginFn: async () => {
+        jar.load([{
+          name: `${TENANT}.auth`,
+          value: 'from-login',
+          domain: 'businesscentral.dynamics.com',
+          path: '/',
+          secure: true,
+        }]);
+        return ok(undefined);
+      },
+    });
+    windows.push(window);
+    const runP = window.run();
+    await vi.waitFor(() => expect(opened).toMatch(/^http:\/\/127\.0\.0\.1:/));
+    const href = new URL(opened);
+    await fetch(`${href.origin}/login${href.search}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'u@t.com', password: 'x' }),
+    });
+    expect(isOk(await runP)).toBe(true);
+    expect(jar.hasPortalAuth(TENANT)).toBe(true);
   });
 });

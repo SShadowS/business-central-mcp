@@ -20,31 +20,36 @@ export type AuthFailure =
   | UrlElicitationRequiredError
   | ConnectionError;
 
+/** What ConnectionFactory needs after a successful prepare(). */
+export interface ConnectionBinding {
+  wsUrl: string;
+  origin: string;
+  httpBaseUrl: string;
+  sessionTenantId: string;
+}
+
+export function bindingFromBaseUrl(baseUrl: string, sessionTenantId: string): ConnectionBinding {
+  return {
+    wsUrl: `${baseUrl.replace(/^http/i, 'ws')}/csh`,
+    origin: new URL(baseUrl).origin,
+    httpBaseUrl: baseUrl,
+    sessionTenantId,
+  };
+}
+
+export function isDeadClusterStatus(status: number | undefined): boolean {
+  return status === 401 || status === 403 || status === 500;
+}
+
 export interface IBCAuthProvider {
   authenticate(): Promise<Result<AuthResult, AuthFailure>>;
+  /** Bind (if needed) and return the WS/HTTP/tenant coordinates for this connection. */
+  prepare(): Promise<Result<ConnectionBinding, AuthFailure>>;
   getWebSocketHeaders(): Record<string, string>;
   getWebSocketQueryParams(): Record<string, string>;
   isAuthenticated(): boolean;
-  /** Drop cached credentials so the next authenticate() re-runs the login flow.
-   * Called when a WebSocket connect fails (cookies may be stale after a BC
-   * restart or cookie expiry). */
   invalidate(): void;
-  /**
-   * Entra access token for HTTP APIs (OData / Standard API). Cookie-only
-   * providers (NavUserPassword) leave this unimplemented.
-   */
+  /** Dead cluster (HTTP 401/403/500 on upgrade). NTLM/OAuth: no-op. */
+  unboundCluster(): void;
   getAccessToken?(): Promise<string | undefined>;
-
-  /** Bind cluster if needed, then mint a new tab. Called on every WS create. */
-  prepareConnection?(): Promise<Result<PreparedConnection, AuthFailure>>;
-  /** Absolute WS URL without query (factory still appends ackseqnb + csrf). */
-  getWebSocketUrl?(): string | undefined;
-  /** WebSocket Origin. SaaS: https://businesscentral.dynamics.com */
-  getOrigin?(): string | undefined;
-  /** HTTPS base for same-session downloads (SaaS tab URL). */
-  getHttpBaseUrl?(): string | undefined;
-  /** OpenSession tenantId (SaaS runtime id). */
-  getSessionTenantId?(): string | undefined;
-  /** Dead cluster session: next prepareConnection must re-bind. */
-  markClusterUnbound?(): void;
 }

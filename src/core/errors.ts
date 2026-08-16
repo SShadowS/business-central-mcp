@@ -15,7 +15,11 @@ export abstract class BCError extends Error {
   }
 }
 export class ConnectionError extends BCError {
-  constructor(message: string, context?: Record<string, unknown>) { super(message, 'CONNECTION_ERROR', context); }
+  public readonly status?: number;
+  constructor(message: string, context?: Record<string, unknown>) {
+    super(message, 'CONNECTION_ERROR', context);
+    this.status = typeof context?.status === 'number' ? context.status : undefined;
+  }
 }
 export class AuthenticationError extends BCError {
   constructor(message: string, context?: Record<string, unknown>) { super(message, 'AUTHENTICATION_ERROR', context); }

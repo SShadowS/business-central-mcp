@@ -9,7 +9,7 @@ import {
   pageInfo,
   parseConfig,
 } from './html-extract.js';
-import { redactLog } from './redact.js';
+import { redactingLogger } from './redact.js';
 import { SAAS_BROWSER_UA, type EstsStatus, type SasJson } from './ests-types.js';
 
 const ESTS_ORIGIN = 'https://login.microsoftonline.com';
@@ -26,22 +26,7 @@ interface Page {
   url: string;
 }
 
-function wrapLogger(inner: Logger): Logger {
-  const pass = (fn: (msg: string, ctx?: Record<string, unknown>) => void) =>
-    (msg: string, ctx?: Record<string, unknown>) => {
-      const r = redactLog(msg, ctx);
-      fn(r.msg, r.context);
-    };
-  return {
-    info: pass(inner.info.bind(inner)),
-    warn: pass(inner.warn.bind(inner)),
-    error: pass(inner.error.bind(inner)),
-    debug: (ch, msg, ctx) => {
-      const r = redactLog(msg, ctx);
-      inner.debug(ch, r.msg, r.context);
-    },
-  };
-}
+
 
 function str(cfg: Record<string, unknown>, key: string): string {
   const v = cfg[key];
@@ -74,7 +59,7 @@ export class EstsLoginClient {
     private readonly sleep: Sleeper,
     private readonly now: () => number = Date.now,
   ) {
-    this.log = wrapLogger(logger);
+    this.log = redactingLogger(logger);
   }
 
   async login(opts: {

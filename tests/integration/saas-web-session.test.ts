@@ -18,8 +18,6 @@ import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
 import { PageService } from '../../src/services/page-service.js';
 import { loadConfig } from '../../src/core/config.js';
 import { createNullLogger } from '../../src/core/logger.js';
-import { err } from '../../src/core/result.js';
-import { SignInRequiredError } from '../../src/core/errors.js';
 import { fields } from '../../src/protocol/form-views.js';
 
 dotenvConfig();
@@ -44,10 +42,6 @@ describe('SaaS web session smoke', () => {
       usernamePrefill: config.bc.username,
       loginTimeoutMs: 5_000,
       opener: { open: () => false },
-      ensurePortalSession: async () => err(new SignInRequiredError(
-        'A display is required to sign in to Business Central Online.',
-        { openedWindow: false, reason: 'no_display' },
-      )),
       logger,
     });
 
@@ -64,7 +58,6 @@ describe('SaaS web session smoke', () => {
       config.bc.tenantId,
       config.bc.invokeTimeoutMs,
       config.bc.profile,
-      () => provider.getSessionTenantId?.() ?? config.bc.tenantId,
     );
     const created = await sessions.create();
     expect(created.ok, created.ok ? undefined : created.error.message).toBe(true);
@@ -73,7 +66,7 @@ describe('SaaS web session smoke', () => {
     const session = created.value;
     try {
       expect(session.companyName.length).toBeGreaterThan(0);
-      const runtimeId = provider.getSessionTenantId();
+      const runtimeId = factory.sessionTenantId;
       expect(runtimeId).toBeTruthy();
       expect(runtimeId).not.toBe(saas.aadTenantId);
       expect(runtimeId).toMatch(/^msft/i);
@@ -105,10 +98,6 @@ describe('SaaS web session smoke', () => {
       usernamePrefill: config.bc.username,
       loginTimeoutMs: 5_000,
       opener: { open: () => false },
-      ensurePortalSession: async () => err(new SignInRequiredError(
-        'A display is required to sign in to Business Central Online.',
-        { openedWindow: false, reason: 'no_display' },
-      )),
       logger,
     });
     const auth = await provider.authenticate();
@@ -124,7 +113,6 @@ describe('SaaS web session smoke', () => {
       config.bc.tenantId,
       config.bc.invokeTimeoutMs,
       config.bc.profile,
-      () => provider.getSessionTenantId?.() ?? config.bc.tenantId,
     );
     const created = await sessions.create();
     expect(created.ok, created.ok ? undefined : created.error.message).toBe(true);

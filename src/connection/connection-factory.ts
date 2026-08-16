@@ -1,16 +1,28 @@
 import { ok, isErr, type Result } from '../core/result.js';
 import { BCWebSocket } from './bc-websocket.js';
 import { BCHttpClient } from './bc-http.js';
-import type { AuthFailure, IBCAuthProvider } from './auth/auth-provider.js';
+import {
+  isDeadClusterStatus,
+  type AuthFailure,
+  type ConnectionBinding,
+  type IBCAuthProvider,
+} from './auth/auth-provider.js';
 import type { BCConfig } from '../core/config.js';
 import type { Logger } from '../core/logger.js';
 
 export class ConnectionFactory {
+  private binding: ConnectionBinding | undefined;
+
   constructor(
     private readonly authProvider: IBCAuthProvider,
     private readonly bcConfig: BCConfig,
     private readonly logger: Logger,
   ) {}
+
+  /** OpenSession tenant from the last successful prepare(). */
+  get sessionTenantId(): string | undefined {
+    return this.binding?.sessionTenantId;
+  }
 
   async create(): Promise<Result<BCWebSocket, AuthFailure>> {
     if (!this.authProvider.isAuthenticated()) {
@@ -18,24 +30,15 @@ export class ConnectionFactory {
       if (isErr(authResult)) return authResult;
     }
 
-    if (this.authProvider.prepareConnection) {
-      const prepared = await this.authProvider.prepareConnection();
-      if (isErr(prepared)) return prepared;
-    }
+    const prepared = await this.authProvider.prepare();
+    if (isErr(prepared)) return prepared;
+    this.binding = prepared.value;
 
-    const wsUrl = this.buildWebSocketUrl();
+    const wsUrl = this.withQuery(this.binding.wsUrl);
     const headers = this.authProvider.getWebSocketHeaders();
-
-    // BC 28.3's web server enforces WebSocket Origin validation
-    // (RequestOriginValidationMiddleware in Prod.Client.WebCoreApp). A `/csh`
-    // upgrade whose Origin header is missing/empty or cross-origin is rejected
-    // with a bare 403 before the app handler. A same-origin upgrade is always
-    // allowed, so send Origin = scheme+host+port of the base URL (no path).
-    // SaaS providers override via getOrigin() — the cluster host must NOT be
-    // used (verified: cluster Origin → HTTP 500).
     // Do NOT put Origin in getWebSocketHeaders() — BCHttpClient reuses those
-    // headers for downloads.
-    headers['Origin'] = this.authProvider.getOrigin?.() ?? new URL(this.bcConfig.baseUrl).origin;
+    // headers for downloads. Origin is a WS-upgrade concern only.
+    headers['Origin'] = this.binding.origin;
 
     const ws = new BCWebSocket(this.logger);
     const connectResult = await ws.connect({
@@ -45,12 +48,9 @@ export class ConnectionFactory {
     });
 
     if (isErr(connectResult)) {
-      // Cached auth cookies may be stale (BC restart / cookie expiry). Drop them
-      // so the next create() re-authenticates instead of reusing dead cookies on
-      // every backoff retry, which would otherwise brick recovery permanently.
       this.authProvider.invalidate();
-      if (looksLikeDeadCluster(connectResult.error.message)) {
-        this.authProvider.markClusterUnbound?.();
+      if (isDeadClusterStatus(connectResult.error.status)) {
+        this.authProvider.unboundCluster();
       }
       return connectResult;
     }
@@ -59,36 +59,19 @@ export class ConnectionFactory {
 
   createHttpClient(): BCHttpClient {
     return new BCHttpClient(
-      this.authProvider.getHttpBaseUrl?.() ?? this.bcConfig.baseUrl,
+      this.binding?.httpBaseUrl ?? this.bcConfig.baseUrl,
       () => this.authProvider.getWebSocketHeaders(),
       this.logger,
     );
   }
 
-  private buildWebSocketUrl(): string {
+  private withQuery(wsUrl: string): string {
     const queryParams = this.authProvider.getWebSocketQueryParams();
     queryParams['ackseqnb'] = '-1';
-
-    const custom = this.authProvider.getWebSocketUrl?.();
-    if (custom) {
-      const u = new URL(custom);
-      for (const [k, v] of Object.entries(queryParams)) {
-        if (v !== '') u.searchParams.set(k, v);
-      }
-      return u.toString();
+    const u = new URL(wsUrl);
+    for (const [k, v] of Object.entries(queryParams)) {
+      if (v !== '') u.searchParams.set(k, v);
     }
-
-    const base = this.bcConfig.baseUrl.replace(/^http/, 'ws');
-    const queryString = Object.entries(queryParams)
-      .filter(([, v]) => v !== '')
-      .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
-      .join('&');
-
-    return `${base}/csh?${queryString}`;
+    return u.toString();
   }
-}
-
-function looksLikeDeadCluster(message: string): boolean {
-  return /Unexpected server response:\s*(401|403|500)\b/i.test(message)
-    || /HTTP (401|403|500)\b/.test(message);
 }

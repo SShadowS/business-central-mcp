@@ -3,8 +3,6 @@ import { createAuthProvider } from '../../src/connection/auth/create-auth-provid
 import { NTLMAuthProvider } from '../../src/connection/auth/ntlm-provider.js';
 import { OAuthAuthProvider } from '../../src/connection/auth/oauth-provider.js';
 import { SaasWebSessionProvider } from '../../src/connection/auth/saas-web-session-provider.js';
-import { err } from '../../src/core/result.js';
-import { SignInRequiredError } from '../../src/core/errors.js';
 import { createNullLogger } from '../../src/core/logger.js';
 import type { AppConfig } from '../../src/core/config.js';
 
@@ -45,25 +43,19 @@ describe('createAuthProvider', () => {
     expect(p).toBeInstanceOf(NTLMAuthProvider);
   });
 
-  it('throws a complete error for SaasWeb without SaasWebDeps', () => {
-    expect(() => createAuthProvider(app({
-      authMode: 'SaasWeb',
-      baseUrl: 'https://businesscentral.dynamics.com/t/DEV',
-    }), createNullLogger())).toThrow(/SaasWebDeps/);
-  });
-
-  it('returns SaasWebSessionProvider when SaasWebDeps are passed', () => {
+  it('returns SaasWebSessionProvider for SaasWeb without extra deps', () => {
     const p = createAuthProvider(app({
       authMode: 'SaasWeb',
       baseUrl: 'https://businesscentral.dynamics.com/7bcb54ae-6d5e-43c7-9402-928aed68ad00/DEV',
-    }), createNullLogger(), {
-      opener: { open: () => false },
-      ensurePortalSession: async () => err(new SignInRequiredError(
-        'A display is required to sign in to Business Central Online.',
-        { openedWindow: false, reason: 'no_display' },
-      )),
-    });
+    }), createNullLogger());
     expect(p).toBeInstanceOf(SaasWebSessionProvider);
+  });
+
+  it('throws when SaasWeb URL is not a portal URL', () => {
+    expect(() => createAuthProvider(app({
+      authMode: 'SaasWeb',
+      baseUrl: 'https://example.com/not-saas',
+    }), createNullLogger())).toThrow(/portal URL/);
   });
 
   it('returns OAuthAuthProvider for OAuth', () => {
