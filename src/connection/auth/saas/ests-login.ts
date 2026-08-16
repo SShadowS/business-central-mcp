@@ -236,39 +236,34 @@ export class EstsLoginClient {
     let flowToken = str(cfg, 'sFT');
     let ctx = str(cfg, 'sCtx');
 
-    let began = await this.sasPost(beginUrl, {
-      AuthMethodId: preferred,
-      Method: 'BeginAuth',
-      ctx,
-      flowToken,
-    });
-    if (began.FlowToken) flowToken = began.FlowToken;
-    if (began.Ctx) ctx = began.Ctx;
-    if (began.Success === false && began.Retry === true) {
-      // Retry:true means retry BeginAuth ITSELF (throttle) — the response
-      // carries no CorrelationId, so falling through would poll EndAuth with
-      // an undefined SessionId for 90s (or prompt for a TOTP code against an
-      // auth session that never began). One retry, then the gate below
-      // judges the real outcome.
-      await this.sleep(MFA_POLL_MS);
-      began = await this.sasPost(beginUrl, {
+    const begin = async (): Promise<SasJson> => {
+      const r = await this.sasPost(beginUrl, {
         AuthMethodId: preferred,
         Method: 'BeginAuth',
         ctx,
         flowToken,
       });
-      if (began.FlowToken) flowToken = began.FlowToken;
-      if (began.Ctx) ctx = began.Ctx;
+      if (r.FlowToken) flowToken = r.FlowToken;
+      if (r.Ctx) ctx = r.Ctx;
+      return r;
+    };
+    let began = await begin();
+    // Retry:true means retry BeginAuth ITSELF (throttle) — the response
+    // carries no CorrelationId, so falling through would poll EndAuth with an
+    // undefined SessionId for 90s (or prompt for a TOTP code against an auth
+    // session that never began).
+    for (let retry = 0; began.Success === false && began.Retry === true && retry < 2; retry++) {
+      await this.sleep(MFA_POLL_MS);
+      began = await begin();
     }
-    // Only an explicit rejection fails fast — a throttled/unavailable method
-    // would otherwise be polled for the full 90s and surface as a generic
-    // timeout, masking Entra's real error. ResultValue 'PendingAuthentication'
-    // is in-progress (the EndAuth loop treats it the same way), and an
-    // unparseable body ({} from sasPost) must fall through to polling, not
-    // abort sign-in.
-    if (began.Success === false && began.ResultValue !== 'PendingAuthentication') {
+    // Fail fast only on an explicit rejection with no auth session: a present
+    // CorrelationId means the session began — ESTS's ResultValue vocabulary
+    // is large and undocumented, so the EndAuth poll judges those. An
+    // unparseable body ({} from sasPost) also falls through to polling.
+    if (began.Success === false && !began.CorrelationId && began.ResultValue !== 'PendingAuthentication') {
       throw new Error(
-        `MFA BeginAuth failed: ${began.Message ?? began.ResultValue ?? 'unknown error'}`,
+        `MFA BeginAuth failed: ${began.Message ?? began.ResultValue
+          ?? (began.Retry ? 'throttled by Entra (retries exhausted)' : 'unknown error')}`,
       );
     }
 

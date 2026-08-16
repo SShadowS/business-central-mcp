@@ -16,6 +16,14 @@ import {
 
 const MAX_SHELL_REDIRECTS = 5;
 
+/**
+ * A 2xx portal response with no FixedEndPoint.start at all — reachable, but
+ * neither provably signed-in nor provably signed-out. Distinguished from
+ * plain ConnectionError so the provider can count these toward sign-in
+ * escalation while network/HTTP failures stay purely retryable.
+ */
+export class ShellUnclassifiableError extends ConnectionError {}
+
 export class SaasClusterSession {
   private readonly log: Logger;
 
@@ -80,7 +88,7 @@ export class SaasClusterSession {
       // No FixedEndPoint.start at all: an interstitial/consent/unknown page,
       // not proof the session is signed out. Fail retryably — clearing valid
       // cookies here would force interactive sign-in on a transient page.
-      return err(new ConnectionError(
+      return err(new ShellUnclassifiableError(
         'Portal 2xx response has no FixedEndPoint.start; not a portal shell',
       ));
     }

@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { createApiRoutes } from '../../src/api/routes.js';
 import type { Operations } from '../../src/mcp/tool-registry.js';
 import type { Logger } from '../../src/core/logger.js';
-import { ConnectionError, SessionLostError } from '../../src/core/errors.js';
+import { BusinessValidationError, ConnectionError, SessionLostError } from '../../src/core/errors.js';
 import type { ServerResponse } from 'node:http';
 
 // ---------------------------------------------------------------------------
@@ -262,6 +262,23 @@ describe('error path (err result)', () => {
     await handler(fakeReq, res as unknown as ServerResponse, { pageContextId: 'ctx1' });
     expect(statusCode(res)).toBe(503);
     expect(bodyJson(res)).toMatchObject({ error: 'Session expired', code: 'SESSION_LOST' });
+  });
+
+  it('POST /api/v1/pages/write carries BusinessValidationError fieldErrors in the 400 body', async () => {
+    const ops = makeMockOps();
+    (ops.writeData.execute as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: false,
+      error: new BusinessValidationError([{ field: 'No.', description: 'must not be blank' }]),
+    });
+    const routes = createApiRoutes(ops, makeLogger());
+    const handler = routes.get('POST /api/v1/pages/write')!;
+    const res = makeRes();
+    await handler(fakeReq, res as unknown as ServerResponse, { pageContextId: 'ctx1', fields: { Name: 'x' } });
+    expect(statusCode(res)).toBe(400);
+    expect(bodyJson(res)).toMatchObject({
+      code: 'VALIDATION_ERROR',
+      fieldErrors: [{ field: 'No.', description: 'must not be blank' }],
+    });
   });
 
   it('POST /api/v1/search returns 503 when the operation fails with ConnectionError', async () => {

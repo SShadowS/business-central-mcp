@@ -103,6 +103,15 @@ describe('CookieJar', () => {
     expect(jar.hasPortalAuth()).toBe(true);
   });
 
+  it('persistable() keeps a parent-domain auth cookie — persistence must agree with detection and sending', () => {
+    const jar = new CookieJar();
+    jar.absorb(response([`${TENANT}.auth=keep; Domain=dynamics.com; Path=/; Secure`]), PORTAL);
+    expect(jar.hasPortalAuth()).toBe(true);
+    // If detection says the session exists but persistence drops the cookie,
+    // every restart pops a sign-in window despite each run "persisting".
+    expect(jar.persistable().some((c) => c.name === `${TENANT}.auth`)).toBe(true);
+  });
+
   it('persistable() drops ESTS-domain cookies and keeps portal cookies', () => {
     const jar = new CookieJar();
     jar.absorb(response(['ESTSAUTH=x; Domain=login.microsoftonline.com; Path=/; Secure']), ESTS);

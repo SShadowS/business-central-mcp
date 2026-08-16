@@ -11,12 +11,11 @@ import type {
 import type { BrowserOpener } from './saas/browser-opener.js';
 import { CookieJar } from './saas/cookie-jar.js';
 import { FileCookieStore, saasCookieStorePath } from './saas/cookie-store.js';
-import { SaasClusterSession } from './saas/cluster-session.js';
+import { SaasClusterSession, ShellUnclassifiableError } from './saas/cluster-session.js';
 import { LoginWindow, type LoginFn } from './saas/login-window.js';
 import {
   SAAS_BROWSER_UA,
   SAAS_PORTAL_ORIGIN,
-  type FixedEndPointAuth,
   type PreparedConnection,
 } from './saas/ests-types.js';
 import type { ClientElicitationPort } from '../../mcp/elicitation-port.js';
@@ -37,14 +36,13 @@ export interface SaasWebSessionProviderOpts {
 }
 
 const DEAD_TAB = /HTTP (401|403|500)\b/;
-/** Consecutive unclassifiable probe failures before the stored session is
- * treated as dead and interactive sign-in reopens. Below this, failures stay
- * retryable so a transient outage never destroys valid cookies. */
-const PROBE_ERROR_ESCALATION = 3;
-/** A cached probe shell holds a short-lived portal JWT and a single-use
- * authorization code; it is only good for the prepare() that immediately
- * follows authenticate(). */
-const PENDING_SHELL_TTL_MS = 60_000;
+/** Consecutive unclassifiable-shell reads (2xx with no FixedEndPoint.start,
+ * counted across BOTH the authenticate() probe and bindAndMint) before the
+ * stored session is treated as dead and interactive sign-in reopens. Only
+ * "portal reachable but shell unclassifiable" counts — network failures and
+ * portal 4xx/5xx are evidence of nothing about the session and stay purely
+ * retryable, so a transient outage never destroys valid cookies. */
+const SHELL_UNCLASSIFIABLE_ESCALATION = 3;
 
 /**
  * Cookie-session provider for BC Online `/csh`. Owns the jar, the store,
@@ -55,24 +53,22 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
   private readonly store: FileCookieStore;
   private readonly cluster: SaasClusterSession;
   private readonly login: LoginWindow;
-  private readonly fetchFn: typeof fetch;
   private tab: PreparedConnection | undefined;
   private clusterMeta: { host: string; runtimeId: string; csrfHint: string } | undefined;
-  /** Shell captured by the last successful portalAlive() probe, consumed
-   * (single-use, TTL-guarded) by the next bindAndMint so the
-   * authenticate()→prepare() cold-start path fetches the portal shell once,
-   * not twice. */
-  private pendingShell: { fceToken: string; auth: FixedEndPointAuth; at: number } | undefined;
-  private probeErrorStreak = 0;
+  private shellUnclassifiableStreak = 0;
   private authenticated = false;
   private clusterBound = false;
   private inflight: Promise<Result<AuthResult, AuthFailure>> | null = null;
 
   constructor(private readonly opts: SaasWebSessionProviderOpts) {
-    this.fetchFn = opts.fetchFn ?? fetch;
+    // Deliberately not kept as a field: every portal fetch must go through
+    // SaasClusterSession (redirect/Entra classification) or LoginWindow — a
+    // direct fetch here would re-create the weaker duplicate probe this
+    // provider used to have.
+    const fetchFn = opts.fetchFn ?? fetch;
     this.jar = opts.jar ?? new CookieJar();
     this.store = opts.store ?? new FileCookieStore(saasCookieStorePath(opts.stateDir));
-    this.cluster = new SaasClusterSession(this.fetchFn, opts.logger);
+    this.cluster = new SaasClusterSession(fetchFn, opts.logger);
     this.login = new LoginWindow({
       opener: opts.opener,
       portalUrl: opts.saas.portalUrl,
@@ -82,7 +78,7 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
       usernamePrefill: opts.usernamePrefill,
       timeoutMs: opts.loginTimeoutMs,
       elicitation: opts.elicitation,
-      fetchFn: this.fetchFn,
+      fetchFn,
       logger: opts.logger,
       loginFn: opts.loginFn,
       jar: this.jar,
@@ -103,14 +99,17 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
   private async authenticateOnce(): Promise<Result<AuthResult, AuthFailure>> {
     this.loadStoredCookies();
     if (this.jar.hasPortalAuth()) {
-      const probe = await this.portalAlive();
-      if (probe === 'ok') {
-        this.probeErrorStreak = 0;
+      const probe = await this.probePortal();
+      if (!isErr(probe)) {
+        this.shellUnclassifiableStreak = 0;
         this.persistPortalCookies();
         this.authenticated = true;
         return ok(this.authResult());
       }
-      if (probe === 'error' && ++this.probeErrorStreak < PROBE_ERROR_ESCALATION) {
+      this.noteShellFailure(probe.error);
+      const sessionDead = probe.error instanceof AuthenticationError
+        || this.shellUnclassifiableStreak >= SHELL_UNCLASSIFIABLE_ESCALATION;
+      if (!sessionDead) {
         // Transient network/portal failure with stored cookies present:
         // fail retryably instead of popping a sign-in window for a session
         // that is probably still valid.
@@ -118,15 +117,13 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
           'BC Online portal is unreachable (network or portal error); retrying',
         ));
       }
-      // probe === 'entra' (the portal no longer honors the stored session),
-      // or the error streak hit the escalation limit (a persistent state the
-      // probe cannot classify — e.g. a signed-out page without
-      // FixedEndPoint.start — must not wedge retryable forever). Drop the
-      // stale auth cookies so a fresh sign-in replaces them.
-      this.probeErrorStreak = 0;
+      // The portal redirected to Entra (session no longer honored), or the
+      // unclassifiable-shell streak hit the escalation limit (a persistent
+      // state the probe cannot classify must not wedge retryable forever).
+      // Drop the stale auth cookies so a fresh sign-in replaces them.
+      this.shellUnclassifiableStreak = 0;
       this.jar.clearPortalAuth();
       this.authenticated = false;
-      this.pendingShell = undefined;
     }
 
     const signedIn = await this.login.run();
@@ -140,6 +137,7 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
     }
     this.persistPortalCookies();
     this.authenticated = true;
+    this.shellUnclassifiableStreak = 0;
     this.clusterBound = false;
     this.clusterMeta = undefined;
     this.tab = undefined;
@@ -174,11 +172,13 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
       return minted;
     }
 
-    const cachedShell = this.pendingShell;
-    this.pendingShell = undefined;
-    const shell = cachedShell && Date.now() - cachedShell.at < PENDING_SHELL_TTL_MS
-      ? ok({ fceToken: cachedShell.fceToken, auth: cachedShell.auth })
-      : await this.cluster.readPortalShell(this.jar, this.opts.saas);
+    // This shell read may repeat one the authenticate() probe just did on a
+    // cold start. That is deliberate: an earlier single-use cache of the
+    // probe's shell (a short-lived JWT plus one-shot authorization code)
+    // needed a TTL and three clear sites to stay safe — one extra HTTPS GET
+    // per cold start is negligible next to the discover/shareAuthCookie/
+    // authenticateToken chain that follows.
+    const shell = await this.cluster.readPortalShell(this.jar, this.opts.saas);
     if (isErr(shell)) {
       if (shell.error instanceof AuthenticationError) {
         // Portal redirected to Entra: the stored session is dead. Clear the
@@ -187,9 +187,20 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
         // could never reopen for the lifetime of the process).
         this.authenticated = false;
         this.jar.clearPortalAuth();
+      } else {
+        // ConnectionFactory.create skips authenticate() while
+        // isAuthenticated() is true, so unclassifiable shells seen HERE must
+        // count toward escalation too — otherwise a persistent state wedges
+        // retryable forever with the sign-in window never reopening.
+        this.noteShellFailure(shell.error);
+        if (this.shellUnclassifiableStreak >= SHELL_UNCLASSIFIABLE_ESCALATION) {
+          this.authenticated = false;
+          this.jar.clearPortalAuth();
+        }
       }
       return shell;
     }
+    this.shellUnclassifiableStreak = 0;
 
     const discovered = await this.cluster.discover(this.jar, this.opts.saas);
     if (isErr(discovered)) return discovered;
@@ -255,7 +266,6 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
   invalidate(): void {
     this.evictTabCookies();
     this.tab = undefined;
-    this.pendingShell = undefined;
   }
 
   unboundCluster(): void {
@@ -263,7 +273,6 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
     this.clusterBound = false;
     this.clusterMeta = undefined;
     this.tab = undefined;
-    this.pendingShell = undefined;
   }
 
   /** A new tab is minted per WebSocket; drop the dead tab's path-scoped cookies. */
@@ -309,18 +318,21 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
    * with readPortalShell itself: one implementation of shell classification
    * (redirect following, Entra detection, signed-out 2xx shells) instead of
    * a weaker duplicate that misread canonical 302s and sign-in-page 200s.
+   * A thrown fetch error becomes a plain ConnectionError — retryable and
+   * never counted toward escalation.
    */
-  private async portalAlive(): Promise<'ok' | 'entra' | 'error'> {
+  private async probePortal(): Promise<Result<unknown, ConnectionError | AuthenticationError>> {
     try {
-      const shell = await this.cluster.readPortalShell(this.jar, this.opts.saas);
-      if (!isErr(shell)) {
-        this.pendingShell = { fceToken: shell.value.fceToken, auth: shell.value.auth, at: Date.now() };
-        return 'ok';
-      }
-      return shell.error instanceof AuthenticationError ? 'entra' : 'error';
-    } catch {
-      return 'error';
+      return await this.cluster.readPortalShell(this.jar, this.opts.saas);
+    } catch (e) {
+      return err(new ConnectionError(
+        `portal probe failed: ${e instanceof Error ? e.message : String(e)}`,
+      ));
     }
+  }
+
+  private noteShellFailure(e: unknown): void {
+    if (e instanceof ShellUnclassifiableError) this.shellUnclassifiableStreak++;
   }
 }
 

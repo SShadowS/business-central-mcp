@@ -201,13 +201,16 @@ function pathMatches(cookiePath: string, requestPath: string): boolean {
  * longer than the portal host and never match.
  */
 function isPortalAuthCookie(c: CookieRecord): boolean {
-  const d = c.domain.toLowerCase();
-  if (d !== SAAS_PORTAL_HOST && !SAAS_PORTAL_HOST.endsWith(`.${d}`)) return false;
+  if (!hostInDomain(SAAS_PORTAL_HOST, c.domain)) return false;
   return c.name.endsWith('.auth') || c.name === '.AspNetCore.Cookies';
 }
 
 function isPersistableDomain(domain: string): boolean {
   const d = domain.toLowerCase();
   if (d.includes('appservices.')) return false;
-  return d === SAAS_PORTAL_HOST || d.endsWith(`.${SAAS_PORTAL_HOST}`);
+  // Portal host, its subdomains, and its parent domains (a parent-scoped
+  // auth cookie is sent to the portal and counted by isPortalAuthCookie, so
+  // persistence must agree or every restart loses a "persisted" session).
+  // ESTS/cluster domains match none of these.
+  return hostInDomain(SAAS_PORTAL_HOST, d) || d.endsWith(`.${SAAS_PORTAL_HOST}`);
 }

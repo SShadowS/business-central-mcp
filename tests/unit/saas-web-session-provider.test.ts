@@ -222,16 +222,6 @@ describe('SaasWebSessionProvider', () => {
     expect(provider.isAuthenticated()).toBe(true);
   });
 
-  it('authenticate + first prepare fetch the portal shell only once', async () => {
-    seedCookies();
-    const { fetchFn, calls } = recordFetch(defaultRouter());
-    const provider = makeProvider(fetchFn);
-    await provider.authenticate();
-    const prepared = await provider.prepare();
-    expect(isOk(prepared)).toBe(true);
-    expect(calls.filter((c) => c.url === PORTAL && c.method === 'GET').length).toBe(1);
-  });
-
   it('escalates to sign-in after three consecutive unclassifiable probe failures', async () => {
     // A persistently unclassifiable portal state (e.g. a signed-out state
     // that renders without FixedEndPoint.start) must not wedge retryable
@@ -268,35 +258,41 @@ describe('SaasWebSessionProvider', () => {
     expect(isErr(again) && again.error.code === 'CONNECTION_ERROR').toBe(true);
   });
 
-  it('a cached probe shell older than its TTL is discarded, not replayed', async () => {
-    vi.useFakeTimers();
-    try {
-      seedCookies();
-      const { fetchFn, calls } = recordFetch(defaultRouter());
-      const provider = makeProvider(fetchFn);
-      await provider.authenticate();
-      vi.advanceTimersByTime(5 * 60_000);
-      const prepared = await provider.prepare();
-      expect(isOk(prepared)).toBe(true);
-      // The stale shell (short-lived JWT) must not feed AUTHENTICATETOKEN;
-      // prepare refetches instead of consuming the cache.
-      expect(calls.filter((c) => c.url === PORTAL && c.method === 'GET').length).toBe(2);
-    } finally {
-      vi.useRealTimers();
-    }
+  it('escalates through the production create flow: authenticate once, then repeated prepare failures', async () => {
+    // After the first authenticate(), isAuthenticated() stays true and
+    // ConnectionFactory.create skips straight to prepare() — so escalation
+    // must count unclassifiable shells seen by bindAndMint too, and the
+    // threshold must flip isAuthenticated() false so create() re-enters
+    // authenticate() and reopens sign-in.
+    seedCookies();
+    const { fetchFn } = recordFetch(() => new Response('<html>one moment</html>', { status: 200 }));
+    const provider = makeProvider(fetchFn);
+    const auth1 = await provider.authenticate();
+    expect(isErr(auth1) && auth1.error.code === 'CONNECTION_ERROR').toBe(true);
+    expect(provider.isAuthenticated()).toBe(true);
+    const prep1 = await provider.prepare();
+    expect(isErr(prep1)).toBe(true);
+    expect(provider.isAuthenticated()).toBe(true);
+    const prep2 = await provider.prepare();
+    expect(isErr(prep2)).toBe(true);
+    // Third unclassifiable shell: cookies cleared, so create() re-authenticates.
+    expect(provider.isAuthenticated()).toBe(false);
+    const auth2 = await provider.authenticate();
+    expect(isErr(auth2)).toBe(true);
+    if (isErr(auth2)) expect(auth2.error.code).toBe('SIGN_IN_REQUIRED');
   });
 
-  it('unboundCluster clears the cached probe shell so the next prepare refetches it', async () => {
+  it('network failures do not count toward escalation — cookies survive an outage of any length', async () => {
     seedCookies();
-    const { fetchFn, calls } = recordFetch(defaultRouter());
+    const { fetchFn } = recordFetch(() => { throw new Error('ECONNREFUSED'); });
     const provider = makeProvider(fetchFn);
-    await provider.authenticate();
-    provider.unboundCluster();
-    const prepared = await provider.prepare();
-    expect(isOk(prepared)).toBe(true);
-    // The probe's cached shell (holding a time-limited JWT) must not survive
-    // an explicit unbind — prepare must fetch a fresh one.
-    expect(calls.filter((c) => c.url === PORTAL && c.method === 'GET').length).toBe(2);
+    for (let i = 0; i < 4; i++) {
+      const result = await provider.authenticate();
+      expect(isErr(result) && result.error.code === 'CONNECTION_ERROR').toBe(true);
+    }
+    // 'Portal unreachable' is evidence of nothing about the session; only
+    // 'portal reachable but shell unclassifiable' may escalate to sign-in.
+    expect(provider.isAuthenticated()).toBe(true);
   });
 
   it('missing cookies returns SignInRequiredError from the owned login window', async () => {
