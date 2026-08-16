@@ -237,8 +237,9 @@ async function main() {
       }
 
       // REST API routes — resolve the route BEFORE creating a session, so
-      // unknown paths 404 without side effects.
-      const routeKey = `${method} ${url.split('?')[0]}`;
+      // unknown paths 404 without side effects. Same normalization as
+      // /health and /mcp: one rule for every endpoint.
+      const routeKey = `${method} ${requestPathname(url)}`;
       if (!knownRouteKeys.has(routeKey)) {
         res.writeHead(404, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Not found' }));

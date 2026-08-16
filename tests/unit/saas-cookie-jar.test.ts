@@ -85,13 +85,17 @@ describe('CookieJar', () => {
     expect(jar.hasPortalAuth()).toBe(false);
   });
 
-  it('hasPortalAuth ignores a domain-attribute cookie even when its Domain equals the portal host', () => {
-    // Cluster hosts are subdomains of the portal host, so a cluster response
-    // can legally set Domain=businesscentral.dynamics.com. The real portal
-    // auth cookie is host-only; only host-only records may count.
+  it('hasPortalAuth accepts a Domain-attribute cookie scoped to the portal host', () => {
+    // Detection must agree with sending AND persistence: were a portal-host
+    // Domain-attribute auth cookie rejected here while headerFor sends it
+    // and persistable() stores it, a portal serving the cookie with a
+    // Domain attribute would brick sign-in ("cookies are missing" after
+    // every successful login). A cluster-planted cookie of this shape is
+    // instead cleaned up by the shell-read escalation (the planted session
+    // fails its first probe).
     const jar = new CookieJar();
     jar.absorb(response([`${TENANT}.auth=x; Domain=businesscentral.dynamics.com; Path=/; Secure`]), CLUSTER);
-    expect(jar.hasPortalAuth()).toBe(false);
+    expect(jar.hasPortalAuth()).toBe(true);
   });
 
   it('hasPortalAuth ignores a *.auth cookie on a non-portal host', () => {

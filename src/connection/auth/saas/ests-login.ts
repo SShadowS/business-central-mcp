@@ -10,7 +10,8 @@ import {
   parseConfig,
 } from './html-extract.js';
 import { redactingLogger } from './redact.js';
-import { SAAS_BROWSER_UA, type EstsStatus, type SasJson } from './ests-types.js';
+import { fetchWithJar } from './saas-http.js';
+import { type EstsStatus, type SasJson } from './ests-types.js';
 
 const ESTS_ORIGIN = 'https://login.microsoftonline.com';
 const MAX_REDIRECTS = 8;
@@ -404,22 +405,7 @@ export class EstsLoginClient {
   }
 
   private async request(url: string, init: RequestInit = {}): Promise<Page> {
-    const headers = new Headers(init.headers);
-    headers.set('User-Agent', SAAS_BROWSER_UA);
-    const cookie = this.jar.headerFor(url);
-    if (cookie) headers.set('Cookie', cookie);
-    try {
-      const res = await this.fetchFn(url, { ...init, headers, redirect: 'manual' });
-      this.jar.absorb(res, url);
-      const html = await res.text();
-      return { res, html, url };
-    } catch (e) {
-      // Same policy as SaasClusterSession.request: a rejected fetch is a
-      // typed, retryable ConnectionError — a network blip mid-sign-in is an
-      // outage, not a terminal authentication failure.
-      throw new ConnectionError(
-        `sign-in request failed: ${e instanceof Error ? e.message : String(e)}`,
-      );
-    }
+    const { res, html } = await fetchWithJar(this.fetchFn, this.jar, url, init);
+    return { res, html, url };
   }
 }

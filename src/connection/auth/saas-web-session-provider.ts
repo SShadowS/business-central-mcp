@@ -35,13 +35,14 @@ export interface SaasWebSessionProviderOpts {
   store?: FileCookieStore;
 }
 
-const DEAD_TAB = /HTTP (401|403|500)\b/;
-/** Consecutive unclassifiable-shell reads (2xx with no FixedEndPoint.start,
+const DEAD_TAB = /HTTP (3\d\d|401|403|500)\b/;
+/** Consecutive unclassifiable-shell reads (ShellUnclassifiableError: a 2xx
+ * with no FixedEndPoint.start, a token-less shell, or a bare 401/403 —
  * counted across BOTH the authenticate() probe and bindAndMint) before the
- * stored session is treated as dead and interactive sign-in reopens. Only
- * "portal reachable but shell unclassifiable" counts — network failures and
- * portal 4xx/5xx are evidence of nothing about the session and stay purely
- * retryable, so a transient outage never destroys valid cookies. */
+ * stored session is treated as dead and interactive sign-in reopens.
+ * Network failures and portal 5xx are evidence of nothing about the session
+ * and stay purely retryable, so a transient outage never destroys valid
+ * cookies. */
 const SHELL_UNCLASSIFIABLE_ESCALATION = 3;
 /** Minimum time the unclassifiable state must have persisted before the
  * streak may escalate. SessionManager's backoff ladder can produce 3+
@@ -155,19 +156,24 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
    * not accept (multi-account user picking the wrong one at Entra): cookie
    * presence alone cannot detect this since the auth cookie is named by the
    * RESOLVED tenant GUID. Verify behaviorally — the portal at the configured
-   * URL must honor the new session. A transient failure here does not fail
-   * the sign-in (the next create's probe re-checks); only a definitive
-   * Entra-redirect rejection does, with a message naming the likely cause.
+   * URL must hand back a SIGNED-IN shell. An Entra redirect and a token-less
+   * or unclassifiable shell both fail verification (a wrong-tenant session
+   * often surfaces as the latter; accepting it would persist wrong-tenant
+   * cookies as "success" and later degrade into unexplained repeat sign-in
+   * prompts). Only a plain network failure passes on benefit of the doubt —
+   * the next create's probe re-checks.
    */
   private async verifyFreshLogin(): Promise<Result<void, AuthFailure>> {
     // Deliberately untracked (probePortal, not readShellTracked): this read
     // verifies the sign-in that just happened and must not feed the streak.
     const probe = await this.probePortal();
-    if (isErr(probe) && probe.error instanceof AuthenticationError) {
+    if (isErr(probe)
+      && (probe.error instanceof AuthenticationError || probe.error instanceof ShellUnclassifiableError)) {
       this.markSessionDead();
       return err(new AuthenticationError(
-        `Sign-in completed, but ${this.opts.saas.portalUrl} did not accept the session — `
-        + 'signed in with a different account or tenant than configured?',
+        `Sign-in completed, but ${this.opts.saas.portalUrl} did not return a signed-in session — `
+        + 'signed in with a different account or tenant than configured, or the portal is degraded? '
+        + 'The sign-in was not saved.',
         { nonRetryable: true },
       ));
     }

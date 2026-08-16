@@ -6,8 +6,8 @@ import { isEntraLoginUrl, type SaasTarget } from '../../saas-url.js';
 import { CookieJar } from './cookie-jar.js';
 import { extractFceToken, extractFixedEndPointAuth, parseDeploymentJson, parseFixedEndPoint } from './html-extract.js';
 import { redactingLogger } from './redact.js';
+import { fetchWithJar } from './saas-http.js';
 import {
-  SAAS_BROWSER_UA,
   SAAS_PORTAL_ORIGIN,
   type DeploymentReady,
   type FixedEndPointAuth,
@@ -23,6 +23,10 @@ const MAX_SHELL_REDIRECTS = 5;
  * escalation while network/HTTP failures stay purely retryable.
  */
 export class ShellUnclassifiableError extends ConnectionError {}
+
+function isDeadTabStatus(status: number): boolean {
+  return (status >= 300 && status < 400) || status === 401 || status === 403 || status === 500;
+}
 
 export class SaasClusterSession {
   private readonly log: Logger;
@@ -212,9 +216,13 @@ export class SaasClusterSession {
       Origin: SAAS_PORTAL_ORIGIN,
       Referer: portalUrl,
     };
+    // A 3xx here is redirect-to-sign-in shaped (the tab endpoints never
+    // redirect on a live session): it must FAIL, not mint a bogus tab —
+    // otherwise a revoked session on the warm cluster path never surfaces
+    // and the sign-in window cannot reopen.
     for (const path of ['/v', '/boot/browser/desktop']) {
       const page = await this.request(jar, `${tabBaseUrl}${path}`, { headers: clusterHeaders });
-      if (page.res.status === 401 || page.res.status === 403 || page.res.status === 500) {
+      if (isDeadTabStatus(page.res.status)) {
         return err(new ConnectionError(`tab ${path} HTTP ${page.res.status}`));
       }
     }
@@ -222,7 +230,7 @@ export class SaasClusterSession {
       method: 'POST',
       headers: { Accept: 'application/json', ...clusterHeaders },
     });
-    if (csrfPage.res.status === 401 || csrfPage.res.status === 403 || csrfPage.res.status === 500) {
+    if (isDeadTabStatus(csrfPage.res.status)) {
       return err(new ConnectionError(`tab /csrf HTTP ${csrfPage.res.status}`));
     }
     let csrf = csrfHint;
@@ -244,23 +252,7 @@ export class SaasClusterSession {
     return ok({ tabId, tabBaseUrl, clusterHost, runtimeId, csrfToken: csrf });
   }
 
-  private async request(jar: CookieJar, url: string, init: RequestInit = {}): Promise<{ res: Response; html: string }> {
-    const headers = new Headers(init.headers);
-    headers.set('User-Agent', SAAS_BROWSER_UA);
-    const cookie = jar.headerFor(url);
-    if (cookie) headers.set('Cookie', cookie);
-    try {
-      const res = await this.fetchFn(url, { ...init, headers, redirect: 'manual' });
-      jar.absorb(res, url);
-      return { res, html: await res.text() };
-    } catch (e) {
-      // A rejected fetch (DNS, socket, aborted body) becomes a typed
-      // ConnectionError so every caller — probe or prepare — classifies the
-      // same outage the same retryable way instead of leaking a raw
-      // TypeError past the Result contract.
-      throw new ConnectionError(
-        `portal request failed: ${e instanceof Error ? e.message : String(e)}`,
-      );
-    }
+  private request(jar: CookieJar, url: string, init: RequestInit = {}): Promise<{ res: Response; html: string }> {
+    return fetchWithJar(this.fetchFn, jar, url, init);
   }
 }

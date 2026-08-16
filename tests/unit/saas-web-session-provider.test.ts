@@ -489,6 +489,54 @@ describe('SaasWebSessionProvider', () => {
     }
   });
 
+  it('post-login verification rejects a token-less shell — sign-in must yield a WORKING session', async () => {
+    // A wrong-tenant sign-in can answer with a token-less shell instead of
+    // an Entra redirect; accepting it would persist wrong-tenant cookies as
+    // "success" and later degrade into repeated sign-in prompts with no
+    // explanation. Verification requires a signed-in shell, full stop.
+    const { fetchFn } = recordFetch(() => new Response(
+      'FixedEndPoint.start({"authentication":{"type":"aad"}});',
+      { status: 200 },
+    ));
+    const jar = new CookieJar();
+    jar.load([{ ...authCookie, name: 'bb258e74-0d74-4054-b2d6-41f6c19bcd6e.auth' }]);
+    const provider = makeProvider(fetchFn, { jar });
+    const result = await (provider as unknown as {
+      verifyFreshLogin(): Promise<import('../../src/core/result.js').Result<unknown, { code: string; message: string }>>;
+    }).verifyFreshLogin();
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.error.code).toBe('AUTHENTICATION_ERROR');
+      expect(result.error.message).toMatch(/account|tenant/i);
+    }
+    expect(provider.isAuthenticated()).toBe(false);
+  });
+
+  it('a dead session on the warm cluster path unbinds on redirect-shaped tab failures', async () => {
+    // With clusterBound=true, prepare() skips the shell read entirely; a
+    // revoked session whose tab endpoints 302 to Entra must fail AND unbind,
+    // or the sign-in window can never reopen for the process lifetime.
+    seedCookies();
+    let revoked = false;
+    const base = defaultRouter();
+    const { fetchFn } = recordFetch((url) => {
+      const u = new URL(url);
+      if (revoked && u.pathname.includes('/tab/')) {
+        return new Response('', { status: 302, headers: { Location: 'https://login.microsoftonline.com/x' } });
+      }
+      return base(url);
+    });
+    const provider = makeProvider(fetchFn);
+    await provider.authenticate();
+    const warm = await provider.prepare();
+    expect(isOk(warm)).toBe(true);
+    expect(provider.isClusterBound).toBe(true);
+    revoked = true;
+    const dead = await provider.prepare();
+    expect(isErr(dead)).toBe(true);
+    expect(provider.isClusterBound).toBe(false);
+  });
+
   it('post-login verification rejects a session the portal does not accept (wrong account/tenant)', async () => {
     const { fetchFn } = recordFetch(() => new Response('', {
       status: 302,

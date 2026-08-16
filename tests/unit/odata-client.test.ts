@@ -375,6 +375,20 @@ describe('ODataClient.query — URL construction', () => {
     );
   });
 
+  it('wraps a raw getAuthorization rejection as an ODataError network failure', async () => {
+    // Token acquisition reaching out to Entra can fail with a raw
+    // TypeError; it must keep the ODATA_ERROR retryable-outage framing,
+    // not surface as a generic protocol failure.
+    const client = new ODataClient(makeConfig({
+      username: '',
+      password: '',
+      getAuthorization: async () => { throw new TypeError('fetch failed'); },
+    }));
+    await expect(client.query('customers')).rejects.toSatisfy(
+      (e: unknown) => e instanceof ODataError && e.statusCode === 0 && e.message.includes('fetch failed'),
+    );
+  });
+
   it('sends Bearer when getAuthorization is provided', async () => {
     const fetchMock = mockFetch([
       companiesResponse([{ id: 'co-id', name: 'Co' }]),

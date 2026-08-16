@@ -101,33 +101,6 @@ describe('createApiRoutes', () => {
     expect(keys).toContain('POST /api/v1/pages/close');
     expect(keys).toContain('POST /api/v1/search');
     expect(keys).toContain('POST /api/v1/navigate');
-    expect(keys).toContain('GET /health');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// GET /health
-// ---------------------------------------------------------------------------
-
-describe('GET /health handler', () => {
-  it('returns 200 with status:healthy', async () => {
-    const routes = createApiRoutes(makeMockOps(), makeLogger());
-    const handler = routes.get('GET /health')!;
-    const res = makeRes();
-    await handler(fakeReq, res as unknown as ServerResponse, null);
-    expect(statusCode(res)).toBe(200);
-    expect(contentType(res)).toBe('application/json');
-    expect(bodyJson(res)).toMatchObject({ status: 'healthy' });
-  });
-
-  it('includes a version field', async () => {
-    const routes = createApiRoutes(makeMockOps(), makeLogger());
-    const handler = routes.get('GET /health')!;
-    const res = makeRes();
-    await handler(fakeReq, res as unknown as ServerResponse, null);
-    const body = bodyJson(res) as Record<string, unknown>;
-    expect(typeof body.version).toBe('string');
-    expect(body.version).toBeTruthy();
   });
 });
 

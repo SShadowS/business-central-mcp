@@ -202,20 +202,19 @@ function pathMatches(cookiePath: string, requestPath: string): boolean {
  * the stored aadTenantId/environmentName tag differs from the configured one
  * — a jar therefore only ever holds cookies for its own tenant.
  *
- * The real auth cookie is HOST-ONLY on the portal host, and that is exactly
- * what is required here: a Domain-attribute cookie — whether a parent domain
- * (Domain=dynamics.com) or the portal host itself
- * (Domain=businesscentral.dynamics.com) — could equally be planted by a
- * CLUSTER response, since cluster hosts live under
- * businesscentral.dynamics.com and every cluster response is absorbed. Such
- * a cookie counting as portal auth would make isAuthenticated() true with no
- * portal session present. hostOnly may be undefined on records persisted by
- * older builds; only an explicit false (a Domain-attribute cookie) is
- * rejected.
+ * The domain must be the portal host exactly (host-only cookies store the
+ * request host; an explicit Domain=businesscentral.dynamics.com also
+ * qualifies). Parent domains (Domain=dynamics.com) never count — see the
+ * comment on isPersistableDomain. hostOnly is deliberately NOT required:
+ * detection must agree with headerFor (which sends Domain-attribute
+ * portal-host cookies) and with persistence, or a portal serving the auth
+ * cookie with a Domain attribute would brick sign-in ("cookies are missing"
+ * after every successful login). The residual risk — a cluster response
+ * planting a portal-host Domain cookie — self-heals: the planted session
+ * fails its first shell read and the escalation tears it down.
  */
 function isPortalAuthCookie(c: CookieRecord): boolean {
   if (c.domain.toLowerCase() !== SAAS_PORTAL_HOST) return false;
-  if (c.hostOnly === false) return false;
   return c.name.endsWith('.auth') || c.name === '.AspNetCore.Cookies';
 }
 
