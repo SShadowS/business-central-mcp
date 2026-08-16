@@ -33,7 +33,7 @@ import { WizardNavigateOperation } from './operations/wizard-navigate.js';
 import { DownloadService } from './services/download-service.js';
 import { LookupService } from './services/lookup-service.js';
 import { LookupOperation } from './operations/lookup.js';
-import { QueryOperation, createQueryOperation } from './operations/query.js';
+import { createQueryOperation } from './operations/query.js';
 import { buildToolRegistry, type Operations } from './mcp/tool-registry.js';
 import { MCPHandler } from './mcp/handler.js';
 import { PROMPTS } from './mcp/prompts.js';
@@ -132,11 +132,12 @@ async function main() {
   const lazyTools = staticTools.map(toolDef => ({
     ...toolDef,
     execute: async (input: unknown) => {
-      // bc_query talks to the OData API and must not require a /csh session.
-      // SaaS OAuth can obtain an API token even when the first-party web-client
-      // cookie session (needed for /csh) cannot be established.
-      if (toolDef.name === 'bc_query') {
-        return queryOperation.execute(input as Parameters<QueryOperation['execute']>[0]);
+      // Session-independent tools (e.g. bc_query over OData) must not require a
+      // /csh session — SaaS OAuth can obtain an API token even when the
+      // first-party web-client cookie session cannot be established. Their own
+      // execute already reaches BC without a session, so run it directly.
+      if (toolDef.sessionIndependent) {
+        return toolDef.execute(input);
       }
       const tools = await ensureSession();
       const resolved = tools.find(t => t.name === toolDef.name);

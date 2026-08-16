@@ -34,6 +34,13 @@ export interface ToolDefinition {
   inputSchema: Record<string, unknown>;
   zodSchema: z.ZodType;
   execute: (input: unknown) => Promise<unknown>;
+  /**
+   * True when the tool works without a `/csh` web-client session (its
+   * `execute` reaches BC through a session-independent path, e.g. OData).
+   * The server entry points run such tools directly instead of forcing
+   * session creation. Defaults to false/undefined (session required).
+   */
+  sessionIndependent?: boolean;
 }
 
 export interface Operations {

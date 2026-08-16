@@ -12,6 +12,10 @@ When to use bc_query: structured data retrieval over standard BC entities, when 
 When NOT to use bc_query: do not use for UI-driven flows (navigating pages, clicking buttons, filling forms — use bc_open_page + bc_execute_action for those). Do not use bc_query for posting, writing, or triggering BC business logic — OData reads are read-only; use bc_write_data and bc_execute_action for mutations. Do not use for custom/extension entities not in the Standard API v2.0 — those require the UI WebSocket tools. Auth: on-prem NavUserPassword uses HTTP Basic; BC Online (SaaS) uses device-code — when sign-in is needed the tool returns DEVICE_LOGIN_REQUIRED with a verification URL and code to show the user, and a retry after they sign in runs the query. bc_query does not need a /csh WebSocket session and does not open the SaaS sign-in window.`,
     inputSchema: toMcpJsonSchema(QuerySchema),
     zodSchema: QuerySchema,
+    // bc_query reaches BC over OData (HTTP Basic on-prem, device-code OAuth on
+    // SaaS); it never needs the /csh web-client session, so the servers can run
+    // it before a session exists.
+    sessionIndependent: true,
     execute: (input) => ops.query.execute(input as Parameters<typeof ops.query.execute>[0]),
   };
 }
