@@ -367,6 +367,22 @@ describe('OAuthAuthProvider device-code state machine (fail-fast)', () => {
     expect(pendingCache().load(CLIENT, TENANT)?.userCode).toBe('KEEP-CODE');
   });
 
+  it('pending + non-JSON 200 on poll (captive portal): keeps the pending code, does not churn', async () => {
+    // A proxy/captive-portal HTTP 200 that is not a token JSON yields the
+    // synthetic oauthError 'http_200' (no real OAuth error field). Treating it
+    // as a hard failure would clear the code the user is mid-typing.
+    const start = vi.fn();
+    const provider = makeProvider(stubClient({
+      startDeviceCode: start,
+      pollDeviceCodeOnce: async () => err(new AuthenticationError('Token request failed: HTTP 200', { oauthError: 'http_200' })),
+    }));
+    seedPending('KEEP-CODE');
+
+    expect(await provider.getAccessToken()).toBeUndefined();
+    expect(pendingCache().load(CLIENT, TENANT)?.userCode).toBe('KEEP-CODE');
+    expect(start).not.toHaveBeenCalled();
+  });
+
   it('authenticate() surfaces DEVICE_LOGIN_REQUIRED as a Result error (non-retryable for SessionManager)', async () => {
     const provider = makeProvider(stubClient());
     const result = await provider.authenticate();

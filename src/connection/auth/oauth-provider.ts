@@ -6,6 +6,7 @@ import { bindingFromBaseUrl, type IBCAuthProvider, type AuthResult, type Connect
 import { isSaasHost } from '../saas-url.js';
 import { OAuthTokenClient, type TokenSet } from './oauth-token-client.js';
 import { FileTokenCache, FilePendingDeviceCache } from './token-cache.js';
+import { mergeSetCookies } from './set-cookie-merge.js';
 
 export interface OAuthProviderConfig {
   baseUrl: string;
@@ -209,9 +210,13 @@ export class OAuthAuthProvider implements IBCAuthProvider {
       if (oauthError === 'authorization_pending' || oauthError === 'slow_down') {
         return err(new DeviceLoginRequiredError(pending.verificationUri, pending.userCode, pending.expiresAt));
       }
-      if (oauthError === undefined || String(oauthError).startsWith('http_5')) {
-        // Network or transient token-endpoint failure — keep the pending
-        // code; the user may be mid-sign-in.
+      if (oauthError === undefined || String(oauthError).startsWith('http_')) {
+        // Network or ambiguous token-endpoint response — keep the pending
+        // code; the user may be mid-sign-in. A real hard failure
+        // (expired_token, access_denied) always carries a JSON `error` field,
+        // so it surfaces as that code, never a synthetic `http_<status>`
+        // (which means the response had no OAuth error body: a captive
+        // portal 200/302, a bodyless 4xx, or a 5xx).
         return polled;
       }
       this.pending.clear();
@@ -334,21 +339,7 @@ function hostnameOf(raw: string): string {
   }
 }
 
-export function mergeSetCookies(existing: string, setCookieHeaders: string[]): string {
-  const map = new Map<string, string>();
-  for (const part of existing.split('; ').filter(Boolean)) {
-    const eq = part.indexOf('=');
-    if (eq >= 0) map.set(part.slice(0, eq), part.slice(eq + 1));
-    else map.set(part, '');
-  }
-  for (const header of setCookieHeaders) {
-    const nameValue = header.split(';')[0];
-    if (!nameValue) continue;
-    const eq = nameValue.indexOf('=');
-    if (eq >= 0) map.set(nameValue.slice(0, eq), nameValue.slice(eq + 1));
-  }
-  return Array.from(map.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
-}
+export { mergeSetCookies };
 
 export function extractCsrf(cookies: string): string {
   const parts = cookies.split('; ').filter(Boolean);
