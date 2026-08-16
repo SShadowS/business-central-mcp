@@ -40,6 +40,13 @@ import { createApiRoutes } from './api/routes.js';
 import { parseJsonBody, checkApiToken, bcErrorToHttp } from './api/middleware.js';
 // isErr no longer needed — SessionManager handles session creation errors internally
 
+/** The MCP endpoint by pathname, tolerant of a trailing slash and query —
+ * used by both the API-token 401 gate and the router so they cannot drift. */
+function isMcpPath(url: string): boolean {
+  const pathname = url.split('?')[0]!.replace(/\/+$/, '');
+  return pathname === '/mcp';
+}
+
 async function main() {
   const config = loadConfig();
   const logger = createLogger(config.logging);
@@ -148,10 +155,12 @@ async function main() {
       // /mcp: MCP streamable-HTTP clients treat 401 + WWW-Authenticate as
       // the trigger for RFC 9728 OAuth discovery, which this server does not
       // serve.
-      // Same predicate the router uses for the MCP endpoint below — the two
-      // must agree, or /mcp-adjacent paths get inconsistent 401 shapes.
+      // Shared predicate with the router below — the two must agree, or
+      // /mcp-adjacent paths get inconsistent 401 shapes and MCP clients see
+      // a WWW-Authenticate that triggers OAuth discovery this server does
+      // not serve.
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (req.url !== '/mcp') {
+      if (!isMcpPath(req.url ?? '')) {
         headers['WWW-Authenticate'] = 'Bearer realm="bc-mcp-api-token"';
       }
       res.writeHead(401, headers);
@@ -181,7 +190,7 @@ async function main() {
       }
 
       // MCP endpoint
-      if (url === '/mcp' && method === 'POST') {
+      if (isMcpPath(url) && method === 'POST') {
         const body = await parseJsonBody(req) as Parameters<MCPHandler['handleRequest']>[0];
         const response = await mcpHandler.handleRequest(body);
         // JSON-RPC notifications have no id; per spec they must not receive a

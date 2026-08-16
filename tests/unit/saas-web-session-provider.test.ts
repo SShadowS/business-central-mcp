@@ -400,6 +400,27 @@ describe('SaasWebSessionProvider', () => {
     }
   });
 
+  it('a stale streak ages out — an old burst plus one new interstitial does not kill the session', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      seedCookies();
+      const { fetchFn } = recordFetch(() => new Response('<html>one moment</html>', { status: 200 }));
+      const provider = makeProvider(fetchFn);
+      // Quick burst: streak 3, but window unmet — all retryable.
+      await provider.authenticate();
+      await provider.authenticate();
+      await provider.authenticate();
+      expect(provider.isAuthenticated()).toBe(true);
+      // Long idle gap: the old burst is no longer evidence about today.
+      vi.setSystemTime(Date.now() + 24 * 60 * 60_000);
+      const fresh = await provider.authenticate();
+      expect(isErr(fresh) && fresh.error.code === 'CONNECTION_ERROR').toBe(true);
+      expect(provider.isAuthenticated()).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('network failures do not count toward escalation — cookies survive an outage of any length', async () => {
     seedCookies();
     const { fetchFn } = recordFetch(() => { throw new Error('ECONNREFUSED'); });

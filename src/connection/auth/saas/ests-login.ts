@@ -85,6 +85,9 @@ export class EstsLoginClient {
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       this.onStatus({ phase: 'error', message });
+      // A typed AuthenticationError keeps its own retryability (e.g. the MFA
+      // throttle is retryable); everything else is a hard sign-in failure.
+      if (e instanceof AuthenticationError) return err(e);
       return err(new AuthenticationError(message, { nonRetryable: true }));
     }
   }
@@ -262,9 +265,14 @@ export class EstsLoginClient {
         await this.sleep(MFA_POLL_MS);
       }
       if (began.Success === false && !began.CorrelationId) {
-        const reason = began.Message ?? began.ResultValue
-          ?? (began.Retry ? 'throttled by Entra (retries exhausted)' : 'unknown error');
-        throw new Error(`MFA BeginAuth failed: ${reason}`);
+        if (began.Retry) {
+          // A throttle clears in seconds — surface it retryable, not as a
+          // terminal auth failure the user must restart sign-in over.
+          // (login()'s catch preserves AuthenticationError instances; one
+          // without nonRetryable stays retryable in SessionManager.)
+          throw new AuthenticationError('MFA BeginAuth failed: throttled by Entra (retries exhausted); retry shortly');
+        }
+        throw new Error(`MFA BeginAuth failed: ${began.Message ?? began.ResultValue ?? 'unknown error'}`);
       }
       const entropy = began.Entropy !== undefined && began.Entropy !== '' ? String(began.Entropy) : '';
       this.onStatus({

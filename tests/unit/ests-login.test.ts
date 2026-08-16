@@ -313,7 +313,12 @@ describe('EstsLoginClient', () => {
     const { ests } = client(scriptedFetch(steps));
     const result = await ests.login({ username: 'u@t.com', password: PASSWORD, portalUrl: PORTAL });
     expect(isErr(result)).toBe(true);
-    if (isErr(result)) expect(result.error.message).toMatch(/throttl/i);
+    if (isErr(result)) {
+      expect(result.error.message).toMatch(/throttl/i);
+      // A throttle clears in seconds; it must stay retryable, not dead-end
+      // the sign-in as a terminal auth failure.
+      expect(result.error.context?.nonRetryable).not.toBe(true);
+    }
   });
 
   it('MFA push proceeds to EndAuth polling when BeginAuth carries a CorrelationId, whatever the ResultValue', async () => {

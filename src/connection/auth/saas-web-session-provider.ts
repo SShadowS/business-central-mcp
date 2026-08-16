@@ -48,6 +48,12 @@ const SHELL_UNCLASSIFIABLE_ESCALATION = 3;
  * attempts within a few seconds, and a portal interstitial lasting seconds
  * must never destroy valid persisted cookies. */
 const SHELL_ESCALATION_WINDOW_MS = 60_000;
+/** Gap after which an unclassifiable streak is stale: a persistent portal
+ * state keeps failing every retry/tool call within minutes, so a longer
+ * silence means the old burst is no longer evidence about the current state.
+ * Must exceed SHELL_ESCALATION_WINDOW_MS, or spanning the window would
+ * itself reset the streak. */
+const SHELL_STREAK_STALE_MS = 10 * 60_000;
 
 /**
  * Cookie-session provider for BC Online `/csh`. Owns the jar, the store,
@@ -62,6 +68,7 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
   private clusterMeta: { host: string; runtimeId: string; csrfHint: string } | undefined;
   private shellUnclassifiableStreak = 0;
   private shellUnclassifiableSince: number | undefined;
+  private shellUnclassifiableLast: number | undefined;
   private authenticated = false;
   private clusterBound = false;
   private inflight: Promise<Result<AuthResult, AuthFailure>> | null = null;
@@ -113,11 +120,12 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
         return ok(this.authResult());
       }
       if (this.recordShellFailure(probe.error) === 'retryable') {
-        // Transient network/portal failure with stored cookies present:
-        // fail retryably instead of popping a sign-in window for a session
-        // that is probably still valid.
+        // Transient failure with stored cookies present: fail retryably
+        // instead of popping a sign-in window for a session that is probably
+        // still valid. The underlying detail (network vs unclassifiable
+        // shell) rides along so logs and clients see the real state.
         return err(new ConnectionError(
-          'BC Online portal is unreachable (network or portal error); retrying',
+          `BC Online portal probe failed; retrying: ${probe.error.message}`,
         ));
       }
       // 'fatal': Entra redirect, or the unclassifiable streak spanned the
@@ -149,11 +157,12 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
       minted = await this.bindAndMint();
     } catch (e) {
       // A thrown network error (typed ConnectionError from
-      // SaasClusterSession.request, or anything unexpected) must surface as
-      // a retryable Result — the same outage during authenticate() does.
-      return err(e instanceof ConnectionError ? e : new ConnectionError(
-        `prepare failed: ${e instanceof Error ? e.message : String(e)}`,
-      ));
+      // SaasClusterSession.request) surfaces as a retryable Result — the
+      // same outage during authenticate() does. Anything else is a
+      // programming bug and propagates raw (stack intact) rather than being
+      // relabeled a retryable outage.
+      if (e instanceof ConnectionError) return err(e);
+      throw e;
     }
     if (isErr(minted)) return minted;
     this.tab = minted.value;
@@ -321,7 +330,9 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
     try {
       return await this.cluster.readPortalShell(this.jar, this.opts.saas);
     } catch (e) {
-      return err(new ConnectionError(
+      // request() throws typed ConnectionErrors — preserve the instance
+      // instead of double-wrapping its message.
+      return err(e instanceof ConnectionError ? e : new ConnectionError(
         `portal probe failed: ${e instanceof Error ? e.message : String(e)}`,
       ));
     }
@@ -340,10 +351,21 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
   private recordShellFailure(e: unknown): 'fatal' | 'retryable' {
     if (e instanceof AuthenticationError) return 'fatal';
     if (e instanceof ShellUnclassifiableError) {
+      const now = Date.now();
+      // A streak ages out: an old burst separated from this failure by a
+      // long gap is no longer evidence about the current state — a fresh
+      // 5-second interstitial days later must start a fresh streak, not
+      // inherit an escalation-ready one.
+      if (this.shellUnclassifiableLast !== undefined
+        && now - this.shellUnclassifiableLast > SHELL_STREAK_STALE_MS) {
+        this.shellUnclassifiableStreak = 0;
+        this.shellUnclassifiableSince = undefined;
+      }
+      this.shellUnclassifiableLast = now;
       this.shellUnclassifiableStreak++;
-      this.shellUnclassifiableSince ??= Date.now();
+      this.shellUnclassifiableSince ??= now;
       if (this.shellUnclassifiableStreak >= SHELL_UNCLASSIFIABLE_ESCALATION
-        && Date.now() - this.shellUnclassifiableSince >= SHELL_ESCALATION_WINDOW_MS) {
+        && now - this.shellUnclassifiableSince >= SHELL_ESCALATION_WINDOW_MS) {
         return 'fatal';
       }
     }
@@ -355,6 +377,7 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
   private recordShellSuccess(): void {
     this.shellUnclassifiableStreak = 0;
     this.shellUnclassifiableSince = undefined;
+    this.shellUnclassifiableLast = undefined;
   }
 
   /**

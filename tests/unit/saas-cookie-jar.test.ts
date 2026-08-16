@@ -85,6 +85,15 @@ describe('CookieJar', () => {
     expect(jar.hasPortalAuth()).toBe(false);
   });
 
+  it('hasPortalAuth ignores a domain-attribute cookie even when its Domain equals the portal host', () => {
+    // Cluster hosts are subdomains of the portal host, so a cluster response
+    // can legally set Domain=businesscentral.dynamics.com. The real portal
+    // auth cookie is host-only; only host-only records may count.
+    const jar = new CookieJar();
+    jar.absorb(response([`${TENANT}.auth=x; Domain=businesscentral.dynamics.com; Path=/; Secure`]), CLUSTER);
+    expect(jar.hasPortalAuth()).toBe(false);
+  });
+
   it('hasPortalAuth ignores a *.auth cookie on a non-portal host', () => {
     const jar = new CookieJar();
     jar.absorb(response(['msft.auth=x; Path=/']), CLUSTER);
