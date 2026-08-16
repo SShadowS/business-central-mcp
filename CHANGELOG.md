@@ -21,6 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`bc_query` no longer opens a `/csh` session.** The OData tool is
   independent of the web-client WebSocket, so SaaS OAuth works for bulk reads
   even when the first-party web-client cookie session cannot be established.
+- **Device-code sign-in surfaces in chat.** When `bc_query` needs a sign-in it
+  fails fast with `DEVICE_LOGIN_REQUIRED` whose message carries the
+  https://microsoft.com/devicelogin URL and user code (instead of blocking the
+  tool call and printing the code on stderr, which MCP clients never show).
+  The pending sign-in is persisted in `STATE_DIR/oauth-pending.json`; retrying
+  the tool polls once and resumes — same code, no re-prompt — then runs the
+  query once sign-in is complete.
 
 ### Changed
 

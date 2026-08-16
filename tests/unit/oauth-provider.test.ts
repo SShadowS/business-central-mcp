@@ -4,8 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { OAuthAuthProvider, mergeSetCookies, extractCsrf } from '../../src/connection/auth/oauth-provider.js';
 import { OAuthTokenClient, type TokenSet } from '../../src/connection/auth/oauth-token-client.js';
-import { FileTokenCache } from '../../src/connection/auth/token-cache.js';
-import { ok } from '../../src/core/result.js';
+import { FileTokenCache, FilePendingDeviceCache } from '../../src/connection/auth/token-cache.js';
+import { AuthenticationError, DeviceLoginRequiredError } from '../../src/core/errors.js';
+import { ok, err } from '../../src/core/result.js';
 import { createNullLogger } from '../../src/core/logger.js';
 
 const TENANT = '7bcb54ae-6d5e-43c7-9402-928aed68ad00';
@@ -27,7 +28,7 @@ function stubClient(overrides?: Partial<OAuthTokenClient>): OAuthTokenClient {
       intervalSec: 5,
       expiresAt: Date.now() + 900_000,
     }),
-    pollDeviceCode: async () => ok(TOKENS),
+    pollDeviceCodeOnce: async () => ok(TOKENS),
     refresh: async () => ok(TOKENS),
     ...overrides,
   } as unknown as OAuthTokenClient;
@@ -54,16 +55,24 @@ describe('OAuthAuthProvider', () => {
 
   function makeProvider(client: OAuthTokenClient) {
     dir = mkdtempSync(join(tmpdir(), 'bc-oauth-p-'));
+    const disk = new FileTokenCache(join(dir, 'oauth-tokens.json'));
+    disk.save({
+      accessToken: TOKENS.accessToken,
+      refreshToken: TOKENS.refreshToken,
+      expiresAt: TOKENS.expiresAt,
+      clientId: CLIENT,
+      aadTenantId: TENANT,
+    });
     return new OAuthAuthProvider({
       baseUrl: `https://businesscentral.dynamics.com/${TENANT}/DEV`,
       aadTenantId: TENANT,
       clientId: CLIENT,
       scope: 'https://api.businesscentral.dynamics.com/user_impersonation offline_access',
       stateDir: dir,
-    }, createNullLogger(), client, new FileTokenCache(join(dir, 'oauth-tokens.json')));
+    }, createNullLogger(), client, disk);
   }
 
-  it('device-code then captures antiforgery cookies from a same-origin 200', async () => {
+  it('cached token then captures antiforgery cookies from a same-origin 200', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({
       status: 200,
       headers: {
@@ -141,9 +150,159 @@ describe('OAuthAuthProvider', () => {
       stateDir: dir,
     }, createNullLogger(), stubClient({
       startDeviceCode: async () => { throw new Error('should use cache'); },
-      pollDeviceCode: async () => { throw new Error('should use cache'); },
+      pollDeviceCodeOnce: async () => { throw new Error('should use cache'); },
     }), disk);
 
     expect(await provider.getAccessToken()).toBe('cached-tok');
+  });
+});
+
+describe('OAuthAuthProvider device-code state machine (fail-fast)', () => {
+  let dir: string;
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  });
+
+  function makeProvider(client: OAuthTokenClient) {
+    dir = mkdtempSync(join(tmpdir(), 'bc-oauth-sm-'));
+    return new OAuthAuthProvider({
+      baseUrl: `https://businesscentral.dynamics.com/${TENANT}/DEV`,
+      aadTenantId: TENANT,
+      clientId: CLIENT,
+      scope: 'https://api.businesscentral.dynamics.com/user_impersonation offline_access',
+      stateDir: dir,
+    }, createNullLogger(), client, new FileTokenCache(join(dir, 'oauth-tokens.json')));
+  }
+
+  function pendingCache(): FilePendingDeviceCache {
+    return new FilePendingDeviceCache(join(dir, 'oauth-pending.json'));
+  }
+
+  function seedPending(userCode = 'OLD-CODE'): void {
+    pendingCache().save({
+      deviceCode: 'dev-pending',
+      userCode,
+      verificationUri: 'https://microsoft.com/devicelogin',
+      intervalSec: 5,
+      expiresAt: Date.now() + 900_000,
+      clientId: CLIENT,
+      aadTenantId: TENANT,
+    });
+  }
+
+  it('no token, no pending: starts device code, saves pending, throws DEVICE_LOGIN_REQUIRED with URL + code', async () => {
+    const start = vi.fn(async () => ok({
+      deviceCode: 'dev',
+      userCode: 'NEW-CODE',
+      verificationUri: 'https://microsoft.com/devicelogin',
+      message: 'open the page',
+      intervalSec: 5,
+      expiresAt: Date.now() + 900_000,
+    }));
+    const provider = makeProvider(stubClient({ startDeviceCode: start }));
+
+    await expect(provider.getAccessToken()).rejects.toMatchObject({
+      code: 'DEVICE_LOGIN_REQUIRED',
+      userCode: 'NEW-CODE',
+      verificationUri: 'https://microsoft.com/devicelogin',
+    });
+    expect(pendingCache().load(CLIENT, TENANT)?.deviceCode).toBe('dev');
+  });
+
+  it('pending + authorization_pending: returns the SAME code without starting a new one', async () => {
+    const start = vi.fn();
+    const provider = makeProvider(stubClient({
+      startDeviceCode: start,
+      pollDeviceCodeOnce: async () => err(new AuthenticationError('authorization_pending', { oauthError: 'authorization_pending' })),
+    }));
+    seedPending('SAME-CODE');
+
+    await expect(provider.getAccessToken()).rejects.toMatchObject({
+      code: 'DEVICE_LOGIN_REQUIRED',
+      userCode: 'SAME-CODE',
+    });
+    expect(start).not.toHaveBeenCalled();
+    expect(pendingCache().load(CLIENT, TENANT)?.userCode).toBe('SAME-CODE');
+  });
+
+  it('pending + sign-in completed: returns tokens, persists them, clears pending', async () => {
+    const provider = makeProvider(stubClient({
+      pollDeviceCodeOnce: async () => ok(TOKENS),
+    }));
+    seedPending();
+
+    expect(await provider.getAccessToken()).toBe('access-1');
+    expect(pendingCache().load(CLIENT, TENANT)).toBeUndefined();
+    const disk = new FileTokenCache(join(dir, 'oauth-tokens.json'));
+    expect(disk.load(CLIENT, TENANT)?.accessToken).toBe('access-1');
+  });
+
+  it('pending + hard failure (expired_token): clears pending and starts a fresh code in the same call', async () => {
+    const provider = makeProvider(stubClient({
+      startDeviceCode: async () => ok({
+        deviceCode: 'dev-2',
+        userCode: 'FRESH-CODE',
+        verificationUri: 'https://microsoft.com/devicelogin',
+        message: 'open the page',
+        intervalSec: 5,
+        expiresAt: Date.now() + 900_000,
+      }),
+      pollDeviceCodeOnce: async () => err(new AuthenticationError('expired', { oauthError: 'expired_token' })),
+    }));
+    seedPending('OLD-CODE');
+
+    await expect(provider.getAccessToken()).rejects.toMatchObject({
+      code: 'DEVICE_LOGIN_REQUIRED',
+      userCode: 'FRESH-CODE',
+    });
+    expect(pendingCache().load(CLIENT, TENANT)?.deviceCode).toBe('dev-2');
+  });
+
+  it('expired pending entry: cleared and replaced by a fresh code', async () => {
+    const poll = vi.fn();
+    const provider = makeProvider(stubClient({
+      startDeviceCode: async () => ok({
+        deviceCode: 'dev-3',
+        userCode: 'FRESH-CODE',
+        verificationUri: 'https://microsoft.com/devicelogin',
+        message: 'open the page',
+        intervalSec: 5,
+        expiresAt: Date.now() + 900_000,
+      }),
+      pollDeviceCodeOnce: poll,
+    }));
+    pendingCache().save({
+      deviceCode: 'dev-old',
+      userCode: 'OLD-CODE',
+      verificationUri: 'https://microsoft.com/devicelogin',
+      intervalSec: 5,
+      expiresAt: Date.now() - 1000,
+      clientId: CLIENT,
+      aadTenantId: TENANT,
+    });
+
+    await expect(provider.getAccessToken()).rejects.toMatchObject({ userCode: 'FRESH-CODE' });
+    expect(poll).not.toHaveBeenCalled();
+  });
+
+  it('pending + network failure on poll: keeps the pending code and returns undefined (no churn)', async () => {
+    const provider = makeProvider(stubClient({
+      pollDeviceCodeOnce: async () => err(new AuthenticationError('Token request failed: fetch failed')),
+    }));
+    seedPending('KEEP-CODE');
+
+    expect(await provider.getAccessToken()).toBeUndefined();
+    expect(pendingCache().load(CLIENT, TENANT)?.userCode).toBe('KEEP-CODE');
+  });
+
+  it('authenticate() surfaces DEVICE_LOGIN_REQUIRED as a Result error (non-retryable for SessionManager)', async () => {
+    const provider = makeProvider(stubClient());
+    const result = await provider.authenticate();
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toBeInstanceOf(DeviceLoginRequiredError);
+      expect(result.error.code).toBe('DEVICE_LOGIN_REQUIRED');
+    }
   });
 });

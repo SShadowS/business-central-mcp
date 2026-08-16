@@ -346,17 +346,24 @@ export class QueryOperation {
     this.defaultTop = config.defaultTop ?? 100;
   }
 
-  async execute(input: QueryInput): Promise<Result<QueryOutput, ProtocolError | OAuthNotConfiguredError>> {
-    if (this.requireBearer) {
-      const header = this.getAuthorization ? await this.getAuthorization() : undefined;
-      if (!header) {
-        return err(new OAuthNotConfiguredError(
-          'bc_query on BC Online needs a device-code sign-in. '
-          + 'Open https://microsoft.com/devicelogin and enter the code printed on stderr.',
-        ));
+  async execute(input: QueryInput): Promise<Result<QueryOutput, BCError>> {
+    try {
+      if (this.requireBearer) {
+        const header = this.getAuthorization ? await this.getAuthorization() : undefined;
+        if (!header) {
+          return err(new OAuthNotConfiguredError(
+            'bc_query on BC Online could not acquire an OAuth token. '
+            + 'Retry to restart the device-code sign-in; check the server logs for the cause.',
+          ));
+        }
       }
+      // existing client.query
+    } catch (e) {
+      // getAuthorization throws DeviceLoginRequiredError (URL + user code for
+      // the chat); pass any BCError through with its code and hint intact.
+      if (e instanceof BCError) return err(e);
+      throw e;
     }
-    // existing client.query
   }
 }
 
@@ -1096,7 +1103,8 @@ Assert `.code === 'SIGN_IN_REQUIRED'` / `'URL_ELICITATION_REQUIRED'` and that `e
 | Code | Hint |
 |---|---|
 | `SIGN_IN_REQUIRED` | Complete Microsoft sign-in in the window that opened (Authenticator number matching), then retry this tool. If no window appeared, run the MCP on a machine with a display or run `npx business-central-mcp login` with the same `STATE_DIR`. |
-| `OAUTH_NOT_CONFIGURED` | `bc_query` on BC Online needs a device-code sign-in. Open https://microsoft.com/devicelogin and enter the code printed on stderr. UI tools do not need this. |
+| `DEVICE_LOGIN_REQUIRED` | Show the user the sign-in URL and code from this message. After they complete sign-in, retry this tool — it picks up the pending sign-in automatically. |
+| `OAUTH_NOT_CONFIGURED` | `bc_query` on BC Online could not acquire an OAuth token. Retry to restart the device-code sign-in; check the server logs for the cause. UI tools do not need this. |
 
 `MCPHandler.formatBcError` already prints `Error [CODE]` + hint. Add unit cases in `tests/unit/error-hint.test.ts` and `tests/unit/mcp-error-format.test.ts`. `UrlElicitationRequiredError` is **not** formatted this way — `handleToolsCall` returns JSON-RPC `-32042` (see Error channel). Tests in `tests/unit/mcp-handler.test.ts`.
 

@@ -284,7 +284,7 @@ export class ODataClient {
     if (response.status === 401) {
       const oauthHint = this.getAuthorization
         ? 'The OAuth access token was rejected. Re-run device-code sign-in (delete STATE_DIR/oauth-tokens.json) and complete https://microsoft.com/devicelogin.'
-        : 'Check BC_USERNAME and BC_PASSWORD. Cloud/SaaS BC uses device-code — pass a businesscentral.dynamics.com URL and complete the stderr prompt.';
+        : 'Check BC_USERNAME and BC_PASSWORD. Cloud/SaaS BC uses device-code — pass a businesscentral.dynamics.com URL and complete the sign-in code the tool returns.';
       throw new ODataError(
         `BC OData authentication failed (401). ${oauthHint}`,
         401,

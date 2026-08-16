@@ -4,7 +4,7 @@
 // (OData, port 7048). Completely independent of the WebSocket session.
 
 import { ok, err, type Result } from '../core/result.js';
-import { OAuthNotConfiguredError, ProtocolError } from '../core/errors.js';
+import { BCError, OAuthNotConfiguredError, ProtocolError } from '../core/errors.js';
 import { ODataClient, type ODataClientConfig } from '../odata/odata-client.js';
 import type { AppConfig } from '../core/config.js';
 import type { IBCAuthProvider } from '../connection/auth/auth-provider.js';
@@ -64,19 +64,23 @@ export class QueryOperation {
     this.client = new ODataClient(config);
   }
 
-  async execute(input: QueryInput): Promise<Result<QueryOutput, ProtocolError | OAuthNotConfiguredError>> {
-    if (this.requireBearer) {
-      const header = this.getAuthorization ? await this.getAuthorization() : undefined;
-      if (!header) {
-        return err(new OAuthNotConfiguredError(
-          'bc_query on BC Online needs a device-code sign-in. '
-          + 'Open https://microsoft.com/devicelogin and enter the code printed on stderr.',
-        ));
-      }
-    }
+  async execute(input: QueryInput): Promise<Result<QueryOutput, BCError>> {
     const callerSuppliedTop = input.top !== undefined;
 
+    // getAuthorization may throw DeviceLoginRequiredError (both here and
+    // inside client.query) — the whole body sits in one try so the error
+    // reaches the tool result with its code and hint intact.
     try {
+      if (this.requireBearer) {
+        const header = this.getAuthorization ? await this.getAuthorization() : undefined;
+        if (!header) {
+          return err(new OAuthNotConfiguredError(
+            'bc_query on BC Online could not acquire an OAuth token. '
+            + 'Retry to restart the device-code sign-in; check the server logs for the cause.',
+          ));
+        }
+      }
+
       const result = await this.client.query(input.entity, {
         filter: input.filter,
         select: input.select,
@@ -95,7 +99,7 @@ export class QueryOperation {
         hasMore: result.hasMore,
       });
     } catch (e) {
-      if (e instanceof ProtocolError) {
+      if (e instanceof BCError) {
         return err(e);
       }
       const msg = e instanceof Error ? e.message : String(e);

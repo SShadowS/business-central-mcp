@@ -2,6 +2,7 @@ import type { Result } from '../../core/result.js';
 import type {
   AuthenticationError,
   ConnectionError,
+  DeviceLoginRequiredError,
   SignInRequiredError,
   UrlElicitationRequiredError,
 } from '../../core/errors.js';
@@ -16,6 +17,7 @@ export interface AuthResult {
 
 export type AuthFailure =
   | AuthenticationError
+  | DeviceLoginRequiredError
   | SignInRequiredError
   | UrlElicitationRequiredError
   | ConnectionError;

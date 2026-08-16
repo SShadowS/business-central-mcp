@@ -1,11 +1,11 @@
 import { join } from 'node:path';
-import { ok, isErr, type Result } from '../../core/result.js';
-import { AuthenticationError } from '../../core/errors.js';
+import { ok, err, isErr, type Result } from '../../core/result.js';
+import { AuthenticationError, DeviceLoginRequiredError } from '../../core/errors.js';
 import type { Logger } from '../../core/logger.js';
 import { bindingFromBaseUrl, type IBCAuthProvider, type AuthResult, type ConnectionBinding } from './auth-provider.js';
 import { isSaasHost } from '../saas-url.js';
 import { OAuthTokenClient, type TokenSet } from './oauth-token-client.js';
-import { FileTokenCache } from './token-cache.js';
+import { FileTokenCache, FilePendingDeviceCache } from './token-cache.js';
 
 export interface OAuthProviderConfig {
   baseUrl: string;
@@ -18,6 +18,8 @@ export interface OAuthProviderConfig {
 }
 
 const EXPIRY_SKEW_MS = 60_000;
+
+type TokenFailure = AuthenticationError | DeviceLoginRequiredError;
 
 /**
  * Entra ID device-code auth for the BC Standard API (`bc_query`).
@@ -33,7 +35,8 @@ export class OAuthAuthProvider implements IBCAuthProvider {
   private tokens: TokenSet | undefined;
   private readonly client: OAuthTokenClient;
   private readonly cache: FileTokenCache;
-  private inflight: Promise<Result<AuthResult, AuthenticationError>> | null = null;
+  private readonly pending: FilePendingDeviceCache;
+  private inflight: Promise<Result<AuthResult, TokenFailure>> | null = null;
 
   constructor(
     private readonly config: OAuthProviderConfig,
@@ -47,9 +50,10 @@ export class OAuthAuthProvider implements IBCAuthProvider {
       scope: config.scope,
     });
     this.cache = cache ?? new FileTokenCache(join(config.stateDir, 'oauth-tokens.json'));
+    this.pending = new FilePendingDeviceCache(join(config.stateDir, 'oauth-pending.json'));
   }
 
-  async authenticate(): Promise<Result<AuthResult, AuthenticationError>> {
+  async authenticate(): Promise<Result<AuthResult, TokenFailure>> {
     if (this.inflight) return this.inflight;
     this.inflight = this.authenticateOnce();
     try {
@@ -59,7 +63,7 @@ export class OAuthAuthProvider implements IBCAuthProvider {
     }
   }
 
-  private async authenticateOnce(): Promise<Result<AuthResult, AuthenticationError>> {
+  private async authenticateOnce(): Promise<Result<AuthResult, TokenFailure>> {
     const tokenResult = await this.ensureToken();
     if (isErr(tokenResult)) return tokenResult;
 
@@ -70,9 +74,15 @@ export class OAuthAuthProvider implements IBCAuthProvider {
     return ok({ cookies: this.cookies, csrfToken: this.csrfToken });
   }
 
+  /**
+   * Returns a Bearer token, or throws `DeviceLoginRequiredError` when the
+   * user must complete a device-code sign-in first — the thrown error carries
+   * the verification URL + user code so the tool result can show them in chat.
+   */
   async getAccessToken(): Promise<string | undefined> {
     const result = await this.ensureToken();
     if (isErr(result)) {
+      if (result.error instanceof DeviceLoginRequiredError) throw result.error;
       this.logger.warn(`OAuth token acquisition failed: ${result.error.message}`);
       return undefined;
     }
@@ -121,7 +131,7 @@ export class OAuthAuthProvider implements IBCAuthProvider {
 
   unboundCluster(): void {}
 
-  private async ensureToken(): Promise<Result<TokenSet, AuthenticationError>> {
+  private async ensureToken(): Promise<Result<TokenSet, TokenFailure>> {
     if (this.tokens && this.tokens.expiresAt - EXPIRY_SKEW_MS > Date.now()) {
       return ok(this.tokens);
     }
@@ -153,12 +163,61 @@ export class OAuthAuthProvider implements IBCAuthProvider {
     return acquired;
   }
 
-  private async deviceCode(): Promise<Result<TokenSet, AuthenticationError>> {
+  /**
+   * Fail-fast device-code state machine — never blocks waiting for the user.
+   *
+   * No pending sign-in: start one, persist it, and return
+   * `DeviceLoginRequiredError` carrying the URL + code. Pending sign-in:
+   * poll the token endpoint ONCE — still pending returns the SAME code
+   * (starting a new one would invalidate what the user is mid-typing);
+   * completed returns tokens; a hard failure (expired_token, access_denied)
+   * clears the pending entry and starts a fresh code in the same call.
+   */
+  private async deviceCode(): Promise<Result<TokenSet, TokenFailure>> {
+    const pending = this.pending.load(this.config.clientId, this.config.aadTenantId);
+    if (pending && pending.expiresAt > Date.now()) {
+      const polled = await this.client.pollDeviceCodeOnce({
+        deviceCode: pending.deviceCode,
+        userCode: pending.userCode,
+        verificationUri: pending.verificationUri,
+        message: '',
+        intervalSec: pending.intervalSec,
+        expiresAt: pending.expiresAt,
+      });
+      if (polled.ok) {
+        this.pending.clear();
+        return polled;
+      }
+      const oauthError = polled.error.context?.['oauthError'];
+      if (oauthError === 'authorization_pending' || oauthError === 'slow_down') {
+        return err(new DeviceLoginRequiredError(pending.verificationUri, pending.userCode, pending.expiresAt));
+      }
+      if (oauthError === undefined) {
+        // Network failure — keep the pending code; the user may be mid-sign-in.
+        return polled;
+      }
+      this.pending.clear();
+    } else if (pending) {
+      this.pending.clear();
+    }
+
     const started = await this.client.startDeviceCode();
     if (isErr(started)) return started;
-    this.logger.info(started.value.message);
+    this.pending.save({
+      deviceCode: started.value.deviceCode,
+      userCode: started.value.userCode,
+      verificationUri: started.value.verificationUri,
+      intervalSec: started.value.intervalSec,
+      expiresAt: started.value.expiresAt,
+      clientId: this.config.clientId,
+      aadTenantId: this.config.aadTenantId,
+    });
     this.logger.info(`OAuth device code: ${started.value.userCode} — open ${started.value.verificationUri}`);
-    return this.client.pollDeviceCode(started.value);
+    return err(new DeviceLoginRequiredError(
+      started.value.verificationUri,
+      started.value.userCode,
+      started.value.expiresAt,
+    ));
   }
 
   private persist(tokens: TokenSet, previousRefresh: string | undefined): void {

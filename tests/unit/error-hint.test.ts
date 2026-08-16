@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { errorHint, SignInRequiredError, UrlElicitationRequiredError } from '../../src/core/errors.js';
+import { errorHint, DeviceLoginRequiredError, SignInRequiredError, UrlElicitationRequiredError } from '../../src/core/errors.js';
 
 describe('errorHint', () => {
   it('maps VALIDATION_ERROR', () => {
@@ -66,6 +66,14 @@ describe('errorHint', () => {
 
   it('maps OAUTH_NOT_CONFIGURED', () => {
     expect(errorHint('OAUTH_NOT_CONFIGURED')).toMatch(/devicelogin|device-code/i);
+  });
+
+  it('maps DEVICE_LOGIN_REQUIRED and the error message carries URL + code', () => {
+    expect(errorHint('DEVICE_LOGIN_REQUIRED')).toMatch(/sign-in|retry/i);
+    const e = new DeviceLoginRequiredError('https://microsoft.com/devicelogin', 'ABC-123', Date.now() + 900_000);
+    expect(e.code).toBe('DEVICE_LOGIN_REQUIRED');
+    expect(e.message).toContain('https://microsoft.com/devicelogin');
+    expect(e.message).toContain('ABC-123');
   });
 
   it('returns undefined for unknown codes', () => {

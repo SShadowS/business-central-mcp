@@ -109,7 +109,7 @@ Reference: decompiled `RequestOriginValidationMiddleware.IsSameOrigin` / `IsOrig
 
 ### SaaS / BC Online web-client session (`SaasWeb`)
 
-A `businesscentral.dynamics.com/{aadTenant}/{env}` URL selects `authMode: 'SaasWeb'`. UI tools use `SaasWebSessionProvider` (ESTS cookie session, no `BC_PASSWORD`). `bc_query` uses a separate `OAuthAuthProvider` (device-code, built-in public client). Incomplete device-code returns `OAUTH_NOT_CONFIGURED` and never sends Basic.
+A `businesscentral.dynamics.com/{aadTenant}/{env}` URL selects `authMode: 'SaasWeb'`. UI tools use `SaasWebSessionProvider` (ESTS cookie session, no `BC_PASSWORD`). `bc_query` uses a separate `OAuthAuthProvider` (device-code, built-in public client). Missing sign-in fails fast with `DEVICE_LOGIN_REQUIRED` carrying the devicelogin URL + user code (pending sign-in persisted in `{stateDir}/oauth-pending.json`; retry polls once and resumes); it never sends Basic.
 
 - First UI tool opens a loopback window (`127.0.0.1` + `xdg-open` / `open` / `start`). Password and MFA stay there. Optional `npx business-central-mcp login` (or `npx tsx src/stdio-server.ts login`).
 - Portal cookies: `{cwd}/.state/saas-web-cookies.json` (or `STATE_DIR` if set), mode 0600. Per-repo; sessions in the same repo share the file. `isAuthenticated()` = `{tid}.auth` present. `invalidate()` drops the tab only.

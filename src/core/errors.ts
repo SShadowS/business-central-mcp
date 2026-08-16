@@ -55,6 +55,30 @@ export class OAuthNotConfiguredError extends BCError {
     super(message, 'OAUTH_NOT_CONFIGURED', context);
   }
 }
+
+/**
+ * A device-code sign-in is in flight: the user must open the verification
+ * URL and enter the code, then retry the tool. The message carries the URL
+ * and code so the MCP client can show them in chat — the MCP server has no
+ * interactive terminal, so stderr never reaches the user.
+ */
+export class DeviceLoginRequiredError extends BCError {
+  public readonly verificationUri: string;
+  public readonly userCode: string;
+  public readonly expiresAt: number;
+  constructor(verificationUri: string, userCode: string, expiresAt: number) {
+    super(
+      `Sign in to Business Central: open ${verificationUri} and enter code ${userCode}. `
+      + `The code expires in about ${Math.max(1, Math.round((expiresAt - Date.now()) / 60_000))} minutes. `
+      + 'Retry this tool after signing in.',
+      'DEVICE_LOGIN_REQUIRED',
+      { verificationUri, userCode, expiresAt },
+    );
+    this.verificationUri = verificationUri;
+    this.userCode = userCode;
+    this.expiresAt = expiresAt;
+  }
+}
 export class TimeoutError extends BCError {
   constructor(message: string, context?: Record<string, unknown>) { super(message, 'TIMEOUT_ERROR', context); }
 }
@@ -218,7 +242,8 @@ const ERROR_HINTS: Record<string, string> = {
   INVALID_BOOKMARK: 'The anchor bookmark is no longer loaded in BC. Re-read the section with bc_read_data and retry with a current bookmark.',
   MULTI_ROW_ACTION_UNAVAILABLE: 'This page disables the action for multiple selected rows. Retry with a single bookmark, or repeat the action per row.',
   SIGN_IN_REQUIRED: 'Complete Microsoft sign-in in the window that opened (Authenticator number matching), then retry this tool. If no window appeared, run the MCP on a machine with a display or run `npx business-central-mcp login` with the same `STATE_DIR`.',
-  OAUTH_NOT_CONFIGURED: 'bc_query on BC Online needs a device-code sign-in. Open https://microsoft.com/devicelogin and enter the code printed on stderr. UI tools do not need this.',
+  OAUTH_NOT_CONFIGURED: 'bc_query on BC Online could not acquire an OAuth token. Retry to restart the device-code sign-in; check the server logs for the cause. UI tools do not need this.',
+  DEVICE_LOGIN_REQUIRED: 'Show the user the sign-in URL and code from this message. After they complete sign-in, retry this tool — it picks up the pending sign-in automatically.',
   URL_ELICITATION_REQUIRED: 'The host must open the sign-in page. Retry the tool after completing sign-in.',
 };
 

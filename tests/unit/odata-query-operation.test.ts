@@ -5,6 +5,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { QueryOperation, createQueryOperation } from '../../src/operations/query.js';
+import { DeviceLoginRequiredError } from '../../src/core/errors.js';
 import type { AppConfig } from '../../src/core/config.js';
 import type { IBCAuthProvider } from '../../src/connection/auth/auth-provider.js';
 import { QuerySchema } from '../../src/mcp/schemas.js';
@@ -149,6 +150,28 @@ describe('QueryOperation requireBearer', () => {
     const result = await op.execute({ entity: 'customers' });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe('OAUTH_NOT_CONFIGURED');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('DEVICE_LOGIN_REQUIRED thrown by getAuthorization survives with code and URL + code in the message', async () => {
+    const fetchMock = vi.fn();
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const op = new QueryOperation({
+      odataUrl: 'https://api.businesscentral.dynamics.com/v2.0/t/DEV',
+      tenantId: 't',
+      username: 'user@t.com',
+      password: '',
+      getAuthorization: async () => {
+        throw new DeviceLoginRequiredError('https://microsoft.com/devicelogin', 'ABC-123', Date.now() + 900_000);
+      },
+    }, { requireBearer: true });
+    const result = await op.execute({ entity: 'customers' });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('DEVICE_LOGIN_REQUIRED');
+      expect(result.error.message).toContain('https://microsoft.com/devicelogin');
+      expect(result.error.message).toContain('ABC-123');
+    }
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
