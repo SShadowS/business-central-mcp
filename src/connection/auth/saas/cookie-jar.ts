@@ -52,15 +52,11 @@ export class CookieJar {
     return [...new Set(this.cookies.filter((c) => c.expires === undefined || c.expires > now).map((c) => c.name))];
   }
 
-  hasPortalAuth(aadTenantId: string): boolean {
+  hasPortalAuth(): boolean {
     const now = Date.now();
-    const authName = `${aadTenantId}.auth`;
-    for (const c of this.cookies) {
-      if (c.expires !== undefined && c.expires <= now) continue;
-      if (c.name === authName) return true;
-      if (c.name === '.AspNetCore.Cookies' && isPortalHost(c.domain)) return true;
-    }
-    return false;
+    return this.cookies.some((c) =>
+      (c.expires === undefined || c.expires > now) && isPortalAuthCookie(c),
+    );
   }
 
   persistable(): CookieRecord[] {
@@ -71,19 +67,23 @@ export class CookieJar {
   }
 
   load(records: CookieRecord[]): void {
-    for (const rec of records) this.upsert({ ...rec });
+    for (const rec of records) {
+      // Same guard absorb() applies at parse time: a stored record scoped to
+      // a bare public suffix ("com") would count as portal auth and be sent
+      // to every host under that suffix. FileCookieStore validates types
+      // only, so the domain guard must hold here too.
+      if (isBarePublicSuffix(rec.domain)) continue;
+      this.upsert({ ...rec });
+    }
   }
 
   /**
-   * Drop the portal auth cookies for a tenant. Used when the portal stops
-   * honoring the stored session (redirect to Entra), so isAuthenticated()
-   * flips false and a fresh sign-in can run.
+   * Drop the portal auth cookies. Used when the portal stops honoring the
+   * stored session (redirect to Entra), so isAuthenticated() flips false and
+   * a fresh sign-in can run.
    */
-  clearPortalAuth(aadTenantId: string): void {
-    const authName = `${aadTenantId}.auth`;
-    this.cookies = this.cookies.filter((c) =>
-      c.name !== authName && !(c.name === '.AspNetCore.Cookies' && isPortalHost(c.domain)),
-    );
+  clearPortalAuth(): void {
+    this.cookies = this.cookies.filter((c) => !isPortalAuthCookie(c));
   }
 
   /**
@@ -194,12 +194,35 @@ function pathMatches(cookiePath: string, requestPath: string): boolean {
   return cookiePath.endsWith('/') || path.charAt(cookiePath.length) === '/';
 }
 
-function isPortalHost(domain: string): boolean {
-  return domain.toLowerCase() === SAAS_PORTAL_HOST;
+/**
+ * The portal session cookie is `{tenantGuid}.auth`, named by the RESOLVED AAD
+ * GUID — for a domain-form tenant URL (contoso.onmicrosoft.com) it never
+ * equals the configured tenant id, so it is matched by suffix. Cross-tenant
+ * matches are prevented by FileCookieStore.load, which returns nothing when
+ * the stored aadTenantId/environmentName tag differs from the configured one
+ * — a jar therefore only ever holds cookies for its own tenant.
+ *
+ * The domain must be the portal host exactly (host-only cookies store the
+ * request host; an explicit Domain=businesscentral.dynamics.com also
+ * qualifies). Parent domains (Domain=dynamics.com) never count — see the
+ * comment on isPersistableDomain. hostOnly is deliberately NOT required:
+ * detection must agree with headerFor (which sends Domain-attribute
+ * portal-host cookies) and with persistence, or a portal serving the auth
+ * cookie with a Domain attribute would brick sign-in ("cookies are missing"
+ * after every successful login). The residual risk — a cluster response
+ * planting a portal-host Domain cookie — self-heals: the planted session
+ * fails its first shell read and the escalation tears it down.
+ */
+function isPortalAuthCookie(c: CookieRecord): boolean {
+  if (c.domain.toLowerCase() !== SAAS_PORTAL_HOST) return false;
+  return c.name.endsWith('.auth') || c.name === '.AspNetCore.Cookies';
 }
 
 function isPersistableDomain(domain: string): boolean {
   const d = domain.toLowerCase();
   if (d.includes('appservices.')) return false;
-  return d === SAAS_PORTAL_HOST || d.endsWith(`.${SAAS_PORTAL_HOST}`);
+  // Portal host and its subdomains only — parent domains are excluded for
+  // the same reason isPortalAuthCookie excludes them (a cluster response
+  // could plant one). ESTS/cluster domains match neither.
+  return hostInDomain(d, SAAS_PORTAL_HOST);
 }

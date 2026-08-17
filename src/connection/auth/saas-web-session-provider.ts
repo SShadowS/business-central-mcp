@@ -1,7 +1,7 @@
 import { err, isErr, ok, type Result } from '../../core/result.js';
 import { AuthenticationError, ConnectionError } from '../../core/errors.js';
 import type { Logger } from '../../core/logger.js';
-import { isEntraLoginUrl, type SaasTarget } from '../saas-url.js';
+import type { SaasTarget } from '../saas-url.js';
 import type {
   AuthFailure,
   AuthResult,
@@ -40,13 +40,19 @@ const DEAD_TAB = /HTTP (401|403|500)\b/;
 /**
  * Cookie-session provider for BC Online `/csh`. Owns the jar, the store,
  * and the loopback login window. Does not implement getAccessToken.
+ *
+ * Known limitation (documented, master-equivalent behavior): a portal state
+ * the shell read cannot classify — a persistent 2xx page without
+ * FixedEndPoint.start, or a bare 401/403 without an Entra redirect — fails
+ * retryably indefinitely rather than escalating to interactive sign-in. The
+ * definitive dead-session signals (an Entra redirect, or a shell rendering
+ * FixedEndPoint without an accessToken) do re-open sign-in.
  */
 export class SaasWebSessionProvider implements IBCAuthProvider {
   private readonly jar: CookieJar;
   private readonly store: FileCookieStore;
   private readonly cluster: SaasClusterSession;
   private readonly login: LoginWindow;
-  private readonly fetchFn: typeof fetch;
   private tab: PreparedConnection | undefined;
   private clusterMeta: { host: string; runtimeId: string; csrfHint: string } | undefined;
   private authenticated = false;
@@ -54,10 +60,10 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
   private inflight: Promise<Result<AuthResult, AuthFailure>> | null = null;
 
   constructor(private readonly opts: SaasWebSessionProviderOpts) {
-    this.fetchFn = opts.fetchFn ?? fetch;
+    const fetchFn = opts.fetchFn ?? fetch;
     this.jar = opts.jar ?? new CookieJar();
     this.store = opts.store ?? new FileCookieStore(saasCookieStorePath(opts.stateDir));
-    this.cluster = new SaasClusterSession(this.fetchFn, opts.logger);
+    this.cluster = new SaasClusterSession(fetchFn, opts.logger);
     this.login = new LoginWindow({
       opener: opts.opener,
       portalUrl: opts.saas.portalUrl,
@@ -67,7 +73,7 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
       usernamePrefill: opts.usernamePrefill,
       timeoutMs: opts.loginTimeoutMs,
       elicitation: opts.elicitation,
-      fetchFn: this.fetchFn,
+      fetchFn,
       logger: opts.logger,
       loginFn: opts.loginFn,
       jar: this.jar,
@@ -87,31 +93,30 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
 
   private async authenticateOnce(): Promise<Result<AuthResult, AuthFailure>> {
     this.loadStoredCookies();
-    if (this.jar.hasPortalAuth(this.opts.saas.aadTenantId)) {
-      const probe = await this.portalAlive();
-      if (probe === 'ok') {
+    if (this.jar.hasPortalAuth()) {
+      const probe = await this.probePortal();
+      if (!isErr(probe)) {
         this.persistPortalCookies();
         this.authenticated = true;
         return ok(this.authResult());
       }
-      if (probe === 'error') {
+      if (!(probe.error instanceof AuthenticationError)) {
         // Transient network/portal failure with stored cookies present:
         // fail retryably instead of popping a sign-in window for a session
         // that is probably still valid.
-        return err(new ConnectionError(
-          'BC Online portal is unreachable (network or portal error); retrying',
-        ));
+        return err(probe.error);
       }
-      // probe === 'entra': the portal no longer honors the stored session.
-      // Drop the stale auth cookies so a fresh sign-in replaces them.
-      this.jar.clearPortalAuth(this.opts.saas.aadTenantId);
+      // The portal no longer honors the stored session (Entra redirect or a
+      // signed-out shell). Drop the stale auth cookies so a fresh sign-in
+      // replaces them.
+      this.jar.clearPortalAuth();
       this.authenticated = false;
     }
 
     const signedIn = await this.login.run();
     if (isErr(signedIn)) return signedIn;
 
-    if (!this.jar.hasPortalAuth(this.opts.saas.aadTenantId)) {
+    if (!this.jar.hasPortalAuth()) {
       return err(new AuthenticationError(
         'Sign-in completed but portal cookies are missing',
         { nonRetryable: true },
@@ -156,12 +161,12 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
     const shell = await this.cluster.readPortalShell(this.jar, this.opts.saas);
     if (isErr(shell)) {
       if (shell.error instanceof AuthenticationError) {
-        // Portal redirected to Entra: the stored session is dead. Clear the
-        // stale auth cookies too, or isAuthenticated() stays true forever and
-        // ConnectionFactory never re-runs authenticate() (sign-in window
-        // could never reopen for the lifetime of the process).
+        // The stored session is dead. Clear the stale auth cookies too, or
+        // isAuthenticated() stays true forever and ConnectionFactory never
+        // re-runs authenticate() (sign-in window could never reopen for the
+        // lifetime of the process).
         this.authenticated = false;
-        this.jar.clearPortalAuth(this.opts.saas.aadTenantId);
+        this.jar.clearPortalAuth();
       }
       return shell;
     }
@@ -224,7 +229,7 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
   }
 
   isAuthenticated(): boolean {
-    return this.authenticated || this.jar.hasPortalAuth(this.opts.saas.aadTenantId);
+    return this.authenticated || this.jar.hasPortalAuth();
   }
 
   invalidate(): void {
@@ -277,28 +282,20 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
     };
   }
 
-  private async portalAlive(): Promise<'ok' | 'entra' | 'error'> {
+  /**
+   * Liveness = "would readPortalShell hand us a signed-in shell?", so probe
+   * with readPortalShell itself: one implementation of shell classification
+   * (redirect following, Entra detection, signed-out 2xx shells) instead of
+   * a weaker duplicate that misread canonical 302s and sign-in-page 200s.
+   * A thrown fetch error becomes a retryable ConnectionError.
+   */
+  private async probePortal(): Promise<ReturnType<SaasClusterSession['readPortalShell']>> {
     try {
-      const headers: Record<string, string> = {
-        'User-Agent': SAAS_BROWSER_UA,
-        Origin: SAAS_PORTAL_ORIGIN,
-      };
-      const cookie = this.jar.headerFor(this.opts.saas.portalUrl);
-      if (cookie) headers['Cookie'] = cookie;
-      const res = await this.fetchFn(this.opts.saas.portalUrl, {
-        method: 'GET',
-        redirect: 'manual',
-        headers,
-      });
-      this.jar.absorb(res, this.opts.saas.portalUrl);
-      if (res.status >= 300 && res.status < 400) {
-        const location = res.headers.get('location') ?? '';
-        return isEntraLoginUrl(location) ? 'entra' : 'error';
-      }
-      if (res.status >= 200 && res.status < 300) return 'ok';
-      return 'error';
-    } catch {
-      return 'error';
+      return await this.cluster.readPortalShell(this.jar, this.opts.saas);
+    } catch (e) {
+      return err(new ConnectionError(
+        `portal probe failed: ${e instanceof Error ? e.message : String(e)}`,
+      ));
     }
   }
 }

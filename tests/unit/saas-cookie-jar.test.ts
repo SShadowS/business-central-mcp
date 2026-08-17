@@ -22,7 +22,7 @@ describe('CookieJar', () => {
     const header = jar.headerFor(PORTAL);
     expect(header).toContain(`${TENANT}.auth=portal-auth`);
     expect(header).toContain(`${TENANT}.Antiforgery.FCE=fce`);
-    expect(jar.hasPortalAuth(TENANT)).toBe(true);
+    expect(jar.hasPortalAuth()).toBe(true);
   });
 
   it('rejects a Set-Cookie scoped to a bare public suffix so it cannot over-scope', () => {
@@ -57,15 +57,71 @@ describe('CookieJar', () => {
 
   it('hasPortalAuth is true for {tid}.auth', () => {
     const jar = new CookieJar();
-    expect(jar.hasPortalAuth(TENANT)).toBe(false);
+    expect(jar.hasPortalAuth()).toBe(false);
     jar.absorb(response([`${TENANT}.auth=x; Path=/`]), PORTAL);
-    expect(jar.hasPortalAuth(TENANT)).toBe(true);
+    expect(jar.hasPortalAuth()).toBe(true);
+  });
+
+  it('hasPortalAuth matches the resolved-GUID auth cookie for a domain-form tenant', () => {
+    // A domain-form portal URL (contoso.onmicrosoft.com) still gets a cookie
+    // named by the resolved AAD GUID; presence must not depend on the
+    // configured tenant id spelling.
+    const jar = new CookieJar();
+    jar.absorb(response([`${TENANT}.auth=x; Path=/`]), 'https://businesscentral.dynamics.com/contoso.onmicrosoft.com/DEV');
+    expect(jar.hasPortalAuth()).toBe(true);
+    jar.clearPortalAuth();
+    expect(jar.hasPortalAuth()).toBe(false);
+    expect(jar.headerFor(PORTAL)).not.toContain(`${TENANT}.auth`);
+  });
+
+  it('hasPortalAuth ignores a parent-domain auth cookie — cluster responses could plant one', () => {
+    // Cluster hosts live under businesscentral.dynamics.com and every cluster
+    // response is absorbed, so a Domain=dynamics.com cookie could be set by a
+    // cluster response. Counting it as portal auth would make
+    // isAuthenticated() true with no portal session. The real portal auth
+    // cookie is host-only, so exact-host matching costs nothing.
+    const jar = new CookieJar();
+    jar.absorb(response([`${TENANT}.auth=x; Domain=dynamics.com; Path=/; Secure`]), PORTAL);
+    expect(jar.hasPortalAuth()).toBe(false);
+  });
+
+  it('hasPortalAuth accepts a Domain-attribute cookie scoped to the portal host', () => {
+    // Detection must agree with sending AND persistence: were a portal-host
+    // Domain-attribute auth cookie rejected here while headerFor sends it
+    // and persistable() stores it, a portal serving the cookie with a
+    // Domain attribute would brick sign-in ("cookies are missing" after
+    // every successful login). A cluster-planted cookie of this shape is
+    // cleaned up when the shell read detects the dead session.
+    const jar = new CookieJar();
+    jar.absorb(response([`${TENANT}.auth=x; Domain=businesscentral.dynamics.com; Path=/; Secure`]), CLUSTER);
+    expect(jar.hasPortalAuth()).toBe(true);
+  });
+
+  it('hasPortalAuth ignores a *.auth cookie on a non-portal host', () => {
+    const jar = new CookieJar();
+    jar.absorb(response(['msft.auth=x; Path=/']), CLUSTER);
+    expect(jar.hasPortalAuth()).toBe(false);
+  });
+
+  it('hasPortalAuth ignores non-auth portal cookies', () => {
+    const jar = new CookieJar();
+    jar.absorb(response([`${TENANT}.Antiforgery.FCE=fce; Path=/`]), PORTAL);
+    expect(jar.hasPortalAuth()).toBe(false);
   });
 
   it('hasPortalAuth is true for .AspNetCore.Cookies on the portal host', () => {
     const jar = new CookieJar();
     jar.absorb(response(['.AspNetCore.Cookies=sess; Path=/']), PORTAL);
-    expect(jar.hasPortalAuth(TENANT)).toBe(true);
+    expect(jar.hasPortalAuth()).toBe(true);
+  });
+
+  it('persistable() drops a parent-domain auth cookie, agreeing with detection', () => {
+    const jar = new CookieJar();
+    jar.absorb(response([`${TENANT}.auth=x; Domain=dynamics.com; Path=/; Secure`]), PORTAL);
+    // Persistence and detection agree: neither counts a parent-domain cookie
+    // (which a cluster response could plant), so nothing "persisted" can
+    // disagree with hasPortalAuth() across restarts.
+    expect(jar.persistable().some((c) => c.name === `${TENANT}.auth`)).toBe(false);
   });
 
   it('persistable() drops ESTS-domain cookies and keeps portal cookies', () => {
@@ -83,12 +139,23 @@ describe('CookieJar', () => {
     expect(jar.persistable().some((c) => c.name === '.AspNetCore.Cookies')).toBe(false);
   });
 
+  it('load() rejects records scoped to a bare public suffix', () => {
+    // parseSetCookie guards absorb(); load() must apply the same guard, or a
+    // hand-edited/legacy store record with domain "com" counts as portal auth
+    // and is sent to every .com host contacted.
+    const jar = new CookieJar();
+    jar.load([{ name: `${TENANT}.auth`, value: 'x', domain: 'com', path: '/', secure: true }]);
+    expect(jar.hasPortalAuth()).toBe(false);
+    expect(jar.headerFor('https://evil.example.com/')).toBe('');
+    expect(jar.headerFor(PORTAL)).toBe('');
+  });
+
   it('round-trips persistable records through load', () => {
     const jar = new CookieJar();
     jar.absorb(response([`${TENANT}.auth=keep; Path=/; Secure`]), PORTAL);
     const other = new CookieJar();
     other.load(jar.persistable());
-    expect(other.hasPortalAuth(TENANT)).toBe(true);
+    expect(other.hasPortalAuth()).toBe(true);
     expect(other.headerFor(PORTAL)).toContain(`${TENANT}.auth=keep`);
   });
 

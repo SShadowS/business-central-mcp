@@ -14,6 +14,8 @@ import {
   type PreparedConnection,
 } from './ests-types.js';
 
+const MAX_SHELL_REDIRECTS = 5;
+
 export class SaasClusterSession {
   private readonly log: Logger;
 
@@ -28,22 +30,67 @@ export class SaasClusterSession {
     jar: CookieJar,
     saas: SaasTarget,
   ): Promise<Result<{ fceToken: string; auth: FixedEndPointAuth; html: string }, ConnectionError | AuthenticationError>> {
-    const page = await this.request(jar, saas.portalUrl, {
-      headers: { Origin: SAAS_PORTAL_ORIGIN, Referer: saas.portalUrl },
-    });
-    if (page.res.status >= 300 && page.res.status < 400) {
+    // A valid session may 302 to a canonical/locale URL before serving the
+    // shell; follow same-origin hops so a signed-in user is not misread as
+    // signed out. Entra redirects still mean sign-in is required, and
+    // off-origin redirects are never followed (cookies stay on the portal).
+    // Deliberately NOT shared with EstsLoginClient.followRedirects: the login
+    // flow must follow cross-origin hops to Entra and back, exactly what this
+    // read must fail closed on.
+    let url = saas.portalUrl;
+    let page: { res: Response; html: string };
+    for (let hop = 0; ; hop++) {
+      page = await this.request(jar, url, {
+        headers: { Origin: SAAS_PORTAL_ORIGIN, Referer: saas.portalUrl },
+      });
+      if (page.res.status < 300 || page.res.status >= 400) break;
       const location = page.res.headers.get('location') ?? '';
+      // Entra classification outranks the hop cap: a sign-in redirect arriving
+      // exactly at the cap must still surface as auth-required, or the stale
+      // cookies are kept and retried forever.
       if (isEntraLoginUrl(location)) {
         return err(new AuthenticationError('Portal redirected to Entra sign-in'));
       }
+      if (hop === MAX_SHELL_REDIRECTS) {
+        return err(new ConnectionError(`Portal redirect chain exceeded ${MAX_SHELL_REDIRECTS} hops`));
+      }
+      let next: URL | undefined;
+      try {
+        // new URL('', base) resolves to base itself — an empty Location must
+        // not silently refetch the same URL until the hop cap trips.
+        next = location ? new URL(location, url) : undefined;
+      } catch { /* handled below */ }
+      if (!next) {
+        return err(new ConnectionError('Portal redirect has no usable Location'));
+      }
+      if (next.origin !== saas.origin) {
+        return err(new ConnectionError(`Portal redirected off-origin to ${next.host}`));
+      }
+      url = next.href;
+    }
+    if (page.res.status >= 400) {
+      // An error/maintenance page carries no FixedEndPoint auth; it must
+      // fail retryably, not fall through to the signed-out-shell
+      // classification (which would destroy valid stored cookies).
+      return err(new ConnectionError(`Portal shell HTTP ${page.res.status}`));
     }
     const fp = parseFixedEndPoint(page.html);
-    const auth = fp ? extractFixedEndPointAuth(fp) : {
-      accessToken: '', authorizationCode: '', homeAccountId: '', sharedAuthCookieName: '',
-    };
+    if (!fp) {
+      // No FixedEndPoint.start at all: an interstitial/consent/unknown page,
+      // not proof the session is signed out. Fail retryably — clearing valid
+      // cookies here would force interactive sign-in on a transient page.
+      return err(new ConnectionError(
+        'Portal 2xx response has no FixedEndPoint.start; not a portal shell',
+      ));
+    }
+    const auth = extractFixedEndPointAuth(fp);
     this.log.info('saas-web: portal shell', { hasAccess: Boolean(auth.accessToken), hasCode: Boolean(auth.authorizationCode) });
     if (!auth.accessToken) {
-      return err(new ConnectionError(
+      // A shell that renders FixedEndPoint WITHOUT an accessToken is the
+      // client-rendered sign-in page: the portal is reachable and the
+      // session is signed out, so this must trigger re-sign-in, not a
+      // connection retry.
+      return err(new AuthenticationError(
         'FixedEndPoint.start has no accessToken; portal shell is not a signed-in session',
       ));
     }

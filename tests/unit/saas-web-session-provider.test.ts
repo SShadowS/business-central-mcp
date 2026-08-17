@@ -51,7 +51,12 @@ function defaultRouter(opts?: { csrfStatus?: number; skipJwt?: boolean; entra?: 
       if (opts?.entra) {
         return new Response('', { status: 302, headers: { Location: 'https://login.microsoftonline.com/x' } });
       }
-      if (opts?.skipJwt) return new Response('no jwt', { status: 200 });
+      // A signed-out shell still renders FixedEndPoint.start — just without
+      // an accessToken. (A 200 with no FixedEndPoint at all is an
+      // interstitial and classifies as retryable, not signed-out.)
+      if (opts?.skipJwt) {
+        return new Response('FixedEndPoint.start({"authentication":{"type":"aad"}});', { status: 200 });
+      }
       return new Response(SHELL, { status: 200 });
     }
     if (u.pathname.includes('/api/deployment')) {
@@ -178,6 +183,70 @@ describe('SaasWebSessionProvider', () => {
     const second = await provider.prepare();
     expect(isOk(second)).toBe(true);
     expect(calls.filter((c) => c.url.includes('/auth?')).length).toBeGreaterThan(authCallsBefore);
+  });
+
+  it('stored cookies + same-origin 302 to the signed-in shell authenticates without login', async () => {
+    seedCookies();
+    const base = defaultRouter();
+    let redirected = false;
+    const { fetchFn } = recordFetch((url) => {
+      if (url === PORTAL && !redirected) {
+        redirected = true;
+        return new Response('', { status: 302, headers: { Location: `${PORTAL}?canonical=1` } });
+      }
+      return base(url);
+    });
+    const provider = makeProvider(fetchFn);
+    const result = await provider.authenticate();
+    expect(isOk(result)).toBe(true);
+    expect(provider.isAuthenticated()).toBe(true);
+  });
+
+  it('stored cookies + portal 500 fails retryably and keeps the cookies', async () => {
+    seedCookies();
+    const { fetchFn } = recordFetch(() => new Response('outage', { status: 500 }));
+    const provider = makeProvider(fetchFn);
+    const result = await provider.authenticate();
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) expect(result.error.code).toBe('CONNECTION_ERROR');
+    // A transient portal outage must not destroy the stored session.
+    expect(provider.isAuthenticated()).toBe(true);
+  });
+
+  it('stored cookies + 2xx sign-in shell (no accessToken) treats the session as dead and opens login', async () => {
+    seedCookies();
+    const { fetchFn } = recordFetch(defaultRouter({ skipJwt: true }));
+    const provider = makeProvider(fetchFn);
+    const result = await provider.authenticate();
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) expect(result.error.code).toBe('SIGN_IN_REQUIRED');
+  });
+
+  it('network failures stay retryable and keep the cookies', async () => {
+    seedCookies();
+    const { fetchFn } = recordFetch(() => { throw new Error('ECONNREFUSED'); });
+    const provider = makeProvider(fetchFn);
+    for (let i = 0; i < 3; i++) {
+      const result = await provider.authenticate();
+      expect(isErr(result) && result.error.code === 'CONNECTION_ERROR').toBe(true);
+    }
+    // An outage is evidence of nothing about the session.
+    expect(provider.isAuthenticated()).toBe(true);
+  });
+
+  it('a transient unclassifiable portal page stays retryable and recovers', async () => {
+    seedCookies();
+    let broken = true;
+    const base = defaultRouter();
+    const { fetchFn } = recordFetch((url) =>
+      broken && url === PORTAL ? new Response('<html>one moment</html>', { status: 200 }) : base(url),
+    );
+    const provider = makeProvider(fetchFn);
+    const first = await provider.authenticate();
+    expect(isErr(first) && first.error.code === 'CONNECTION_ERROR').toBe(true);
+    broken = false;
+    const recovered = await provider.authenticate();
+    expect(isOk(recovered)).toBe(true);
   });
 
   it('missing cookies returns SignInRequiredError from the owned login window', async () => {
