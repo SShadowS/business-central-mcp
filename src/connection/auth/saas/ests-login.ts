@@ -1,5 +1,5 @@
 import { err, ok, type Result } from '../../../core/result.js';
-import { AuthenticationError } from '../../../core/errors.js';
+import { AuthenticationError, ConnectionError } from '../../../core/errors.js';
 import type { Logger } from '../../../core/logger.js';
 import { parseSaasUrl } from '../../saas-url.js';
 import { CookieJar } from './cookie-jar.js';
@@ -10,7 +10,8 @@ import {
   parseConfig,
 } from './html-extract.js';
 import { redactingLogger } from './redact.js';
-import { SAAS_BROWSER_UA, type EstsStatus, type SasJson } from './ests-types.js';
+import { fetchWithJar } from './saas-http.js';
+import { type EstsStatus, type SasJson } from './ests-types.js';
 
 const ESTS_ORIGIN = 'https://login.microsoftonline.com';
 const MAX_REDIRECTS = 8;
@@ -76,7 +77,7 @@ export class EstsLoginClient {
     this.onStatus({ phase: 'signing-in', message: 'Contacting Microsoft sign-in…' });
     try {
       await this.loginInner(opts.username, opts.password, saas.portalUrl, saas.aadTenantId, opts.waitForOtp);
-      if (!this.jar.hasPortalAuth(saas.aadTenantId)) {
+      if (!this.jar.hasPortalAuth()) {
         return err(new AuthenticationError('ESTS finished without a portal session cookie', { nonRetryable: true }));
       }
       this.log.info('saas-web: ESTS phase=done');
@@ -85,6 +86,15 @@ export class EstsLoginClient {
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       this.onStatus({ phase: 'error', message });
+      // Typed errors keep their retryability: an AuthenticationError carries
+      // its own (the MFA throttle is retryable), and a ConnectionError
+      // (network blip mid-sign-in) is an outage, not a terminal failure.
+      // Everything else is a hard sign-in failure. Note the retryability on
+      // this Result is currently consumed only by future session-layer
+      // callers — LoginWindow.handleLogin re-shows the form on any error and
+      // lets the user resubmit regardless.
+      if (e instanceof AuthenticationError) return err(e);
+      if (e instanceof ConnectionError) return err(new AuthenticationError(message));
       return err(new AuthenticationError(message, { nonRetryable: true }));
     }
   }
@@ -236,16 +246,42 @@ export class EstsLoginClient {
     let flowToken = str(cfg, 'sFT');
     let ctx = str(cfg, 'sCtx');
 
-    const began = await this.sasPost(beginUrl, {
-      AuthMethodId: preferred,
-      Method: 'BeginAuth',
-      ctx,
-      flowToken,
-    });
-    if (began.FlowToken) flowToken = began.FlowToken;
-    if (began.Ctx) ctx = began.Ctx;
-
     if (preferred === 'PhoneAppNotification') {
+      // Push needs an auth session to poll (EndAuth's SessionId is
+      // began.CorrelationId), so BeginAuth is retried on Retry:true
+      // (throttle) and an explicit rejection WITHOUT a CorrelationId fails
+      // fast — polling would run 90s against an undefined SessionId. The
+      // presence test is deliberately vocabulary-free (ESTS's ResultValue
+      // set is large and undocumented; the EndAuth poll judges everything
+      // else), and an unparseable body ({} from sasPost) falls through.
+      // Known trade-off: a hard failure that carries a request-correlation
+      // id proceeds to polling, where EndAuth's own error handling (or the
+      // 90s cap) judges it — no reliable wire signal distinguishes a
+      // session id from a trace id.
+      let began: SasJson;
+      for (let attempt = 0; ; attempt++) {
+        began = await this.sasPost(beginUrl, {
+          AuthMethodId: preferred,
+          Method: 'BeginAuth',
+          ctx,
+          flowToken,
+        });
+        if (began.FlowToken) flowToken = began.FlowToken;
+        if (began.Ctx) ctx = began.Ctx;
+        if (began.Success !== false || began.Retry !== true || attempt >= 2) break;
+        await this.sleep(MFA_POLL_MS);
+      }
+      if (began.Success === false && !began.CorrelationId) {
+        if (began.Retry) {
+          // A throttle clears in seconds — keep it retryable (no
+          // nonRetryable flag), not a terminal auth failure. Today the
+          // LoginWindow re-shows the form on any error, so the user can
+          // simply resubmit; the flag matters to future session-layer
+          // consumers of login()'s Result.
+          throw new AuthenticationError('MFA BeginAuth failed: throttled by Entra (retries exhausted); retry shortly');
+        }
+        throw new Error(`MFA BeginAuth failed: ${began.Message ?? began.ResultValue ?? 'unknown error'}`);
+      }
       const entropy = began.Entropy !== undefined && began.Entropy !== '' ? String(began.Entropy) : '';
       this.onStatus({
         phase: 'mfa',
@@ -278,6 +314,18 @@ export class EstsLoginClient {
       if (!waitForOtp) {
         throw new Error('TOTP required but no waitForOtp was provided');
       }
+      // A single ungated BeginAuth: OTP's EndAuth carries no SessionId, so a
+      // failed or throttled BeginAuth must not dead-end the flow — only the
+      // refreshed flowToken/ctx are consumed, and the code prompt plus
+      // EndAuth judge the sign-in.
+      const began = await this.sasPost(beginUrl, {
+        AuthMethodId: preferred,
+        Method: 'BeginAuth',
+        ctx,
+        flowToken,
+      });
+      if (began.FlowToken) flowToken = began.FlowToken;
+      if (began.Ctx) ctx = began.Ctx;
       this.onStatus({ phase: 'mfa', message: 'Enter the code from Authenticator' });
       let code = await waitForOtp();
       if (!code) throw new Error('empty MFA code');
@@ -357,13 +405,7 @@ export class EstsLoginClient {
   }
 
   private async request(url: string, init: RequestInit = {}): Promise<Page> {
-    const headers = new Headers(init.headers);
-    headers.set('User-Agent', SAAS_BROWSER_UA);
-    const cookie = this.jar.headerFor(url);
-    if (cookie) headers.set('Cookie', cookie);
-    const res = await this.fetchFn(url, { ...init, headers, redirect: 'manual' });
-    this.jar.absorb(res, url);
-    const html = await res.text();
+    const { res, html } = await fetchWithJar(this.fetchFn, this.jar, url, init);
     return { res, html, url };
   }
 }

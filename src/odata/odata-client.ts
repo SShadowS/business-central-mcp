@@ -5,7 +5,7 @@
 // Auth: HTTP Basic (on-prem NavUserPassword) or Bearer (Entra / SaaS).
 // Entry point: ODataClient.query(entity, opts).
 
-import { ProtocolError } from '../core/errors.js';
+import { BCError, ProtocolError } from '../core/errors.js';
 
 export class ODataError extends ProtocolError {
   public readonly statusCode: number;
@@ -248,9 +248,23 @@ export class ODataClient {
   }
 
   private async _fetch<T>(url: string): Promise<T> {
+    // Resolved outside the network try so typed auth failures (notably
+    // DeviceLoginRequiredError on mid-flight token expiry) keep their code
+    // and context. A RAW rejection out of the caller-supplied
+    // getAuthorization (token endpoint unreachable) is still a network
+    // outage and keeps the ODATA_ERROR framing.
+    let authorization: string;
+    try {
+      authorization = await this.resolveAuthorization();
+    } catch (e) {
+      if (e instanceof BCError) throw e;
+      throw new ODataError(
+        `Network error acquiring OData authorization: ${e instanceof Error ? e.message : String(e)}`,
+        0,
+      );
+    }
     let response: Response;
     try {
-      const authorization = await this.resolveAuthorization();
       response = await fetch(url, {
         headers: {
           Authorization: authorization,
@@ -259,7 +273,6 @@ export class ODataClient {
         signal: AbortSignal.timeout(this.requestTimeoutMs),
       });
     } catch (e) {
-      if (e instanceof ODataError) throw e;
       throw new ODataError(
         `Network error reaching BC OData endpoint: ${e instanceof Error ? e.message : String(e)}`,
         0,

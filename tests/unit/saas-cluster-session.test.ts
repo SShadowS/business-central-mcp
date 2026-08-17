@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SaasClusterSession } from '../../src/connection/auth/saas/cluster-session.js';
+import { DeadTabError, SaasClusterSession } from '../../src/connection/auth/saas/cluster-session.js';
 import { CookieJar } from '../../src/connection/auth/saas/cookie-jar.js';
 import { parseSaasUrl } from '../../src/connection/saas-url.js';
 import { isErr, isOk } from '../../src/core/result.js';
@@ -120,6 +120,38 @@ describe('SaasClusterSession', () => {
     expect(isErr(result)).toBe(true);
   });
 
+  it('mintTab tolerates a benign same-origin tab redirect', async () => {
+    // A cluster may 302 within its own origin (canonicalization/affinity
+    // re-pin) on a LIVE session; only Entra/off-origin redirects mean the
+    // session is dead. Treating every 3xx as dead caused an unbounded
+    // rebind loop (shell read succeeds, tab mint always "dies").
+    const { fetchFn } = recordFetch((url) => {
+      const u = new URL(url);
+      if (u.pathname.endsWith('/v')) {
+        return new Response('', { status: 302, headers: { Location: `${u.origin}${u.pathname}2` } });
+      }
+      if (url.includes('/csrf')) return new Response(JSON.stringify({ csrfToken: 'c' }), { status: 200 });
+      return new Response('ok', { status: 200 });
+    });
+    const session = new SaasClusterSession(fetchFn, capturingLogger().logger);
+    const minted = await session.mintTab(new CookieJar(), HOST, RUNTIME, PORTAL, '');
+    expect(isOk(minted)).toBe(true);
+  });
+
+  it('mintTab fails dead on an Entra-redirecting tab endpoint', async () => {
+    const { fetchFn } = recordFetch((url) => {
+      const u = new URL(url);
+      if (u.pathname.endsWith('/v')) {
+        return new Response('', { status: 302, headers: { Location: 'https://login.microsoftonline.com/x' } });
+      }
+      return new Response('ok', { status: 200 });
+    });
+    const session = new SaasClusterSession(fetchFn, capturingLogger().logger);
+    const minted = await session.mintTab(new CookieJar(), HOST, RUNTIME, PORTAL, '');
+    expect(isErr(minted)).toBe(true);
+    if (isErr(minted)) expect(minted.error).toBeInstanceOf(DeadTabError);
+  });
+
   it('mintTab boots /v /boot /csrf and issues a new tabId each call', async () => {
     const { fetchFn, calls } = recordFetch((url) => {
       if (url.includes('/csrf')) return new Response(JSON.stringify({ csrfToken: 'from-json' }), { status: 200 });
@@ -152,6 +184,10 @@ describe('SaasClusterSession', () => {
     const session = new SaasClusterSession(fetchFn, cap.logger);
     const result = await session.readPortalShell(new CookieJar(), saas);
     expect(isErr(result)).toBe(true);
+    // Token-less shells escalate via the provider's windowed streak
+    // (ShellUnclassifiableError, code CONNECTION_ERROR) rather than killing
+    // the session on one sighting; only the Entra redirect is immediate.
+    if (isErr(result)) expect(result.error.code).toBe('CONNECTION_ERROR');
     expect(calls[0]!.url).toBe(saas.portalUrl);
     expect(calls[0]!.headers['origin']).toBe(SAAS_PORTAL_ORIGIN);
   });
@@ -165,6 +201,131 @@ describe('SaasClusterSession', () => {
     const result = await session.readPortalShell(new CookieJar(), saas);
     expect(isErr(result)).toBe(true);
     if (isErr(result)) expect(result.error.code).toBe('AUTHENTICATION_ERROR');
+  });
+
+  it('readPortalShell follows a same-origin non-Entra redirect to the signed-in shell', async () => {
+    const html = `FixedEndPoint.start({"authentication":{"accessToken":"${JWT}","authorizationCode":"${CODE}","homeAccountId":"h","sharedAuthCookieName":""}});`;
+    const { fetchFn, calls } = recordFetch((url) => {
+      if (url === saas.portalUrl) {
+        return new Response('', { status: 302, headers: { Location: `${saas.portalUrl}?noSignUpCheck=1` } });
+      }
+      return new Response(html, { status: 200 });
+    });
+    const session = new SaasClusterSession(fetchFn, capturingLogger().logger);
+    const result = await session.readPortalShell(new CookieJar(), saas);
+    expect(isOk(result)).toBe(true);
+    if (isOk(result)) expect(result.value.auth.accessToken).toBe(JWT);
+    expect(calls.length).toBe(2);
+    expect(calls[1]!.url).toBe(`${saas.portalUrl}?noSignUpCheck=1`);
+  });
+
+  it('readPortalShell resolves a relative redirect Location against the portal origin', async () => {
+    const html = `FixedEndPoint.start({"authentication":{"accessToken":"${JWT}","authorizationCode":"${CODE}","homeAccountId":"h","sharedAuthCookieName":""}});`;
+    const { fetchFn, calls } = recordFetch((url) => {
+      if (url === saas.portalUrl) {
+        return new Response('', { status: 302, headers: { Location: `/${TENANT}/DEV/` } });
+      }
+      return new Response(html, { status: 200 });
+    });
+    const session = new SaasClusterSession(fetchFn, capturingLogger().logger);
+    const result = await session.readPortalShell(new CookieJar(), saas);
+    expect(isOk(result)).toBe(true);
+    expect(calls[1]!.url).toBe(`https://businesscentral.dynamics.com/${TENANT}/DEV/`);
+  });
+
+  it('readPortalShell returns AuthenticationError when a later hop redirects to Entra', async () => {
+    const { fetchFn } = recordFetch((url) => {
+      if (url === saas.portalUrl) {
+        return new Response('', { status: 302, headers: { Location: `${saas.portalUrl}?hop=1` } });
+      }
+      return new Response('', {
+        status: 302,
+        headers: { Location: 'https://login.microsoftonline.com/common/oauth2/authorize' },
+      });
+    });
+    const session = new SaasClusterSession(fetchFn, capturingLogger().logger);
+    const result = await session.readPortalShell(new CookieJar(), saas);
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) expect(result.error.code).toBe('AUTHENTICATION_ERROR');
+  });
+
+  it('readPortalShell does not follow an off-origin redirect', async () => {
+    const { fetchFn, calls } = recordFetch(() => new Response('', {
+      status: 302,
+      headers: { Location: 'https://evil.example.com/steal' },
+    }));
+    const session = new SaasClusterSession(fetchFn, capturingLogger().logger);
+    const result = await session.readPortalShell(new CookieJar(), saas);
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) expect(result.error.code).toBe('CONNECTION_ERROR');
+    expect(calls.length).toBe(1);
+  });
+
+  it('readPortalShell caps same-origin redirect chains', async () => {
+    const { fetchFn, calls } = recordFetch((url) => {
+      const n = Number(new URL(url).searchParams.get('hop') ?? '0');
+      return new Response('', { status: 302, headers: { Location: `${saas.portalUrl}?hop=${n + 1}` } });
+    });
+    const session = new SaasClusterSession(fetchFn, capturingLogger().logger);
+    const result = await session.readPortalShell(new CookieJar(), saas);
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) expect(result.error.code).toBe('CONNECTION_ERROR');
+    // Initial GET + exactly MAX_REDIRECTS (5) follows — deterministic.
+    expect(calls.length).toBe(6);
+  });
+
+  it('readPortalShell treats a 2xx page without FixedEndPoint as retryable, not signed-out', async () => {
+    // An interstitial/consent/maintenance 200 has no FixedEndPoint.start at
+    // all; only a shell that renders FixedEndPoint WITHOUT an accessToken is
+    // proof of a signed-out session. The former must not clear cookies.
+    const { fetchFn } = recordFetch(() => new Response('<html>one moment…</html>', { status: 200 }));
+    const session = new SaasClusterSession(fetchFn, capturingLogger().logger);
+    const result = await session.readPortalShell(new CookieJar(), saas);
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) expect(result.error.code).toBe('CONNECTION_ERROR');
+  });
+
+  it('readPortalShell classifies an Entra redirect arriving at the hop cap as auth required', async () => {
+    const { fetchFn } = recordFetch((url) => {
+      const n = Number(new URL(url).searchParams.get('hop') ?? '0');
+      if (n < 5) {
+        return new Response('', { status: 302, headers: { Location: `${saas.portalUrl}?hop=${n + 1}` } });
+      }
+      return new Response('', {
+        status: 302,
+        headers: { Location: 'https://login.microsoftonline.com/common/oauth2/authorize' },
+      });
+    });
+    const session = new SaasClusterSession(fetchFn, capturingLogger().logger);
+    const result = await session.readPortalShell(new CookieJar(), saas);
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) expect(result.error.code).toBe('AUTHENTICATION_ERROR');
+  });
+
+  it('readPortalShell returns a retryable ConnectionError on a portal 5xx, never an auth failure', async () => {
+    // A maintenance/error page has no FixedEndPoint auth; without a status
+    // guard it would fall through to the signed-out-shell classification and
+    // destroy valid stored cookies.
+    const { fetchFn } = recordFetch(() => new Response('<html>503 maintenance</html>', { status: 503 }));
+    const session = new SaasClusterSession(fetchFn, capturingLogger().logger);
+    const result = await session.readPortalShell(new CookieJar(), saas);
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.error.code).toBe('CONNECTION_ERROR');
+      expect(result.error.message).toContain('503');
+    }
+  });
+
+  it('readPortalShell errors on a 3xx without a Location instead of refetching itself', async () => {
+    const { fetchFn, calls } = recordFetch(() => new Response('', { status: 302 }));
+    const session = new SaasClusterSession(fetchFn, capturingLogger().logger);
+    const result = await session.readPortalShell(new CookieJar(), saas);
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.error.code).toBe('CONNECTION_ERROR');
+      expect(result.error.message).toContain('Location');
+    }
+    expect(calls.length).toBe(1);
   });
 
   it('readPortalShell parses FixedEndPoint auth and never logs the JWT', async () => {

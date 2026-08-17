@@ -1,7 +1,7 @@
 import { err, isErr, ok, type Result } from '../../core/result.js';
 import { AuthenticationError, ConnectionError } from '../../core/errors.js';
 import type { Logger } from '../../core/logger.js';
-import { isEntraLoginUrl, type SaasTarget } from '../saas-url.js';
+import type { SaasTarget } from '../saas-url.js';
 import type {
   AuthFailure,
   AuthResult,
@@ -11,7 +11,7 @@ import type {
 import type { BrowserOpener } from './saas/browser-opener.js';
 import { CookieJar } from './saas/cookie-jar.js';
 import { FileCookieStore, saasCookieStorePath } from './saas/cookie-store.js';
-import { SaasClusterSession } from './saas/cluster-session.js';
+import { DeadTabError, SaasClusterSession, ShellUnclassifiableError } from './saas/cluster-session.js';
 import { LoginWindow, type LoginFn } from './saas/login-window.js';
 import {
   SAAS_BROWSER_UA,
@@ -35,7 +35,25 @@ export interface SaasWebSessionProviderOpts {
   store?: FileCookieStore;
 }
 
-const DEAD_TAB = /HTTP (401|403|500)\b/;
+/** Consecutive unclassifiable-shell reads (ShellUnclassifiableError: a 2xx
+ * with no FixedEndPoint.start, a token-less shell, or a bare 401/403 —
+ * counted across BOTH the authenticate() probe and bindAndMint) before the
+ * stored session is treated as dead and interactive sign-in reopens.
+ * Network failures and portal 5xx are evidence of nothing about the session
+ * and stay purely retryable, so a transient outage never destroys valid
+ * cookies. */
+const SHELL_UNCLASSIFIABLE_ESCALATION = 3;
+/** Minimum time the unclassifiable state must have persisted before the
+ * streak may escalate. SessionManager's backoff ladder can produce 3+
+ * attempts within a few seconds, and a portal interstitial lasting seconds
+ * must never destroy valid persisted cookies. */
+const SHELL_ESCALATION_WINDOW_MS = 60_000;
+/** Gap after which an unclassifiable streak is stale: a persistent portal
+ * state keeps failing every retry/tool call within minutes, so a longer
+ * silence means the old burst is no longer evidence about the current state.
+ * Must exceed SHELL_ESCALATION_WINDOW_MS, or spanning the window would
+ * itself reset the streak. */
+const SHELL_STREAK_STALE_MS = 10 * 60_000;
 
 /**
  * Cookie-session provider for BC Online `/csh`. Owns the jar, the store,
@@ -46,18 +64,24 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
   private readonly store: FileCookieStore;
   private readonly cluster: SaasClusterSession;
   private readonly login: LoginWindow;
-  private readonly fetchFn: typeof fetch;
   private tab: PreparedConnection | undefined;
   private clusterMeta: { host: string; runtimeId: string; csrfHint: string } | undefined;
-  private authenticated = false;
+  private shellUnclassifiableStreak = 0;
+  private shellUnclassifiableSince: number | undefined;
+  private shellUnclassifiableLast: number | undefined;
+  private failedEpisodes = 0;
   private clusterBound = false;
   private inflight: Promise<Result<AuthResult, AuthFailure>> | null = null;
 
   constructor(private readonly opts: SaasWebSessionProviderOpts) {
-    this.fetchFn = opts.fetchFn ?? fetch;
+    // Deliberately not kept as a field: every portal fetch must go through
+    // SaasClusterSession (redirect/Entra classification) or LoginWindow — a
+    // direct fetch here would re-create the weaker duplicate probe this
+    // provider used to have.
+    const fetchFn = opts.fetchFn ?? fetch;
     this.jar = opts.jar ?? new CookieJar();
     this.store = opts.store ?? new FileCookieStore(saasCookieStorePath(opts.stateDir));
-    this.cluster = new SaasClusterSession(this.fetchFn, opts.logger);
+    this.cluster = new SaasClusterSession(fetchFn, opts.logger);
     this.login = new LoginWindow({
       opener: opts.opener,
       portalUrl: opts.saas.portalUrl,
@@ -67,7 +91,7 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
       usernamePrefill: opts.usernamePrefill,
       timeoutMs: opts.loginTimeoutMs,
       elicitation: opts.elicitation,
-      fetchFn: this.fetchFn,
+      fetchFn,
       logger: opts.logger,
       loginFn: opts.loginFn,
       jar: this.jar,
@@ -87,46 +111,105 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
 
   private async authenticateOnce(): Promise<Result<AuthResult, AuthFailure>> {
     this.loadStoredCookies();
-    if (this.jar.hasPortalAuth(this.opts.saas.aadTenantId)) {
-      const probe = await this.portalAlive();
-      if (probe === 'ok') {
+    if (this.jar.hasPortalAuth()) {
+      const probe = await this.readShellTracked();
+      if (!isErr(probe)) {
         this.persistPortalCookies();
-        this.authenticated = true;
         return ok(this.authResult());
       }
-      if (probe === 'error') {
-        // Transient network/portal failure with stored cookies present:
-        // fail retryably instead of popping a sign-in window for a session
-        // that is probably still valid.
-        return err(new ConnectionError(
-          'BC Online portal is unreachable (network or portal error); retrying',
-        ));
+      if (probe.error instanceof ConnectionError) {
+        // Transient failure with stored cookies present: fail retryably
+        // (preserving the typed error and its detail — network vs
+        // unclassifiable shell) instead of popping a sign-in window for a
+        // session that is probably still valid.
+        return err(probe.error);
       }
-      // probe === 'entra': the portal no longer honors the stored session.
-      // Drop the stale auth cookies so a fresh sign-in replaces them.
-      this.jar.clearPortalAuth(this.opts.saas.aadTenantId);
-      this.authenticated = false;
+      // Fatal (AuthenticationError from readShellTracked): teardown already
+      // applied there — fall through to interactive sign-in.
     }
 
     const signedIn = await this.login.run();
     if (isErr(signedIn)) return signedIn;
 
-    if (!this.jar.hasPortalAuth(this.opts.saas.aadTenantId)) {
+    if (!this.jar.hasPortalAuth()) {
       return err(new AuthenticationError(
         'Sign-in completed but portal cookies are missing',
         { nonRetryable: true },
       ));
     }
+    const verified = await this.verifyFreshLogin();
+    if (isErr(verified)) return verified;
     this.persistPortalCookies();
-    this.authenticated = true;
+    this.recordShellSuccess();
     this.clusterBound = false;
     this.clusterMeta = undefined;
     this.tab = undefined;
     return ok(this.authResult());
   }
 
+  /**
+   * A fresh sign-in can complete with an account the configured portal does
+   * not accept (multi-account user picking the wrong one at Entra): cookie
+   * presence alone cannot detect this since the auth cookie is named by the
+   * RESOLVED tenant GUID. Verify behaviorally — the portal at the configured
+   * URL must hand back a SIGNED-IN shell. An Entra redirect and a token-less
+   * or unclassifiable shell both fail verification (a wrong-tenant session
+   * often surfaces as the latter; accepting it would persist wrong-tenant
+   * cookies as "success" and later degrade into unexplained repeat sign-in
+   * prompts). Only a plain network failure passes on benefit of the doubt —
+   * the next create's probe re-checks.
+   */
+  private async verifyFreshLogin(): Promise<Result<void, AuthFailure>> {
+    // Deliberately untracked (probePortal, not readShellTracked): this read
+    // verifies the sign-in that just happened and must not feed the streak.
+    // An unclassifiable shell gets ONE retry — this is the first real shell
+    // classification after an MFA sign-in, and a single transient
+    // interstitial must not destroy the session the user just created. A
+    // wrong tenant fails deterministically, so the retry cannot admit one.
+    let rejected = false;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const probe = await this.probePortal();
+      if (!isErr(probe)) return ok(undefined);
+      if (probe.error instanceof AuthenticationError) { rejected = true; break; }
+      if (!(probe.error instanceof ShellUnclassifiableError)) {
+        // Benefit of the doubt for a plain network error is correct only
+        // when nothing was rejected yet: an unclassifiable first read
+        // followed by a network blip must not launder the latched rejection
+        // into "verified ok" (wrong-tenant cookies persisted as success).
+        if (rejected) break;
+        return ok(undefined);
+      }
+      rejected = true;
+    }
+    if (rejected) {
+      this.markSessionDead();
+      // Reset the login window too: its cached completed-ok would otherwise
+      // short-circuit the next run() and surface a misleading
+      // "portal cookies are missing" instead of this message.
+      await this.login.close();
+      return err(new AuthenticationError(
+        `Sign-in completed, but ${this.opts.saas.portalUrl} did not return a signed-in session — `
+        + 'signed in with a different account or tenant than configured, or the portal is degraded? '
+        + 'The sign-in was not saved.',
+        { nonRetryable: true },
+      ));
+    }
+    return ok(undefined);
+  }
+
   async prepare(): Promise<Result<ConnectionBinding, AuthFailure>> {
-    const minted = await this.bindAndMint();
+    let minted: Result<PreparedConnection, AuthFailure>;
+    try {
+      minted = await this.bindAndMint();
+    } catch (e) {
+      // A thrown network error (typed ConnectionError from
+      // SaasClusterSession.request) surfaces as a retryable Result — the
+      // same outage during authenticate() does. Anything else is a
+      // programming bug and propagates raw (stack intact) rather than being
+      // relabeled a retryable outage.
+      if (e instanceof ConnectionError) return err(e);
+      throw e;
+    }
     if (isErr(minted)) return minted;
     this.tab = minted.value;
     return ok({
@@ -147,24 +230,20 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
         this.clusterMeta.csrfHint,
       );
       if (isErr(minted)) {
-        if (DEAD_TAB.test(minted.error.message)) this.clusterBound = false;
+        if (minted.error instanceof DeadTabError) this.clusterBound = false;
         return minted;
       }
       return minted;
     }
 
-    const shell = await this.cluster.readPortalShell(this.jar, this.opts.saas);
-    if (isErr(shell)) {
-      if (shell.error instanceof AuthenticationError) {
-        // Portal redirected to Entra: the stored session is dead. Clear the
-        // stale auth cookies too, or isAuthenticated() stays true forever and
-        // ConnectionFactory never re-runs authenticate() (sign-in window
-        // could never reopen for the lifetime of the process).
-        this.authenticated = false;
-        this.jar.clearPortalAuth(this.opts.saas.aadTenantId);
-      }
-      return shell;
-    }
+    // This shell read may repeat one the authenticate() probe just did on a
+    // cold start. That is deliberate: an earlier single-use cache of the
+    // probe's shell (a short-lived JWT plus one-shot authorization code)
+    // needed a TTL and three clear sites to stay safe — one extra HTTPS GET
+    // per cold start is negligible next to the discover/shareAuthCookie/
+    // authenticateToken chain that follows.
+    const shell = await this.readShellTracked();
+    if (isErr(shell)) return shell;
 
     const discovered = await this.cluster.discover(this.jar, this.opts.saas);
     if (isErr(discovered)) return discovered;
@@ -202,7 +281,7 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
       authed.value,
     );
     if (isErr(minted)) {
-      if (DEAD_TAB.test(minted.error.message)) this.clusterBound = false;
+      if (minted.error instanceof DeadTabError) this.clusterBound = false;
       return minted;
     }
     return minted;
@@ -224,7 +303,10 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
   }
 
   isAuthenticated(): boolean {
-    return this.authenticated || this.jar.hasPortalAuth(this.opts.saas.aadTenantId);
+    // The jar is the single source of truth: a shadow flag diverged from it
+    // exactly once — on cookie expiry — and reported a session that no
+    // longer existed.
+    return this.jar.hasPortalAuth();
   }
 
   invalidate(): void {
@@ -277,29 +359,123 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
     };
   }
 
-  private async portalAlive(): Promise<'ok' | 'entra' | 'error'> {
+  /**
+   * Liveness = "would readPortalShell hand us a signed-in shell?", so probe
+   * with readPortalShell itself: one implementation of shell classification
+   * (redirect following, Entra detection, signed-out 2xx shells) instead of
+   * a weaker duplicate that misread canonical 302s and sign-in-page 200s.
+   * A thrown fetch error becomes a plain ConnectionError — retryable and
+   * never counted toward escalation.
+   */
+  private async probePortal(): Promise<ReturnType<SaasClusterSession['readPortalShell']>> {
     try {
-      const headers: Record<string, string> = {
-        'User-Agent': SAAS_BROWSER_UA,
-        Origin: SAAS_PORTAL_ORIGIN,
-      };
-      const cookie = this.jar.headerFor(this.opts.saas.portalUrl);
-      if (cookie) headers['Cookie'] = cookie;
-      const res = await this.fetchFn(this.opts.saas.portalUrl, {
-        method: 'GET',
-        redirect: 'manual',
-        headers,
-      });
-      this.jar.absorb(res, this.opts.saas.portalUrl);
-      if (res.status >= 300 && res.status < 400) {
-        const location = res.headers.get('location') ?? '';
-        return isEntraLoginUrl(location) ? 'entra' : 'error';
-      }
-      if (res.status >= 200 && res.status < 300) return 'ok';
-      return 'error';
-    } catch {
-      return 'error';
+      return await this.cluster.readPortalShell(this.jar, this.opts.saas);
+    } catch (e) {
+      // request() throws typed ConnectionErrors — preserve the instance.
+      // Anything else is a programming bug and propagates raw (stack
+      // intact), matching prepare()'s policy.
+      if (e instanceof ConnectionError) return err(e);
+      throw e;
     }
+  }
+
+  /**
+   * Read the portal shell WITH escalation bookkeeping — the tracked entry
+   * every liveness decision must use. (verifyFreshLogin deliberately probes
+   * untracked: a post-login shell read is a verification of the sign-in
+   * that just happened, not evidence about the pre-existing session, and
+   * must never count toward killing the session it just created.)
+   * Liveness = "would readPortalShell hand us a signed-in shell?": one
+   * implementation of shell classification (redirect following, Entra
+   * detection, signed-out 2xx shells) instead of a weaker duplicate.
+   * A fatal outcome (Entra redirect, or an escalated unclassifiable streak)
+   * tears the session down here and surfaces as AuthenticationError, so
+   * callers distinguish fatal from retryable by error type alone.
+   */
+  private async readShellTracked(): Promise<ReturnType<SaasClusterSession['readPortalShell']>> {
+    const shell = await this.probePortal();
+    if (!isErr(shell)) {
+      this.recordShellSuccess();
+      return shell;
+    }
+    if (this.recordShellFailure(shell.error) === 'fatal') {
+      this.markSessionDead();
+      return err(shell.error instanceof AuthenticationError
+        ? shell.error
+        : new AuthenticationError(shell.error.message));
+    }
+    return shell;
+  }
+
+  /**
+   * Record a readPortalShell failure — the ONLY writer of the escalation
+   * streak, so classification and bookkeeping cannot drift apart across
+   * call sites. 'fatal' means the stored session must be treated as dead:
+   * an Entra redirect (immediately), or an unclassifiable shell once EITHER
+   * the streak has reached the limit AND spanned the minimum window (the
+   * backoff ladder can burn 3 attempts in seconds; a brief interstitial
+   * must never kill a session), OR two full episodes have already failed
+   * (sporadic usage — attempts more than the staleness gap apart — would
+   * otherwise never satisfy streak+window and wedge retryable forever).
+   * Network/HTTP failures never touch the streak and are always 'retryable'.
+   */
+  private recordShellFailure(e: unknown): 'fatal' | 'retryable' {
+    if (e instanceof AuthenticationError) return 'fatal';
+    if (e instanceof ShellUnclassifiableError) {
+      const now = Date.now();
+      // A streak ages out: an old burst separated from this failure by a
+      // long gap is no longer evidence about the current state — a fresh
+      // 5-second interstitial days later must start a fresh streak, not
+      // inherit an escalation-ready one. Any aged-out failures count as a
+      // failed episode (a single probe per tool call is a supported cadence
+      // via BC_RECONNECT_MAX_RETRIES=0, so episodes cannot require full
+      // bursts); a brief blip still never kills the session because any
+      // intervening SUCCESS resets everything, and escalation needs three
+      // failure occasions with zero successes in between.
+      if (this.shellUnclassifiableLast !== undefined
+        && now - this.shellUnclassifiableLast > SHELL_STREAK_STALE_MS) {
+        this.failedEpisodes++;
+        this.shellUnclassifiableStreak = 0;
+        this.shellUnclassifiableSince = undefined;
+      }
+      this.shellUnclassifiableLast = now;
+      this.shellUnclassifiableStreak++;
+      this.shellUnclassifiableSince ??= now;
+      if (this.failedEpisodes >= 2) return 'fatal';
+      if (this.shellUnclassifiableStreak >= SHELL_UNCLASSIFIABLE_ESCALATION
+        && now - this.shellUnclassifiableSince >= SHELL_ESCALATION_WINDOW_MS) {
+        return 'fatal';
+      }
+    }
+    return 'retryable';
+  }
+
+  /** Recorded on every signed-in outcome (successful probe, shell read, or
+   * fresh login). */
+  private recordShellSuccess(): void {
+    this.resetShellStreak();
+  }
+
+  /** The only reset of the escalation state — reached from a signed-in
+   * outcome or from tearing down a proven-dead session. */
+  private resetShellStreak(): void {
+    this.shellUnclassifiableStreak = 0;
+    this.shellUnclassifiableSince = undefined;
+    this.shellUnclassifiableLast = undefined;
+    this.failedEpisodes = 0;
+  }
+
+  /**
+   * Tear down a proven-dead session: reset the streak, drop the auth cookies,
+   * and PERSIST the cleared jar — otherwise loadStoredCookies() resurrects
+   * the dead cookies from disk on every authenticate() and a canceled
+   * sign-in is followed by fresh retryable cycles instead of being
+   * re-offered immediately.
+   */
+  private markSessionDead(): void {
+    this.resetShellStreak();
+    this.jar.clearPortalAuth();
+    this.persistPortalCookies();
   }
 }
 
