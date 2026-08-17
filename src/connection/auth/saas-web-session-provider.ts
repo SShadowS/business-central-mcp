@@ -171,7 +171,14 @@ export class SaasWebSessionProvider implements IBCAuthProvider {
       const probe = await this.probePortal();
       if (!isErr(probe)) return ok(undefined);
       if (probe.error instanceof AuthenticationError) { rejected = true; break; }
-      if (!(probe.error instanceof ShellUnclassifiableError)) return ok(undefined);
+      if (!(probe.error instanceof ShellUnclassifiableError)) {
+        // Benefit of the doubt for a plain network error is correct only
+        // when nothing was rejected yet: an unclassifiable first read
+        // followed by a network blip must not launder the latched rejection
+        // into "verified ok" (wrong-tenant cookies persisted as success).
+        if (rejected) break;
+        return ok(undefined);
+      }
       rejected = true;
     }
     if (rejected) {

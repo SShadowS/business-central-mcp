@@ -537,6 +537,33 @@ describe('SaasWebSessionProvider', () => {
     expect(provider.isAuthenticated()).toBe(false);
   });
 
+  it('post-login verification rejects an unclassifiable shell followed by a network blip', async () => {
+    // The retry exists to forgive a transient interstitial, but a network
+    // error on the SECOND read must not launder a rejection latched on the
+    // first: iter0 unclassifiable (how a wrong-tenant sign-in surfaces) +
+    // iter1 ConnectionError would otherwise return ok and persist
+    // wrong-tenant cookies as "success".
+    let calls = 0;
+    const { fetchFn } = recordFetch(() => {
+      calls++;
+      if (calls === 1) return new Response('<html>one moment</html>', { status: 200 });
+      throw new Error('ECONNRESET');
+    });
+    const jar = new CookieJar();
+    jar.load([authCookie]);
+    const provider = makeProvider(fetchFn, { jar });
+    const result = await (provider as unknown as {
+      verifyFreshLogin(): Promise<import('../../src/core/result.js').Result<unknown, { code: string; message: string }>>;
+    }).verifyFreshLogin();
+    expect(calls).toBe(2);
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.error.code).toBe('AUTHENTICATION_ERROR');
+      expect(result.error.message).toMatch(/account|tenant/i);
+    }
+    expect(provider.isAuthenticated()).toBe(false);
+  });
+
   it('a dead session on the warm cluster path unbinds on redirect-shaped tab failures', async () => {
     // With clusterBound=true, prepare() skips the shell read entirely; a
     // revoked session whose tab endpoints 302 to Entra must fail AND unbind,
