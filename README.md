@@ -236,7 +236,7 @@ The WebSocket is not on the portal host. After sign-in the server discovers the 
 
 `bc_query` does **not** use the `/csh` cookie session. When sign-in is needed the first call returns `DEVICE_LOGIN_REQUIRED` with a `https://microsoft.com/devicelogin` URL and user code — complete it in a browser and retry; the retry picks up the pending sign-in and runs the query. The refresh token is stored in `STATE_DIR/oauth-tokens.json` (mode 0600).
 
-`bc_query` talks to `https://api.businesscentral.dynamics.com/v2.0/{tenant}/{environment}/api/v2.0` with the Bearer token. If device-code is not completed it returns `OAUTH_NOT_CONFIGURED` and never sends Basic.
+`bc_query` talks to `https://api.businesscentral.dynamics.com/v2.0/{tenant}/{environment}/api/v2.0` with the Bearer token. If `BC_CLIENT_ID` is not configured it returns `OAUTH_NOT_CONFIGURED` (device-code that has not been completed returns `DEVICE_LOGIN_REQUIRED`, above); it never sends Basic.
 
 #### Which client id signs in (`BC_CLIENT_ID`)
 
