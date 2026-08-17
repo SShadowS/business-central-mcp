@@ -37,8 +37,27 @@ import { buildToolRegistry, type Operations } from './mcp/tool-registry.js';
 import { MCPHandler } from './mcp/handler.js';
 import { PROMPTS } from './mcp/prompts.js';
 import { createApiRoutes } from './api/routes.js';
-import { parseJsonBody, checkApiToken } from './api/middleware.js';
+import { parseJsonBody, checkApiToken, bcErrorToHttp } from './api/middleware.js';
 // isErr no longer needed — SessionManager handles session creation errors internally
+
+/** The request-target's pathname: query stripped, trailing slashes trimmed,
+ * absolute-form targets (proxy-style `http://host/mcp`) reduced to their
+ * path. */
+function requestPathname(url: string): string {
+  let pathname = url.split('?')[0]!;
+  if (/^https?:\/\//i.test(pathname)) {
+    try {
+      pathname = new URL(pathname).pathname;
+    } catch { /* keep the raw form */ }
+  }
+  return pathname.replace(/\/+$/, '') || '/';
+}
+
+/** The MCP endpoint by pathname — used by both the API-token 401 gate and
+ * the router so they cannot drift. */
+function isMcpPath(url: string): boolean {
+  return requestPathname(url) === '/mcp';
+}
 
 async function main() {
   const config = loadConfig();
@@ -141,7 +160,22 @@ async function main() {
   // HTTP Server
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     if (!checkApiToken(req, config.server.apiToken)) {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
+      // WWW-Authenticate marks this 401 as an API-token failure; BC-side
+      // sign-in 401s from bcErrorToHttp carry a `code` field and no
+      // WWW-Authenticate, so REST clients/gateways can tell them apart and
+      // not rotate a valid API token over an expired BC session. NOT sent on
+      // /mcp: MCP streamable-HTTP clients treat 401 + WWW-Authenticate as
+      // the trigger for RFC 9728 OAuth discovery, which this server does not
+      // serve.
+      // Shared predicate with the router below — the two must agree, or
+      // /mcp-adjacent paths get inconsistent 401 shapes and MCP clients see
+      // a WWW-Authenticate that triggers OAuth discovery this server does
+      // not serve.
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (!isMcpPath(req.url ?? '')) {
+        headers['WWW-Authenticate'] = 'Bearer realm="bc-mcp-api-token"';
+      }
+      res.writeHead(401, headers);
       res.end(JSON.stringify({ error: 'Unauthorized' }));
       return;
     }
@@ -151,7 +185,7 @@ async function main() {
 
     try {
       // Health check (no session needed)
-      if (url === '/health' && method === 'GET') {
+      if (requestPathname(url) === '/health' && method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
           status: sessionManager.currentSession !== null ? 'healthy' : 'starting',
@@ -168,7 +202,7 @@ async function main() {
       }
 
       // MCP endpoint
-      if (url === '/mcp' && method === 'POST') {
+      if (isMcpPath(url) && method === 'POST') {
         const body = await parseJsonBody(req) as Parameters<MCPHandler['handleRequest']>[0];
         const response = await mcpHandler.handleRequest(body);
         // JSON-RPC notifications have no id; per spec they must not receive a
@@ -180,6 +214,16 @@ async function main() {
         }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(response));
+        return;
+      }
+
+      // Non-POST /mcp (e.g. an MCP client's GET SSE probe) must not fall
+      // into the REST section: session-creation errors there map to 401,
+      // which MCP streamable-HTTP clients treat as an OAuth-discovery
+      // trigger this server does not serve.
+      if (isMcpPath(url)) {
+        res.writeHead(405, { 'Content-Type': 'application/json', Allow: 'POST' });
+        res.end(JSON.stringify({ error: 'Method not allowed; the MCP endpoint accepts POST only' }));
         return;
       }
 
@@ -200,8 +244,9 @@ async function main() {
     } catch (e) {
       logger.error(`Request error: ${e instanceof Error ? e.message : String(e)}`);
       if (!res.headersSent) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: e instanceof Error ? e.message : 'Internal error' }));
+        const { status, body } = bcErrorToHttp(e);
+        res.writeHead(status, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(body));
       } else {
         res.destroy();
       }

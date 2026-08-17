@@ -1,6 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import { Readable } from 'node:stream';
-import { parseJsonBody, checkApiToken } from '../../src/api/middleware.js';
+import { parseJsonBody, checkApiToken, bcErrorToHttp } from '../../src/api/middleware.js';
+import {
+  AuthenticationError,
+  ConnectionError,
+  OAuthNotConfiguredError,
+  DeviceLoginRequiredError,
+  ProtocolError,
+  SessionLostError,
+  SignInRequiredError,
+  UrlElicitationRequiredError,
+} from '../../src/core/errors.js';
 import type { IncomingMessage } from 'node:http';
 
 // ---------------------------------------------------------------------------
@@ -101,5 +111,88 @@ describe('checkApiToken', () => {
   it('returns false when Authorization header is just the token without "Bearer " prefix', () => {
     const req = makeReq({ authorization: 'secret123' });
     expect(checkApiToken(req, 'secret123')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// bcErrorToHttp
+// ---------------------------------------------------------------------------
+
+describe('bcErrorToHttp', () => {
+  it('maps SignInRequiredError to 401 with its code', () => {
+    const { status, body } = bcErrorToHttp(
+      new SignInRequiredError('open the sign-in window', { openedWindow: true, reason: 'no_session' }),
+    );
+    expect(status).toBe(401);
+    expect(body.code).toBe('SIGN_IN_REQUIRED');
+    expect(body.error).toContain('sign-in window');
+  });
+
+  it('maps DeviceLoginRequiredError to 401 carrying the verification URL and user code', () => {
+    const { status, body } = bcErrorToHttp(
+      new DeviceLoginRequiredError('https://microsoft.com/devicelogin', 'ABC-123', Date.now() + 900_000),
+    );
+    expect(status).toBe(401);
+    expect(body.code).toBe('DEVICE_LOGIN_REQUIRED');
+    expect(body.verificationUri).toBe('https://microsoft.com/devicelogin');
+    expect(body.userCode).toBe('ABC-123');
+  });
+
+  it('maps UrlElicitationRequiredError to 401 carrying the elicitations', () => {
+    const elicitations = [{ mode: 'url' as const, elicitationId: 'e1', url: 'https://x', message: 'sign in' }];
+    const { status, body } = bcErrorToHttp(new UrlElicitationRequiredError(elicitations));
+    expect(status).toBe(401);
+    expect(body.code).toBe('URL_ELICITATION_REQUIRED');
+    expect(body.elicitations).toEqual(elicitations);
+  });
+
+  it('maps any authRequired BCError to 401 (classification lives on the class, not a code list)', () => {
+    expect(bcErrorToHttp(new AuthenticationError('bad session')).status).toBe(401);
+  });
+
+  it('maps ConnectionError and SessionLostError to 503', () => {
+    expect(bcErrorToHttp(new ConnectionError('portal unreachable')).status).toBe(503);
+    expect(bcErrorToHttp(new SessionLostError('gone', [])).status).toBe(503);
+  });
+
+  it('maps OAuthNotConfiguredError to 500, not 401 — it is a server config problem, not a sign-in prompt', () => {
+    const { status, body } = bcErrorToHttp(new OAuthNotConfiguredError('BC_CLIENT_ID is not set'));
+    expect(status).toBe(500);
+    expect(body.code).toBe('OAUTH_NOT_CONFIGURED');
+  });
+
+  it('maps other BCErrors to 500 with their code preserved', () => {
+    const { status, body } = bcErrorToHttp(new ProtocolError('bad frame'));
+    expect(status).toBe(500);
+    expect(body.code).toBe('PROTOCOL_ERROR');
+  });
+
+  it('maps a plain Error to 500 with only the message', () => {
+    const { status, body } = bcErrorToHttp(new Error('boom'));
+    expect(status).toBe(500);
+    expect(body).toEqual({ error: 'boom' });
+  });
+
+  it('carries SignInRequiredError context (openedWindow/reason) in the 401 body', () => {
+    const { status, body } = bcErrorToHttp(
+      new SignInRequiredError('sign in', { openedWindow: false, reason: 'no_display' }),
+    );
+    expect(status).toBe(401);
+    expect(body.openedWindow).toBe(false);
+    expect(body.reason).toBe('no_display');
+  });
+
+  it('carries SessionLostError payload (impactedPageContextIds/reconnectFailed) in the 503 body', () => {
+    const { status, body } = bcErrorToHttp(new SessionLostError('gone', ['pc1', 'pc2'], { reconnectFailed: true }));
+    expect(status).toBe(503);
+    expect(body.impactedPageContextIds).toEqual(['pc1', 'pc2']);
+    expect(body.reconnectFailed).toBe(true);
+  });
+
+  it('does not expose arbitrary error context to REST clients — the wire body is an explicit projection', () => {
+    const { body } = bcErrorToHttp(new ConnectionError('down', { internalUrl: 'https://backend.internal/x' }));
+    expect(body.internalUrl).toBeUndefined();
+    expect(body.error).toBe('down');
+    expect(body.code).toBe('CONNECTION_ERROR');
   });
 });
