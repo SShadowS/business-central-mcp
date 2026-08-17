@@ -9,15 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **OAuth / Microsoft Entra ID authentication.** A SaaS portal URL (or
-  `BC_AUTH=OAuth`) acquires a Standard API token via device-code (built-in
-  public client) and uses it as `Authorization: Bearer` for `bc_query`.
-  Refresh tokens are cached under `STATE_DIR`. `BC_USERNAME` / `BC_PASSWORD`
-  are not required in this mode.
-- **SaaS URL parsing.** A portal URL such as
-  `https://businesscentral.dynamics.com/7bcb54ae-…/DEV` is split into Entra
-  tenant + environment. OData is derived as
-  `https://api.businesscentral.dynamics.com/v2.0/{tenant}/{environment}`.
+### Changed
+
+### Fixed
+
+## [1.6.0] - 2026-08-17
+
+BC Online (SaaS) support: the server now runs against
+`businesscentral.dynamics.com` as well as on-prem, with a password-free
+sign-in for the UI tools and device-code OAuth for `bc_query`. On-prem
+NavUserPassword is unchanged.
+
+### Added
+
+- **SaaS `/csh` web-client session (ESTS cookie).** A portal URL
+  `https://businesscentral.dynamics.com/{aadTenant}/{environment}` selects
+  `authMode: SaasWeb`. The first UI tool opens a local `127.0.0.1` sign-in
+  window (password and MFA stay there — never in env, never in chat); portal
+  cookies persist under `STATE_DIR/saas-web-cookies.json` (mode 0600, per
+  repo) and are reused across process restarts. The `/csh` WebSocket is
+  discovered on the cluster host after sign-in — no cluster URL in config.
+- **OAuth / Microsoft Entra ID authentication for `bc_query`.** A SaaS portal
+  URL (or `BC_AUTH=OAuth`) acquires a Standard API token via device-code and
+  uses it as `Authorization: Bearer` for `bc_query`. Refresh tokens are cached
+  under `STATE_DIR` (mode 0600). `BC_USERNAME` / `BC_PASSWORD` are not required
+  in this mode.
 - **`bc_query` no longer opens a `/csh` session.** The OData tool is
   independent of the web-client WebSocket, so SaaS OAuth works for bulk reads
   even when the first-party web-client cookie session cannot be established.
@@ -31,13 +47,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   publisher-owned multi-tenant public app (see README "bc_query on SaaS") —
   customer tenants never register anything. Borrowed Microsoft first-party
   clients fail at sign-in with `AADSTS65002` on hardened tenants.
+- **SaaS URL parsing.** A portal URL such as
+  `https://businesscentral.dynamics.com/7bcb54ae-…/DEV` is split into Entra
+  tenant + environment. OData is derived as
+  `https://api.businesscentral.dynamics.com/v2.0/{tenant}/{environment}`.
+  A verified AAD domain (`contoso.onmicrosoft.com`) is accepted in the tenant
+  segment as well as a GUID.
+- **`npx business-central-mcp login`** primes the SaaS cookie file ahead of
+  the first tool call.
 
 ### Changed
 
-- Config: new `BC_AUTH`, `BC_AAD_TENANT_ID`, `BC_ENVIRONMENT`, `BC_OAUTH_SCOPE`.
-  `BC_USERNAME` / `BC_PASSWORD` are required only for `NavUserPassword`.
+- Config: new `BC_AUTH`, `BC_AAD_TENANT_ID`, `BC_ENVIRONMENT`, `BC_OAUTH_SCOPE`,
+  `BC_CLIENT_ID`. `BC_USERNAME` / `BC_PASSWORD` are required only for
+  `NavUserPassword`; a SaaS password in env is ignored.
+- **Session-lifecycle hardening.** A dead or revoked SaaS session is detected
+  and reopens interactive sign-in via a windowed, episode-based escalation
+  (transient outages never destroy valid cookies; a brief portal interstitial
+  during backoff never escalates; a genuinely dead session does). A fresh
+  sign-in is verified behaviorally — signing in with the wrong Microsoft
+  account or tenant fails with a clear, non-retryable error and saves nothing,
+  instead of silently degrading into repeat prompts. A session revoked while
+  the cluster tab is bound now recovers instead of wedging.
+- **HTTP route-gating.** Unknown REST paths `404` and non-`POST` `/mcp` `405`
+  *before* any BC session is created, so a stray request (a LAN scanner's
+  `GET /favicon.ico`) can no longer trigger session creation or pop the
+  interactive SaaS sign-in window. Sign-in-flow errors on the REST path now
+  carry their code and payload (verification URL, user code) instead of an
+  opaque `500`.
 
 ### Fixed
+
+- `bc_query` OData errors preserve their typed BC error (code + hint) instead
+  of collapsing a `DEVICE_LOGIN_REQUIRED` into a generic network error.
+- Cookie handling: `Set-Cookie` deletions (`Max-Age=0` / past `Expires`) are
+  honored per RFC 6265; cookies scoped to a bare public suffix are rejected;
+  the portal auth cookie is matched by resolved-GUID suffix so domain-form
+  tenants work; the SaaS cluster host is allow-listed to `dynamics.com`.
+- OAuth token refresh is single-flighted, so concurrent `bc_query` calls at
+  token expiry share one grant instead of racing and wiping the cache; a
+  captive-portal non-JSON `200` during device-code polling no longer churns
+  the pending code.
 
 ## [1.5.0] - 2026-07-25
 
