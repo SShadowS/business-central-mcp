@@ -188,6 +188,10 @@ connections carry no password — sign in via the local window or
 `npx business-central-mcp login`. With no config file present, the server runs
 exactly as before from plain `BC_*` environment variables.
 
+A `<cwd>/.env` (or the file at `BC_ENV_FILE`) is also auto-loaded at startup,
+before connection resolution — real environment variables set outside the
+file still win (`override:false`).
+
 ### On-prem containers: set `BC_APPLICATION_ID=NAV`
 
 If sign-in and the WebSocket upgrade both succeed but the session dies at `OpenSession` with

@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Central connection config.** A `~/.bc-mcp/config.jsonc` (or `BC_MCP_CONFIG`
+  / `<cwd>/.bc-mcp.jsonc`) file defines named `connections`, an optional
+  `default`, and an optional `map[]` from repo path to connection, so one
+  globally-registered server can serve multiple BC instances without a
+  `BC_*` env block per repo. Resolution order per field: an explicit `BC_*`
+  env var, then `BC_CONNECTION=<name>`, then a `map[]` path match, then
+  `default`. Secrets can be kept out of the file with `${ENV}` references.
+  A `<cwd>/.env` (or `BC_ENV_FILE`) is also auto-loaded at startup
+  (`override:false` — real environment variables still win). With no config
+  file and no `.env` present, the server behaves exactly as before.
+
 ### Changed
 
 ### Fixed

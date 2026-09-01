@@ -91,6 +91,28 @@ describe('resolveConnection', () => {
     expect(() => resolveConnection({ env, cwd: 'U:/git/misc', homeDir: dir })).toThrow(/CRONUS28_PW/);
   });
 
+  it('does not throw on unresolved ${ENV} in a field already overridden by real env', () => {
+    const cfg = writeConfig(FILE); // CRONUS28_PW not set
+    const env: NodeJS.ProcessEnv = { BC_MCP_CONFIG: cfg, BC_PASSWORD: 'preset' };
+    const r = resolveConnection({ env, cwd: 'U:/git/misc', homeDir: dir });
+    expect(env.BC_PASSWORD).toBe('preset');
+    expect(r.injected).not.toContain('BC_PASSWORD');
+  });
+
+  it('throws ConfigError when a connection entry is not an object', () => {
+    const cfg = writeConfig('{ "default":"a", "connections": { "a": "not-an-object" } }');
+    const env: NodeJS.ProcessEnv = { BC_MCP_CONFIG: cfg };
+    expect(() => resolveConnection({ env, cwd: 'U:/x', homeDir: dir })).toThrow(ConfigError);
+  });
+
+  it('throws ConfigError when map is not an array', () => {
+    const cfg = writeConfig(
+      '{ "default":"a", "connections": { "a": { "baseUrl":"http://x/BC" } }, "map": "oops" }',
+    );
+    const env: NodeJS.ProcessEnv = { BC_MCP_CONFIG: cfg };
+    expect(() => resolveConnection({ env, cwd: 'U:/x', homeDir: dir })).toThrow(ConfigError);
+  });
+
   it('warns and skips an unknown field key', () => {
     const cfg = writeConfig('{ "default":"a", "connections": { "a": { "baseUrl":"http://x/BC", "bogus":"y" } } }');
     const warnings: string[] = [];

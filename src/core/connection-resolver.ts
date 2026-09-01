@@ -122,10 +122,16 @@ export function resolveConnection(opts: ResolveOptions = {}): ConnectionResoluti
   let doc: ConfigFile;
   try {
     doc = JSON.parse(stripJsonComments(readFileSync(file, 'utf8'))) as ConfigFile;
-  } catch (e) {
-    throw new ConfigError(`Failed to parse connection config ${file}: ${e instanceof Error ? e.message : String(e)}`);
+  } catch {
+    throw new ConfigError(`Failed to parse connection config ${file} (invalid JSON)`);
   }
 
+  if (
+    doc.connections !== undefined &&
+    (typeof doc.connections !== 'object' || doc.connections === null || Array.isArray(doc.connections))
+  ) {
+    throw new ConfigError(`Connection config ${file} has an invalid 'connections' value (expected an object)`);
+  }
   const connections = doc.connections ?? {};
 
   let name: string | undefined;
@@ -134,6 +140,9 @@ export function resolveConnection(opts: ResolveOptions = {}): ConnectionResoluti
     name = env.BC_CONNECTION;
     source = 'env-selector';
   } else {
+    if (doc.map !== undefined && !Array.isArray(doc.map)) {
+      throw new ConfigError(`Connection config ${file} has an invalid 'map' value (expected an array)`);
+    }
     const hit = (doc.map ?? []).find((m) => matchPath(cwd, m.path));
     if (hit) { name = hit.connection; source = 'cwd-map'; }
     else if (doc.default) { name = doc.default; source = 'default'; }
@@ -145,14 +154,16 @@ export function resolveConnection(opts: ResolveOptions = {}): ConnectionResoluti
     const valid = Object.keys(connections).join(', ') || '(none defined)';
     throw new ConfigError(`Connection '${name}' not found in ${file}. Valid connections: ${valid}`);
   }
+  if (typeof conn !== 'object' || conn === null || Array.isArray(conn)) {
+    throw new ConfigError(`Connection '${name}' in ${file} has an invalid value (expected an object)`);
+  }
 
   const injected: string[] = [];
   for (const [field, rawVal] of Object.entries(conn)) {
     const key = FIELD_TO_ENV[field];
     if (!key) { warn(`unknown field '${field}' in connection '${name}' (ignored)`); continue; }
-    const val = expandEnv(String(rawVal), env);
     if (env[key] === undefined) {
-      env[key] = val;
+      env[key] = expandEnv(String(rawVal), env);
       injected.push(key);
     }
   }
