@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Fixed
+
+## [1.7.0] - 2026-09-01
+
+### Added
+
 - **Central connection config.** A `~/.bc-mcp/config.jsonc` (or `BC_MCP_CONFIG`
   / `<cwd>/.bc-mcp.jsonc`) file defines named `connections`, an optional
   `default`, and an optional `map[]` from repo path to connection, so one
