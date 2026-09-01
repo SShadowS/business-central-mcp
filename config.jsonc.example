@@ -1,0 +1,31 @@
+{
+  // Name used when neither BC_CONNECTION nor a map[] entry matches this cwd.
+  "default": "cronus28",
+
+  "connections": {
+    // On-prem NavUserPassword. Keep the password out of the file with ${ENV};
+    // a literal value also works if this file is mode 0600.
+    "cronus28": {
+      "baseUrl": "http://cronus28/BC",
+      "auth": "NavUserPassword",
+      "username": "sshadows",
+      "password": "${CRONUS28_PW}",
+      "tenantId": "default"
+    },
+
+    // SaaS / BC Online. No password: sign in via the local window or
+    // `npx business-central-mcp login`. clientId is only needed for bc_query.
+    "prodA": {
+      "baseUrl": "https://businesscentral.dynamics.com/00000000-0000-0000-0000-000000000000/PROD",
+      "auth": "SaasWeb",
+      "clientId": "${BC_CLIENT_ID}"
+    }
+  },
+
+  // First matching entry (file order) selects a connection by working directory.
+  // Supports * (within a path segment) and ** (across segments, incl. the dir itself).
+  "map": [
+    { "path": "U:/git/custA/**", "connection": "prodA" },
+    { "path": "U:/git/test*/**", "connection": "cronus28" }
+  ]
+}

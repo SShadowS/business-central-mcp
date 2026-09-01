@@ -159,6 +159,35 @@ Restart Claude Desktop.
 | `BC_RECONNECT_MAX_RETRIES` | No | `4` | Reconnect attempts after session death. |
 | `BC_RECONNECT_BASE_DELAY` | No | `1000` | Base delay (ms) for exponential reconnect backoff. |
 
+## Central connection config
+
+Running several Claude Code sessions against several BC instances no longer
+requires a full `BC_*` env block in every repo's `.mcp.json`. Register the
+server once at user scope and define the connections in one file.
+
+1. Register the server globally:
+
+   ```bash
+   claude mcp add business-central -s user -- node U:/git/bc-mcp/node_modules/tsx/dist/cli.mjs U:/git/bc-mcp/src/stdio-server.ts
+   ```
+
+2. Create `~/.bc-mcp/config.jsonc` (see `config.jsonc.example`): a set of named
+   `connections`, an optional `default`, and an optional `map[]` from repo path
+   to connection.
+
+3. Each session picks its connection, highest priority first:
+
+   - an explicit `BC_*` env var (e.g. `BC_BASE_URL`) always wins for that field;
+   - `BC_CONNECTION=<name>` selects a named connection;
+   - a `map[]` entry whose `path` matches the session's working directory;
+   - the `default` connection.
+
+Keep secrets out of the file with `${ENV}` references (expanded from the
+process environment); on macOS/Linux the file should be mode `0600`. SaaS
+connections carry no password — sign in via the local window or
+`npx business-central-mcp login`. With no config file present, the server runs
+exactly as before from plain `BC_*` environment variables.
+
 ### On-prem containers: set `BC_APPLICATION_ID=NAV`
 
 If sign-in and the WebSocket upgrade both succeed but the session dies at `OpenSession` with
