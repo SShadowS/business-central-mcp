@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { createInterface } from 'node:readline';
 import { loadConfig } from './core/config.js';
+import { loadDotenv } from './core/dotenv-loader.js';
+import { resolveConnection } from './core/connection-resolver.js';
 import { createLogger } from './core/logger.js';
 import { composeAuthProviders } from './connection/auth/create-auth-provider.js';
 import { ClientElicitationPort } from './mcp/elicitation-port.js';
@@ -40,6 +42,9 @@ import { PROMPTS } from './mcp/prompts.js';
 // isErr no longer needed — SessionManager handles session creation errors internally
 
 async function main() {
+  loadDotenv();
+  const connection = resolveConnection();
+
   if (process.argv[2] === 'login') {
     const { runLoginCli } = await import('./cli/login.js');
     await runLoginCli(loadConfig());
@@ -49,6 +54,15 @@ async function main() {
   const config = loadConfig();
   // Logger already writes to stderr (via writeStderr in logger.ts) — stdout is sacred (JSON-RPC only)
   const logger = createLogger(config.logging);
+
+  if (connection.source !== 'none') {
+    logger.info('Connection resolved from central config', {
+      connection: connection.connectionName,
+      source: connection.source,
+      configPath: connection.configPath,
+      injected: connection.injected,
+    });
+  }
 
   logger.info('BC MCP Server v2 (stdio) starting...');
 

@@ -1,5 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { loadConfig } from './core/config.js';
+import { loadDotenv } from './core/dotenv-loader.js';
+import { resolveConnection } from './core/connection-resolver.js';
 import { createLogger } from './core/logger.js';
 import { composeAuthProviders } from './connection/auth/create-auth-provider.js';
 import { ClientElicitationPort } from './mcp/elicitation-port.js';
@@ -60,8 +62,20 @@ function isMcpPath(url: string): boolean {
 }
 
 async function main() {
+  loadDotenv();
+  const connection = resolveConnection();
+
   const config = loadConfig();
   const logger = createLogger(config.logging);
+
+  if (connection.source !== 'none') {
+    logger.info('Connection resolved from central config', {
+      connection: connection.connectionName,
+      source: connection.source,
+      configPath: connection.configPath,
+      injected: connection.injected,
+    });
+  }
 
   logger.info('Starting BC MCP Server v2...');
 
