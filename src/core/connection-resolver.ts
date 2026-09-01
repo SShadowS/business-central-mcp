@@ -60,3 +60,102 @@ export function matchPath(cwd: string, pattern: string): boolean {
   }
   return globToRegExp(p).test(c);
 }
+
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { homedir } from 'node:os';
+import { stripJsonComments } from './jsonc.js';
+
+export type ResolutionSource = 'env-selector' | 'cwd-map' | 'default' | 'none';
+
+export interface ConnectionResolution {
+  connectionName: string | undefined;
+  source: ResolutionSource;
+  configPath: string | undefined;
+  injected: string[];
+}
+
+export interface ResolveOptions {
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+  homeDir?: string;
+  warn?: (msg: string) => void;
+}
+
+interface ConfigFile {
+  default?: string;
+  connections?: Record<string, Record<string, string>>;
+  map?: Array<{ path: string; connection: string }>;
+}
+
+function findConfigFile(env: NodeJS.ProcessEnv, home: string, cwd: string): string | undefined {
+  const candidates = [
+    env.BC_MCP_CONFIG,
+    join(home, '.bc-mcp', 'config.jsonc'),
+    env.XDG_CONFIG_HOME ? join(env.XDG_CONFIG_HOME, 'bc-mcp', 'config.jsonc') : undefined,
+    join(cwd, '.bc-mcp.jsonc'),
+  ].filter((c): c is string => Boolean(c));
+  return candidates.find((c) => existsSync(c));
+}
+
+function warnLoosePerms(file: string, warn: (m: string) => void): void {
+  if (process.platform === 'win32') return;
+  try {
+    const mode = statSync(file).mode & 0o777;
+    if (mode & 0o077) {
+      warn(`connection config ${file} is mode ${mode.toString(8)}; tighten to 0600 to protect credentials`);
+    }
+  } catch { /* stat failure is non-fatal */ }
+}
+
+export function resolveConnection(opts: ResolveOptions = {}): ConnectionResolution {
+  const env = opts.env ?? process.env;
+  const cwd = opts.cwd ?? process.cwd();
+  const home = opts.homeDir ?? homedir();
+  const warn = opts.warn ?? ((m: string) => process.stderr.write(`[config] ${m}\n`));
+
+  const file = findConfigFile(env, home, cwd);
+  if (!file) return { connectionName: undefined, source: 'none', configPath: undefined, injected: [] };
+
+  warnLoosePerms(file, warn);
+
+  let doc: ConfigFile;
+  try {
+    doc = JSON.parse(stripJsonComments(readFileSync(file, 'utf8'))) as ConfigFile;
+  } catch (e) {
+    throw new ConfigError(`Failed to parse connection config ${file}: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  const connections = doc.connections ?? {};
+
+  let name: string | undefined;
+  let source: ResolutionSource;
+  if (env.BC_CONNECTION) {
+    name = env.BC_CONNECTION;
+    source = 'env-selector';
+  } else {
+    const hit = (doc.map ?? []).find((m) => matchPath(cwd, m.path));
+    if (hit) { name = hit.connection; source = 'cwd-map'; }
+    else if (doc.default) { name = doc.default; source = 'default'; }
+    else { return { connectionName: undefined, source: 'none', configPath: file, injected: [] }; }
+  }
+
+  const conn = connections[name];
+  if (!conn) {
+    const valid = Object.keys(connections).join(', ') || '(none defined)';
+    throw new ConfigError(`Connection '${name}' not found in ${file}. Valid connections: ${valid}`);
+  }
+
+  const injected: string[] = [];
+  for (const [field, rawVal] of Object.entries(conn)) {
+    const key = FIELD_TO_ENV[field];
+    if (!key) { warn(`unknown field '${field}' in connection '${name}' (ignored)`); continue; }
+    const val = expandEnv(String(rawVal), env);
+    if (env[key] === undefined) {
+      env[key] = val;
+      injected.push(key);
+    }
+  }
+
+  return { connectionName: name, source, configPath: file, injected };
+}
