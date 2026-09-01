@@ -246,6 +246,12 @@ export class MultiRowActionUnavailableError extends BCError {
   }
 }
 
+export class ConfigError extends BCError {
+  constructor(message: string, context?: Record<string, unknown>) {
+    super(message, 'CONFIG_ERROR', context);
+  }
+}
+
 const ERROR_HINTS: Record<string, string> = {
   VALIDATION_ERROR: 'Correct the field value(s) and retry with bc_write_data.',
   BUSINESS_ERROR: 'BC rejected the operation. Read the message, adjust inputs, and retry.',
