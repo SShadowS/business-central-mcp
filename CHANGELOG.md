@@ -13,6 +13,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [1.7.1] - 2026-09-16
+
+### Fixed
+
+- **`bc_switch_company` now actually switches company.** The previous
+  implementation invoked `InvokeSessionAction { SystemAction: 500 }`
+  (ChangeCompany), which BC acknowledges with `InvokeCompleted` while leaving
+  the session in the original company — so every switch silently no-oped and
+  subsequent reads/writes still hit the old company. Verified against
+  decompiled BC (`ChangeCompanyAction.InvokeCore` passes an empty company arg
+  and ignores `namedParameters.company`) and live on cronus28: BC binds a
+  session to a company only via the `OpenSession` `company` parameter; neither
+  the ChangeCompany action nor the per-request envelope `company` rebinds an
+  open session. A switch is now a re-`OpenSession` bound to the target company
+  on the same WebSocket (`BCSession.changeCompany`), after which all page
+  contexts are invalidated as before.
+
+### Added
+
+- **`COMPANY_NOT_FOUND` error.** `bc_switch_company` maps BC's
+  `NavWebFailedOpenCompanyException` (unknown or wrong-case company name — the
+  `OpenSession` `company` match is case-sensitive) to a typed
+  `CompanyNotFoundError`; the session is left untouched on the current company.
+
 ## [1.7.0] - 2026-09-01
 
 ### Added
