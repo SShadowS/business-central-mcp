@@ -252,6 +252,26 @@ export class ConfigError extends BCError {
   }
 }
 
+/**
+ * Thrown when a company switch targets a company BC cannot open -- an unknown
+ * name, a wrong-case name (OpenSession company matching is case-SENSITIVE), or
+ * one the user cannot access. BC reports this as
+ * `NavWebFailedOpenCompanyException` ("The company ... does not exist."). The
+ * session is left on its current company; nothing was switched.
+ */
+export class CompanyNotFoundError extends BCError {
+  public readonly companyName: string;
+  constructor(companyName: string, context?: Record<string, unknown>) {
+    super(
+      `Cannot switch to company "${companyName}": it does not exist or is not accessible. ` +
+        `Company names are case-sensitive; use the exact name from bc_list_companies.`,
+      'COMPANY_NOT_FOUND',
+      context,
+    );
+    this.companyName = companyName;
+  }
+}
+
 const ERROR_HINTS: Record<string, string> = {
   VALIDATION_ERROR: 'Correct the field value(s) and retry with bc_write_data.',
   BUSINESS_ERROR: 'BC rejected the operation. Read the message, adjust inputs, and retry.',
@@ -262,6 +282,7 @@ const ERROR_HINTS: Record<string, string> = {
   STALE_CONTEXT: 'The page changed since you last read it (stateVersion mismatch). Re-read with bc_read_data to get the current stateVersion, then retry.',
   INVALID_BOOKMARK: 'The anchor bookmark is no longer loaded in BC. Re-read the section with bc_read_data and retry with a current bookmark.',
   MULTI_ROW_ACTION_UNAVAILABLE: 'This page disables the action for multiple selected rows. Retry with a single bookmark, or repeat the action per row.',
+  COMPANY_NOT_FOUND: 'The target company does not exist or is not accessible. List valid names with bc_list_companies and retry with the exact (case-sensitive) name.',
   SIGN_IN_REQUIRED: 'Complete Microsoft sign-in in the window that opened (Authenticator number matching), then retry this tool. If no window appeared, run the MCP on a machine with a display or run `npx business-central-mcp login` with the same `STATE_DIR`.',
   OAUTH_NOT_CONFIGURED: 'bc_query on BC Online needs BC_CLIENT_ID set to a multi-tenant public Entra app (delegated user_impersonation). If it is set, check the server logs. UI tools do not need this.',
   DEVICE_LOGIN_REQUIRED: 'Show the user the sign-in URL and code from this message. After they complete sign-in, retry this tool — it picks up the pending sign-in automatically.',

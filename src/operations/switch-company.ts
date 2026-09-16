@@ -1,9 +1,7 @@
 import { ok, err, isOk, type Result } from '../core/result.js';
-import type { BCError } from '../core/errors.js';
+import { CompanyNotFoundError, type BCError, type ProtocolError } from '../core/errors.js';
 import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
-import { classifyBusinessError } from '../protocol/error-classifier.js';
-import type { BCEvent } from '../protocol/types.js';
 import type { Logger } from '../core/logger.js';
 
 export interface SwitchCompanyInput {
@@ -27,35 +25,25 @@ export class SwitchCompanyOperation {
     const previousCompany = this.session.companyName;
     const invalidatedIds = this.repo.listPageContextIds();
 
-    // ChangeCompany uses InvokeSessionAction with systemAction 500
-    const result = await this.session.invoke(
-      {
-        type: 'SessionAction',
-        actionName: 'InvokeSessionAction',
-        namedParameters: {
-          systemAction: 500,
-          company: input.companyName,
-        },
-      },
-      (e) => e.type === 'InvokeCompleted',
-    );
+    // A company switch is a re-OpenSession bound to the target company. BC binds
+    // a session to a company ONLY at OpenSession time: the ChangeCompany
+    // SystemAction (500) and the per-request envelope `company` are both no-ops
+    // on an already-open session (verified live on cronus28 -- the old approach
+    // "succeeded" via InvokeCompleted while the session stayed in the old
+    // company, which is exactly why the switch never stuck).
+    const result = await this.session.changeCompany(input.companyName);
 
-    if (!isOk(result)) return result;
+    // On failure (e.g. NavWebFailedOpenCompanyException for an unknown or
+    // wrong-case company) the session is still on the old company. Do NOT
+    // destroy page contexts -- the caller's pages remain valid.
+    if (!isOk(result)) return err(mapSwitchError(result.error, input.companyName));
 
-    const events = result.value;
-
-    // BC may reject the switch (e.g. no permission, unknown company) via an
-    // error message/dialog while still completing the invoke. Do NOT destroy
-    // page contexts in that case -- the session is still in the old company.
-    const bizErr = classifyBusinessError(events);
-    if (bizErr !== null) return err(bizErr);
-
-    // Invalidate all page contexts -- company switch resets server-side page state
+    // Successful re-open resets all server-side page state to the new company;
+    // every previously open page context is now stale.
     this.repo.clearAll();
 
-    // Prefer the confirmed company name from the settings-changed event when
-    // BC echoes one back; fall back to the requested name otherwise.
-    const newCompany = extractConfirmedCompanyName(events) ?? input.companyName;
+    // `session.companyName` now reflects the company BC echoed back.
+    const newCompany = this.session.companyName || input.companyName;
 
     this.logger.info(`Switched company from "${previousCompany}" to "${newCompany}"`);
 
@@ -68,33 +56,15 @@ export class SwitchCompanyOperation {
 }
 
 /**
- * Find the confirmed new company name in the events returned by the
- * ChangeCompany invoke (SessionSettingsChangedHandler / session-info payloads
- * carry a CompanyName field). Returns undefined when BC did not echo one.
+ * Turn a re-open failure into a caller-friendly business error. BC reports an
+ * unknown/wrong-case company as `NavWebFailedOpenCompanyException` ("The company
+ * ... does not exist."); surface that as a VALIDATION_ERROR so it is not treated
+ * as a transport failure. Any other protocol error passes through unchanged.
  */
-function extractConfirmedCompanyName(events: BCEvent[]): string | undefined {
-  for (const event of events) {
-    if (event.type !== 'SessionInfo') continue;
-    const found = findCompanyName(event.sessionData);
-    if (found) return found;
+function mapSwitchError(error: ProtocolError, companyName: string): BCError {
+  const msg = error.message ?? '';
+  if (/does not exist|FailedOpenCompany|Could not open the/i.test(msg)) {
+    return new CompanyNotFoundError(companyName);
   }
-  return undefined;
-}
-
-function findCompanyName(data: unknown): string | undefined {
-  if (!data || typeof data !== 'object') return undefined;
-  if (Array.isArray(data)) {
-    for (const item of data) {
-      const found = findCompanyName(item);
-      if (found) return found;
-    }
-    return undefined;
-  }
-  const obj = data as Record<string, unknown>;
-  if (typeof obj.CompanyName === 'string' && obj.CompanyName) return obj.CompanyName;
-  for (const value of Object.values(obj)) {
-    const found = findCompanyName(value);
-    if (found) return found;
-  }
-  return undefined;
+  return error;
 }

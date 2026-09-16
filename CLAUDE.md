@@ -2,7 +2,7 @@
 
 ## Development Philosophy
 
-This project is NOT released and in active development:
+This project is released and in active development:
 - Always choose the best solution, not the quickest compromise
 - Refactor aggressively when architecture is flawed
 - Fix problems properly, not with workarounds
@@ -12,10 +12,7 @@ This project is NOT released and in active development:
 ## Quick Start
 
 ### Project Location
-- **v2 source**: `U:/git/bc-mcp/`
-- **v1 reference** (deprecated): `C:\bc4ubuntu\Decompiled\bc-poc\`
 - **Decompiled BC28**: `U:/git/bc-mcp/reference/bc28/decompiled/`
-- **Decompiled BC27**: `C:\bc4ubuntu\Decompiled\` (various Microsoft.Dynamics.* directories)
 - **Architecture spec**: `C:\bc4ubuntu\Decompiled\bc-poc\docs\superpowers\specs\2026-04-03-bc-mcp-v2-design.md`
 
 ### BC Test Environments
@@ -35,23 +32,21 @@ Uses NavUserPassword authentication (not Windows/NTLM).
 ```bash
 cd U:/git/bc-mcp
 npx tsc --noEmit                    # Type check
-npx vitest run                       # Unit + protocol tests (292 tests)
-npx vitest run --config vitest.integration.config.ts  # Integration tests against real BC28 (111 tests)
+npx vitest run                       # Unit + protocol tests
+npx vitest run --config vitest.integration.config.ts  # Integration tests against real BC28
 npm start                            # HTTP server on port 3000
 npm run start:stdio-direct           # Direct stdio for Claude Desktop
 ```
 
 ### Rules
 - Use Windows paths with forward slashes in bash
-- NEVER use `2>nul` (creates undeletable files on Windows)
-- NEVER use emojis -- Windows rendering issues
 - Always run `npx tsc --noEmit` after changes
 - Run integration tests after any protocol-level change
 - ESM project -- use `.js` extensions in all imports
 
 ## Protocol Verification Procedure
 
-**CRITICAL: Always verify protocol behavior against decompiled BC source, not v1 code.**
+**CRITICAL: Always verify protocol behavior against decompiled BC source.**
 
 V1 had several incorrect assumptions (per-page connections, SaveValue not echoing, etc.). When implementing or debugging any BC protocol interaction:
 
@@ -74,8 +69,6 @@ connection/ -> protocol/ -> session/ -> services/ -> operations/ -> mcp/ + api/
 
 ### Single Connection Per Session
 BC supports multiple forms on one WebSocket connection, tracked by `formId` in each interaction and `openFormIds` in each request. Verified from decompiled `UISession.openedForms` dictionary.
-
-The v1 "per-page connection" was a workaround for an `openFormIds` tracking bug, not a BC requirement.
 
 ### Event-Driven Protocol
 BC sends handler arrays as responses. The EventDecoder transforms these into typed `BCEvent[]`. State is derived from events via `FormProjection` into per-form `FormState`, coordinated by `PageContext`.
@@ -200,10 +193,17 @@ Reports are opened via `OpenForm` with `query: "report=<id>&tenant=<tenantId>"`.
 
 Reference: `NavRunReportPropertyBagInvokedAction.cs`, `RunReportAction.cs` (decompiled). Verified against live BC28: report 6 (Trial Balance) returns request page dialog.
 
-### Company Switching
-Uses `InvokeSessionAction` with `SystemAction: 500` (ChangeCompany). All server-side page state is reset. The `SessionSettingsChangedHandler` response carries the new company info.
+### Company Switching (verified live cronus28)
 
-Reference: `ChangeCompanyAction.cs`, `NavSystemCodeunitSystemActionTriggers.cs` (decompiled). Wire format needs further protocol investigation -- the exact namedParameters may differ from the initial implementation.
+A company switch is a **re-`OpenSession` bound to the target company on the same WebSocket** — NOT `SystemAction: 500`. BC binds a session to a company ONLY via the top-level `company` parameter of `OpenSession`. Two things that look right but are NO-OPs on an already-open session (both verified live: customer-list row identities unchanged after each):
+- `InvokeSessionAction` with `SystemAction: 500` (ChangeCompany) — `ChangeCompanyAction.InvokeCore` calls `InvokeCodeUnit(2000000006, "ChangeCompany", args=[""])` with an EMPTY company arg and ignores `namedParameters.company` entirely. It returns `InvokeCompleted` (looks successful) while the session stays in the old company. This was the old bug: the switch never stuck.
+- The per-request envelope `company` field — the web-server host keys the ClientSession by company at connect time (`SegmentNameWithFallbackSessionIdGenerator`), so changing it per-request does not rebind.
+
+`BCSession.changeCompany(name)` (`src/session/bc-session.ts`) re-runs `OpenSession` with `company: name` as ONE queued task (no interleave with in-flight invokes), then drops stale form/modal tracking. On success `this.company` reflects BC's echoed name and all previously open forms are gone (server-side state reset to the new company); `SwitchCompanyOperation` then `repo.clearAll()`s the page contexts. Company names are **case-SENSITIVE** — a wrong-case or unknown name throws `NavWebFailedOpenCompanyException` ("The company ... does not exist."), which `SwitchCompanyOperation` maps to `CompanyNotFoundError` (code `COMPANY_NOT_FOUND`); the session is left untouched on the current company (no page-context loss).
+
+Verified live (cronus28, two companies "CRONUS Danmark A/S" populated + "My Company" empty): switch CRONUS→My Company drops the customer list to 0 rows, round-trips back to 5; invalid and wrong-case names return `COMPANY_NOT_FOUND` with the session still on CRONUS.
+
+Reference: decompiled `ChangeCompanyAction.cs` (empty-arg codeunit call), `NavSystemCodeunitSystemActionTriggers.InvokeChangeCompany` (ByRef return, no input name), `CallbackRequestData.Company` + `SessionIdProviderFactory`/`SegmentNameWithFallbackSessionIdGenerator` (company is part of session identity, set at connect). Encoder: `InteractionEncoder.encodeOpenSession(tenantId, spa, profile?, company?)`.
 
 ### Dimensions Read/Write Workflow (No New Tool Required)
 
@@ -264,24 +264,9 @@ PageSearch=220, RunReport=210, ChangeCompany=500
 
 Reference: `SystemAction.cs` (decompiled, identical BC27/BC28)
 
-## Handler Types (Complete)
+## Handler Types
 
-12 handler type strings used in BC protocol:
-```
-DN.LogicalClientChangeHandler       -- Form data/property changes (most common)
-DN.LogicalClientEventRaisingHandler -- Session events (FormToShow, DialogToShow, etc.)
-DN.CallbackResponseProperties       -- Invoke metadata (sequenceNumber, completedInteractions)
-DN.CachedSessionInitHandler         -- Session credentials (ServerSessionId, SessionKey, CompanyName)
-DN.SessionInitHandler               -- Session init data
-DN.LogicalClientInitHandler         -- Logical client state
-DN.LogicalSessionChangeHandler      -- Session property changes
-DN.SessionSettingsChangedHandler    -- Company/timezone/locale changes
-DN.NavigationServiceInitHandler     -- Navigation tree init
-DN.NavigationServiceChangeHandler   -- Navigation tree updates
-DN.EmptyPageStackHandler            -- No pages open signal
-DN.IsExecutingHandler               -- Server busy polling
-DN.ExtensionObjectChangeHandler     -- Control add-in changes
-```
+The 12 BC protocol handler type strings and their meanings are defined in `src/protocol/handler-types.ts`.
 
 ## Testing Strategy
 
@@ -289,8 +274,8 @@ DN.ExtensionObjectChangeHandler     -- Control add-in changes
 Verify against real BC first. Codify verified behavior as unit tests second. Never mock what you don't understand.
 
 ### Test Tiers
-1. **Unit tests** (`tests/unit/`, `tests/protocol/`): Pure logic, no BC needed. Run with `npx vitest run` (37 files, 292 tests).
-2. **Integration tests** (`tests/integration/`): Against real BC28 (Cronus28). Run with `npx vitest run --config vitest.integration.config.ts` (18 files, 111 tests).
+1. **Unit tests** (`tests/unit/`, `tests/protocol/`): Pure logic, no BC needed. Run with `npx vitest run`.
+2. **Integration tests** (`tests/integration/`): Against real BC28 (Cronus28). Run with `npx vitest run --config vitest.integration.config.ts`.
 3. **Workflow smoke tests**: Exercises all 11 MCP tools in realistic multi-step workflows.
 4. **Edge case tests**: Protocol edge cases, error handling, cross-version compatibility.
 
@@ -379,7 +364,5 @@ Note: `tsx` via `npx` pollutes stdout with `◇ injecting...` which breaks JSON-
 
 - When dispatching parallel worktree agents, group by file overlap (not by feature). Files like `types.ts`, `schemas.ts`, `page-context-repo.ts`, `page-context-store.ts`, and `form-state-reducer.ts` are touched by many features -- put them in one agent to avoid merge conflicts.
 - If stuck on a protocol issue, use the decompiled BC source (`bc-decompiled-analyzer` agent)
-- Use `gpt5 high` or `zen` for second opinions on complex issues
-- Use `Gemini 2.5 pro` for large file analysis
 - Read files before writing them
 - Check all protocol assumptions against decompiled source, not v1

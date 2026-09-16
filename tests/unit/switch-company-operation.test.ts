@@ -2,11 +2,15 @@
 //
 // Unit tests for SwitchCompanyOperation.
 // Behaviors:
-//   - Sends InvokeSessionAction with systemAction=500 (ChangeCompany) and company name
+//   - Delegates to session.changeCompany(targetName), which re-opens the
+//     session bound to the target company (the ONLY thing that rebinds a
+//     company in BC -- systemAction 500 / envelope company are no-ops).
 //   - Invalidates ALL page context IDs in the repo on success
 //   - Returns { previousCompany, newCompany, invalidatedPageContextIds }
-//   - On session error: does NOT clear the repo (no partial state mutation)
-//   - previousCompany comes from session.companyName (read BEFORE the invoke)
+//   - newCompany reflects session.companyName AFTER the switch (BC-echoed name)
+//   - previousCompany comes from session.companyName (read BEFORE the switch)
+//   - On failure: does NOT clear the repo (no partial state mutation)
+//   - A "does not exist" re-open error maps to CompanyNotFoundError
 
 import { describe, it, expect, vi } from 'vitest';
 import { SwitchCompanyOperation } from '../../src/operations/switch-company.js';
@@ -18,11 +22,16 @@ import type { BCEvent } from '../../src/protocol/types.js';
 const noopLogger = { info: vi.fn(), debug: vi.fn(), warn: vi.fn(), error: vi.fn() };
 
 function makeSession(overrides?: Record<string, unknown>) {
-  return {
+  const session: Record<string, unknown> = {
     companyName: 'CRONUS International Ltd.',
-    invoke: vi.fn(async () => ok([] as BCEvent[])),
+    // Default: a successful switch echoes the requested company name back.
+    changeCompany: vi.fn(async (name: string) => {
+      session.companyName = name;
+      return ok([] as BCEvent[]);
+    }),
     ...overrides,
-  } as any;
+  };
+  return session as any;
 }
 
 function makeRepo(...pageContextIds: string[]) {
@@ -32,23 +41,25 @@ function makeRepo(...pageContextIds: string[]) {
 }
 
 describe('SwitchCompanyOperation — session interaction', () => {
-  it('sends InvokeSessionAction with systemAction=500 and the target company name', async () => {
+  it('delegates to session.changeCompany with the target company name', async () => {
     const session = makeSession();
     const repo = makeRepo();
     const op = new SwitchCompanyOperation(session, repo, noopLogger);
 
     await op.execute({ companyName: 'Fabrikam Inc.' });
 
-    expect(session.invoke).toHaveBeenCalledOnce();
-    const [interaction] = session.invoke.mock.calls[0]!;
-    expect(interaction.type).toBe('SessionAction');
-    expect(interaction.actionName).toBe('InvokeSessionAction');
-    expect(interaction.namedParameters.systemAction).toBe(500);
-    expect(interaction.namedParameters.company).toBe('Fabrikam Inc.');
+    expect(session.changeCompany).toHaveBeenCalledOnce();
+    expect(session.changeCompany.mock.calls[0]![0]).toBe('Fabrikam Inc.');
   });
 
-  it('uses session.companyName (read before invoke) as previousCompany', async () => {
-    const session = makeSession({ companyName: 'Old Corp' });
+  it('uses session.companyName (read before switch) as previousCompany and the echoed name as newCompany', async () => {
+    const session = makeSession({
+      companyName: 'Old Corp',
+      changeCompany: vi.fn(async () => {
+        session.companyName = 'New Corp'; // BC echoes the confirmed name
+        return ok([] as BCEvent[]);
+      }),
+    });
     const repo = makeRepo();
     const op = new SwitchCompanyOperation(session, repo, noopLogger);
 
@@ -99,9 +110,9 @@ describe('SwitchCompanyOperation — repo clearAll', () => {
     expect(repo.get('pc:2')).toBeUndefined();
   });
 
-  it('does NOT clear the repo when session.invoke fails', async () => {
+  it('does NOT clear the repo when the switch fails', async () => {
     const session = makeSession({
-      invoke: vi.fn(async () => err(new ProtocolError('BC rejected company switch'))),
+      changeCompany: vi.fn(async () => err(new ProtocolError('BC rejected company switch'))),
     });
     const repo = makeRepo('pc:1', 'pc:2');
     const op = new SwitchCompanyOperation(session, repo, noopLogger);
@@ -116,9 +127,9 @@ describe('SwitchCompanyOperation — repo clearAll', () => {
 });
 
 describe('SwitchCompanyOperation — error propagation', () => {
-  it('propagates session invoke error unchanged', async () => {
+  it('propagates a non-company protocol error unchanged', async () => {
     const session = makeSession({
-      invoke: vi.fn(async () => err(new ProtocolError('company not found: Nonexistent Corp'))),
+      changeCompany: vi.fn(async () => err(new ProtocolError('websocket closed unexpectedly'))),
     });
     const repo = makeRepo();
     const op = new SwitchCompanyOperation(session, repo, noopLogger);
@@ -127,7 +138,27 @@ describe('SwitchCompanyOperation — error propagation', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error.message).toContain('company not found');
+      expect(result.error.code).toBe('PROTOCOL_ERROR');
+      expect(result.error.message).toContain('websocket closed');
     }
+  });
+
+  it('maps a NavWebFailedOpenCompanyException ("does not exist") to CompanyNotFoundError', async () => {
+    const session = makeSession({
+      changeCompany: vi.fn(async () =>
+        err(new ProtocolError('JSON-RPC error: The company "Nonexistent Corp" does not exist.'))),
+    });
+    const repo = makeRepo('pc:1');
+    const op = new SwitchCompanyOperation(session, repo, noopLogger);
+
+    const result = await op.execute({ companyName: 'Nonexistent Corp' });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('COMPANY_NOT_FOUND');
+      expect(result.error.message).toContain('Nonexistent Corp');
+    }
+    // Failed switch must not clear page contexts.
+    expect(repo.get('pc:1')).toBeDefined();
   });
 });

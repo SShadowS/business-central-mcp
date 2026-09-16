@@ -75,18 +75,25 @@ export class BCSession {
     return !this.dead && this.ws.isConnected;
   }
 
-  async initialize(tenantId: string): Promise<Result<BCEvent[], ProtocolError>> {
-    const openSessionCall = this.encoder.encodeOpenSession(tenantId, this.ws.spaInstanceId, this.profile);
+  /**
+   * Send an OpenSession RPC and process its response (decode events, wait for
+   * the async-message quiescence window, extract session credentials). Shared
+   * by `initialize` (first connect) and `changeCompany` (company re-bind).
+   * Does NOT touch form tracking or `_initialized`; the caller owns that so it
+   * can decide whether to reset stale form state (re-bind) or not (first open).
+   */
+  private async sendOpenSession(
+    tenantId: string,
+    company?: string,
+  ): Promise<Result<BCEvent[], ProtocolError>> {
+    const openSessionCall = this.encoder.encodeOpenSession(tenantId, this.ws.spaInstanceId, this.profile, company);
 
-    this.logger.debug('protocol', 'Sending OpenSession');
+    this.logger.debug('protocol', company ? `Sending OpenSession (company=${company})` : 'Sending OpenSession');
     const rpcResult = await this.ws.sendRpc(openSessionCall.method, openSessionCall.params, this.timeoutMs);
     if (isErr(rpcResult)) return rpcResult;
 
     const responseData = rpcResult.value;
-    let events: BCEvent[] = [];
-    if (Array.isArray(responseData)) {
-      events = this.decoder.decode(responseData);
-    }
+    const events: BCEvent[] = Array.isArray(responseData) ? this.decoder.decode(responseData) : [];
 
     // Wait for async messages
     await new Promise(resolve => setTimeout(resolve, QUIESCENCE_MS));
@@ -94,29 +101,86 @@ export class BCSession {
     // Extract session credentials from response (recursively searches for fields)
     this.extractSessionCredentials(responseData);
 
+    return ok(events);
+  }
+
+  async initialize(tenantId: string): Promise<Result<BCEvent[], ProtocolError>> {
+    const openResult = await this.sendOpenSession(tenantId);
+    if (isErr(openResult)) return openResult;
+    const events = openResult.value;
+
     // Update form tracking
     this.updateFormTracking(events);
 
     this._initialized = true;
 
     // Auto-dismiss license notification dialogs (present on fresh/evaluation databases)
-    const licenseDialog = findLicenseDialog(events);
-    if (licenseDialog) {
-      this.logger.info('Auto-dismissing license notification dialog');
-      try {
-        await this.invoke(
-          { type: 'InvokeAction', formId: licenseDialog.formId, controlPath: 'server:', systemAction: 300 }, // Ok=300
-          (e) => e.type === 'InvokeCompleted',
-        );
-        this.removeOpenForm(licenseDialog.formId);
-      } catch {
-        this.logger.warn('Failed to auto-dismiss license dialog, continuing anyway');
-      }
-    }
+    await this.dismissLicenseDialog(events);
 
     this.logger.info(`Session initialized: ${this.sessionId}, company: ${this.company}`);
 
     return ok(events);
+  }
+
+  /**
+   * Switch the session to a different company. BC binds a session to a company
+   * only at OpenSession time -- neither the per-request envelope `company` nor
+   * the ChangeCompany SystemAction (500) rebind an already-open session
+   * (verified live on cronus28). We therefore re-run OpenSession with the target
+   * company on the SAME connection, which BC accepts and which resets all
+   * server-side form state to the new company.
+   *
+   * On success `this.company` reflects the echoed company name and all
+   * previously open forms are dropped (they belong to the old company). On
+   * failure (e.g. unknown company -> NavWebFailedOpenCompanyException) the
+   * session is left untouched on the current company and the error is returned.
+   *
+   * The re-open runs as a single queued task so it cannot interleave with
+   * in-flight invokes (BC's protocol is stateful; concurrent sends corrupt
+   * sequence numbers). Company names are case-SENSITIVE -- pass the exact name
+   * from the Companies list.
+   */
+  async changeCompany(companyName: string): Promise<Result<BCEvent[], ProtocolError>> {
+    if (this.dead) return err(new ProtocolError('Session is dead'));
+    const result = await this.enqueue(() => this.reopenWithCompany(companyName));
+    if (isErr(result)) return result;
+
+    // License dismissal runs as its OWN queued invoke (not inside the re-open
+    // task) to avoid re-entering the queue from within an enqueued task.
+    await this.dismissLicenseDialog(result.value);
+
+    this.logger.info(`Company switched: ${this.sessionId}, company: ${this.company}`);
+    return ok(result.value);
+  }
+
+  /** Queued body of changeCompany: re-open + reset stale form/modal state. */
+  private async reopenWithCompany(companyName: string): Promise<Result<BCEvent[], ProtocolError>> {
+    const openResult = await this.sendOpenSession(this.tenantId, companyName);
+    if (isErr(openResult)) return openResult; // company/session unchanged on failure
+
+    // Successful re-open == fresh server-side session bound to the new company.
+    // Every form from the previous company is gone; drop stale tracking before
+    // recording the forms the OpenSession response opened (e.g. the Role Center).
+    this._openFormIds.clear();
+    this.modalStack.clear();
+    this.updateFormTracking(openResult.value);
+    return ok(openResult.value);
+  }
+
+  /** Auto-dismiss a license/evaluation notification dialog if the response has one. */
+  private async dismissLicenseDialog(events: BCEvent[]): Promise<void> {
+    const licenseDialog = findLicenseDialog(events);
+    if (!licenseDialog) return;
+    this.logger.info('Auto-dismissing license notification dialog');
+    try {
+      await this.invoke(
+        { type: 'InvokeAction', formId: licenseDialog.formId, controlPath: 'server:', systemAction: 300 }, // Ok=300
+        (e) => e.type === 'InvokeCompleted',
+      );
+      this.removeOpenForm(licenseDialog.formId);
+    } catch {
+      this.logger.warn('Failed to auto-dismiss license dialog, continuing anyway');
+    }
   }
 
   private extractSessionCredentials(data: unknown): void {

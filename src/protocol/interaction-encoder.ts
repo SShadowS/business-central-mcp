@@ -87,7 +87,7 @@ export class InteractionEncoder {
    * Profile field; `Microsoft.Dynamics.Nav.Service/NSService.cs:OpenConnection`
    * resolution logic.
    */
-  encodeOpenSession(tenantId: string, spaInstanceId: string, profile?: string): EncodedRpcCall {
+  encodeOpenSession(tenantId: string, spaInstanceId: string, profile?: string, company?: string): EncodedRpcCall {
     return {
       method: 'OpenSession',
       params: [{
@@ -112,7 +112,13 @@ export class InteractionEncoder {
           callbackId: '0',
         }],
         tenantId,
-        company: null,
+        // The OpenSession `company` param is the ONLY thing that binds the
+        // session to a company (verified live on cronus28): the per-request
+        // envelope `company` and ChangeCompany SystemAction=500 do NOT rebind
+        // an open session. A non-null value selects that company; null = the
+        // server's default company. Company names are case-SENSITIVE here
+        // (a wrong-case name throws NavWebFailedOpenCompanyException).
+        company: company ?? null,
         telemetryClientSessionId: null,
         features: BC_FEATURES,
         profile: profile ?? '',
