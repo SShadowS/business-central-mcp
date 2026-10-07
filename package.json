@@ -28,7 +28,8 @@
     "start:stdio-direct": "tsx src/stdio-server.ts",
     "prepublishOnly": "tsc --noEmit && npm run clean && tsc",
     "validate:dxt": "npx -y @anthropic-ai/dxt validate manifest.json",
-    "build:dxt": "tsx scripts/build-dxt.ts"
+    "build:dxt": "tsx scripts/build-dxt.ts",
+    "smoke:prod": "node scripts/smoke-prod-install.mjs"
   },
   "keywords": [
     "mcp",
@@ -48,6 +49,7 @@
   },
   "dependencies": {
     "cheerio": "^1.2.0",
+    "dotenv": "^17.4.1",
     "uuid": "^13.0.0",
     "ws": "^8.20.0",
     "zod": "^4.3.6",
@@ -60,7 +62,6 @@
     "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "^4.1.2",
     "archiver": "^7.0.1",
-    "dotenv": "^17.4.1",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2",
     "vitest": "^4.1.2"

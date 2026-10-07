@@ -13,6 +13,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [1.7.2] - 2026-10-07
+
+### Fixed
+
+- **`npx business-central-mcp` no longer crashes with `ERR_MODULE_NOT_FOUND`.**
+  `dotenv` was listed as a `devDependency` but is imported at startup via a
+  top-level `import` in `dist/core/dotenv-loader.js`, so any production install
+  (`npx`, `-g`, Docker `--omit=dev`) failed to resolve it before the server
+  could boot. Moved `dotenv` to `dependencies`. Affected 1.7.1.
+
+### Added
+
+- **Prod-install smoke test** (`npm run smoke:prod`, `scripts/smoke-prod-install.mjs`):
+  packs the tarball, installs it with `--omit=dev`, and boots the bin, so a
+  runtime dependency misclassified as a `devDependency` fails CI/release instead
+  of users' installs. Wired into both `ci.yml` and `release.yml`.
+
 ## [1.7.1] - 2026-09-16
 
 ### Fixed

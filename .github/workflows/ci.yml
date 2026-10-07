@@ -35,5 +35,11 @@ jobs:
       - name: Unit + protocol tests
         run: npm run test
 
+      # Installs the packed tarball with --omit=dev and boots the bin, so a
+      # runtime dep misclassified as a devDependency (invisible to `npm ci`)
+      # fails here instead of in users' npx installs.
+      - name: Prod-install smoke
+        run: npm run smoke:prod
+
       # Integration tests need a live BC server; skipped in CI.
       # Run locally with: npm run test:integration

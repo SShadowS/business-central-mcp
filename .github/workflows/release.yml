@@ -41,6 +41,11 @@ jobs:
       - name: Unit + protocol tests
         run: npm run test
 
+      # Gate: boot the exact tarball with --omit=dev. Catches a runtime dep
+      # left in devDependencies before it ships to npm (the 1.7.1 dotenv bug).
+      - name: Prod-install smoke
+        run: npm run smoke:prod
+
       # No NODE_AUTH_TOKEN: the trusted publisher exchanges the OIDC token for
       # short-lived npm credentials automatically, and attaches provenance.
       # `prepublishOnly` (typecheck + clean + build) runs as part of publish.
