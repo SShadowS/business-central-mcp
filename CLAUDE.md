@@ -276,7 +276,7 @@ Verify against real BC first. Codify verified behavior as unit tests second. Nev
 ### Test Tiers
 1. **Unit tests** (`tests/unit/`, `tests/protocol/`): Pure logic, no BC needed. Run with `npx vitest run`.
 2. **Integration tests** (`tests/integration/`): Against real BC28 (Cronus28). Run with `npx vitest run --config vitest.integration.config.ts`.
-3. **Workflow smoke tests**: Exercises all 11 MCP tools in realistic multi-step workflows.
+3. **Workflow smoke tests**: Exercises the MCP tools in realistic multi-step workflows.
 4. **Edge case tests**: Protocol edge cases, error handling, cross-version compatibility.
 
 ### Stale Server Process

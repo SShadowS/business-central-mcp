@@ -24,7 +24,7 @@
 | npm package | [`business-central-mcp`](https://www.npmjs.com/package/business-central-mcp) |
 | BC versions | BC27, BC28 (wire-compatible) |
 | Auth | On-prem NavUserPassword. BC Online: ESTS cookie session for `/csh` (no password in env) + device-code for `bc_query`. |
-| Tools | 12 |
+| Tools | 15 |
 | Tests | 901 unit/protocol + 111 integration |
 | License | MIT |
 
@@ -300,13 +300,18 @@ Known wart: when the browser sign-in fails (65002, blocked consent), Entra keeps
 | `bc_write_data` | Write field values; BC validates and echoes confirmed values. Section-aware (lines, factboxes, header). |
 | `bc_execute_action` | Run header / row / wizard actions, OR drill down on Role Center cue tiles via `cue` input. |
 | `bc_respond_dialog` | Handle confirmation prompts and request pages |
-| `bc_navigate` | Select rows, drill down into records, field lookups |
+| `bc_navigate` | Select rows and drill down into records |
 | `bc_search_pages` | Tell Me search. Returns `{ name, objectType, runTarget, departmentPath, category, score }` per result. |
 | `bc_close_page` | Close a page and free server resources |
 | `bc_switch_company` | Switch to a different company mid-session |
 | `bc_list_companies` | Discover available companies |
 | `bc_run_report` | Execute reports and fill request page parameters |
 | `bc_wizard_navigate` | Drive NavigatePage / wizard flows (back / next / finish / cancel) |
+| `bc_lookup` | List the valid values for a lookup field (e.g. Salesperson Code) |
+| `bc_query` | Bulk read-only OData queries against the BC Standard API v2.0 |
+| `bc_upload_file` | Upload a local file into a BC file-upload dialog (e.g. Import Layout) |
+
+Every tool carries MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`), so clients can auto-approve the read-only ones and ask before writes, actions, dialogs, reports and uploads.
 
 ## How it works
 

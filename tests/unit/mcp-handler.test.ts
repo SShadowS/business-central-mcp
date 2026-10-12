@@ -4,6 +4,9 @@ import { MCPHandler, URL_ELICITATION_JSONRPC_CODE } from '../../src/mcp/handler.
 import type { ToolDefinition } from '../../src/mcp/tool-registry.js';
 import { BCError, SessionLostError, BusinessError, BusinessValidationError, SignInRequiredError, UrlElicitationRequiredError } from '../../src/core/errors.js';
 import { ClientElicitationPort } from '../../src/mcp/elicitation-port.js';
+import pkg from '../../package.json' with { type: 'json' };
+
+const pkgVersion = pkg.version;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -34,6 +37,7 @@ function makeTool(
     inputSchema: { type: 'object', properties: {} },
     zodSchema,
     execute,
+    annotations: { readOnlyHint: true, openWorldHint: false },
   };
 }
 
@@ -48,7 +52,7 @@ describe('MCPHandler.handleRequest — initialize', () => {
     expect(res.error).toBeUndefined();
     const result = res.result as Record<string, unknown>;
     expect(result.protocolVersion).toBeTypeOf('string');
-    expect(result.serverInfo).toMatchObject({ name: 'bc-mcp' });
+    expect(result.serverInfo).toMatchObject({ name: 'bc-mcp', version: pkgVersion });
     expect(result.capabilities).toMatchObject({
       tools: { listChanged: false },
       resources: expect.any(Object),
@@ -119,7 +123,7 @@ describe('MCPHandler.handleRequest — tools/list', () => {
     expect(result.tools).toEqual([]);
   });
 
-  it('maps each tool to {name, description, inputSchema}', async () => {
+  it('maps each tool to {name, description, inputSchema, annotations}', async () => {
     const schema = { type: 'object', properties: { x: { type: 'string' } } };
     const tool = makeTool('bc_test');
     tool.inputSchema = schema;
@@ -127,7 +131,10 @@ describe('MCPHandler.handleRequest — tools/list', () => {
     const res = await handler.handleRequest(makeRequest('tools/list'));
     const result = res.result as { tools: Array<{ name: string; description: string; inputSchema: unknown }> };
     expect(result.tools).toHaveLength(1);
-    expect(result.tools[0]).toEqual({ name: 'bc_test', description: 'bc_test description', inputSchema: schema });
+    expect(result.tools[0]).toEqual({
+      name: 'bc_test', description: 'bc_test description', inputSchema: schema,
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    });
   });
 
   it('lists all registered tools', async () => {

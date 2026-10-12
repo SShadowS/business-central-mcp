@@ -20,6 +20,7 @@ Example (capture Excel):     { "reportId": 6, "format": "excel" }
 Example (capture Word):      { "reportId": 6, "format": "word" }`,
     inputSchema: toMcpJsonSchema(RunReportSchema),
     zodSchema: RunReportSchema,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     execute: (input) => ops.runReport.execute(input as Parameters<typeof ops.runReport.execute>[0]),
   };
 }

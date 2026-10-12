@@ -17,6 +17,7 @@ Examples:
 - Empty case: { "results": [], "note": "No results. Tell Me is profile-scoped..." }.`,
     inputSchema: toMcpJsonSchema(SearchPagesSchema),
     zodSchema: SearchPagesSchema,
+    annotations: { readOnlyHint: true, openWorldHint: false },
     execute: (input) => ops.searchPages.execute(input as Parameters<typeof ops.searchPages.execute>[0]),
   };
 }

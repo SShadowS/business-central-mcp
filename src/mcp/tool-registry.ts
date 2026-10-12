@@ -43,6 +43,20 @@ export interface ToolDefinition {
    * session creation. Defaults to false/undefined (session required).
    */
   sessionIndependent?: boolean;
+  /**
+   * MCP tool annotations (spec 2025-03-26+). Hints only — clients use them to
+   * decide when to ask the user before a call. Every tool talks to one closed
+   * BC instance, so openWorldHint is always false. destructive/idempotent are
+   * meaningful only when readOnlyHint is false.
+   */
+  annotations: ToolAnnotations;
+}
+
+export interface ToolAnnotations {
+  readOnlyHint: boolean;
+  destructiveHint?: boolean;
+  idempotentHint?: boolean;
+  openWorldHint: false;
 }
 
 export interface Operations {

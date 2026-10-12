@@ -19,6 +19,7 @@ Examples:
 - { "pageId": 21, "bookmark": "..." } opens Customer Card. Sections include the header card plus FactBoxes (e.g. { "sectionId": "factbox:Customer Statistics", "kind": "factbox", "fields": [...] }).`,
     inputSchema: toMcpJsonSchema(OpenPageSchema),
     zodSchema: OpenPageSchema,
+    annotations: { readOnlyHint: true, openWorldHint: false },
     execute: (input) => ops.openPage.execute(input as Parameters<typeof ops.openPage.execute>[0]),
   };
 }

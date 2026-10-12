@@ -11,6 +11,7 @@ This tool opens the BC Companies system page internally, reads all entries, and 
 Do NOT use this if you already know the company name -- call bc_switch_company directly. If you need to work with data in a specific company, use bc_switch_company followed by bc_open_page.`,
     inputSchema: toMcpJsonSchema(ListCompaniesSchema),
     zodSchema: ListCompaniesSchema,
+    annotations: { readOnlyHint: true, openWorldHint: false },
     execute: () => ops.listCompanies.execute(),
   };
 }

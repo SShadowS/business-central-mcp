@@ -34,6 +34,7 @@ Examples:
 If the action produces a file (Open in Excel, Print, export), its bytes appear in \`downloads[]\`; links BC would open externally appear in \`externalUris[]\` and are never fetched by the server.`,
     inputSchema: toMcpJsonSchema(ExecuteActionSchema),
     zodSchema: ExecuteActionSchema,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     execute: (input) => ops.executeAction.execute(input as Parameters<typeof ops.executeAction.execute>[0]),
   };
 }

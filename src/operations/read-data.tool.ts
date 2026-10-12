@@ -34,6 +34,7 @@ Examples:
 - Refresh a FactBox: { "pageContextId": "abc", "section": "factbox:Customer Statistics" }`,
     inputSchema: toMcpJsonSchema(ReadDataSchema),
     zodSchema: ReadDataSchema,
+    annotations: { readOnlyHint: true, openWorldHint: false },
     execute: (input) => ops.readData.execute(input as Parameters<typeof ops.readData.execute>[0]),
   };
 }

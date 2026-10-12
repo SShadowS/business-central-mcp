@@ -21,6 +21,7 @@ Examples:
 - Write with staleness guard: { "pageContextId": "abc", "fields": { "Name": "Contoso" }, "expectedStateVersion": 3 }`,
     inputSchema: toMcpJsonSchema(WriteDataSchema),
     zodSchema: WriteDataSchema,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     execute: (input) => ops.writeData.execute(input as Parameters<typeof ops.writeData.execute>[0]),
   };
 }

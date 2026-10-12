@@ -42,6 +42,7 @@ import { MCPHandler } from './mcp/handler.js';
 import { PROMPTS } from './mcp/prompts.js';
 import { createApiRoutes } from './api/routes.js';
 import { parseJsonBody, checkApiToken, bcErrorToHttp } from './api/middleware.js';
+import { SERVER_VERSION } from './core/version.js';
 // isErr no longer needed — SessionManager handles session creation errors internally
 
 /** The request-target's pathname: query stripped, trailing slashes trimmed,
@@ -216,7 +217,7 @@ async function main() {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
           status: sessionManager.currentSession !== null ? 'healthy' : 'starting',
-          version: '2.0.0',
+          version: SERVER_VERSION,
           bc: {
             baseUrl: config.bc.baseUrl,
             tenantId: config.bc.tenantId,

@@ -16,6 +16,7 @@ Example (local path):  { "pageContextId": "session:page:9650:ab12", "path": "C:/
 Example (base64):      { "pageContextId": "session:page:9650:ab12", "base64": "UEsDBAo...", "fileName": "layout.docx" }`,
     inputSchema: toMcpJsonSchema(UploadFileSchema),
     zodSchema: UploadFileSchema,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     execute: (input) => ops.uploadFile.execute(input as Parameters<typeof ops.uploadFile.execute>[0]),
   };
 }

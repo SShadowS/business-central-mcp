@@ -3,6 +3,7 @@ import type { PromptDefinition } from './prompts.js';
 import type { Logger } from '../core/logger.js';
 import { SessionLostError, BCError, UrlElicitationRequiredError, errorHint } from '../core/errors.js';
 import { applyElicitationCapabilities, type ClientElicitationPort } from './elicitation-port.js';
+import { SERVER_VERSION } from '../core/version.js';
 
 export const URL_ELICITATION_JSONRPC_CODE = -32042;
 
@@ -101,7 +102,7 @@ export class MCPHandler {
       id: request.id,
       result: {
         protocolVersion: MCP_PROTOCOL_VERSION,
-        serverInfo: { name: 'bc-mcp', version: '2.0.0' },
+        serverInfo: { name: 'bc-mcp', version: SERVER_VERSION },
         capabilities: {
           tools: { listChanged: false },
           resources: { subscribe: false, listChanged: false },
@@ -120,6 +121,7 @@ export class MCPHandler {
           name: t.name,
           description: t.description,
           inputSchema: t.inputSchema,
+          annotations: t.annotations,
         })),
       },
     };

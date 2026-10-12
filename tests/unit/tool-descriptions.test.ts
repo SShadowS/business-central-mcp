@@ -16,6 +16,7 @@ const mockOps = {
   wizardNavigate: { execute: async () => ({}) },
   lookup: { execute: async () => ({}) },
   query: { execute: async () => ({}) },
+  uploadFile: { execute: async () => ({}) },
 } as unknown as Operations;
 
 describe('tool descriptions', () => {
@@ -39,6 +40,26 @@ describe('tool descriptions', () => {
   it('marks bc_query as the only session-independent tool', () => {
     const independent = tools.filter(t => t.sessionIndependent).map(t => t.name);
     expect(independent).toEqual(['bc_query']);
+  });
+
+  it('every tool declares explicit read-only/destructive/idempotent annotations', () => {
+    for (const tool of tools) {
+      const a = tool.annotations;
+      expect(typeof a.readOnlyHint, `${tool.name} readOnlyHint`).toBe('boolean');
+      expect(a.openWorldHint, `${tool.name} openWorldHint`).toBe(false);
+      if (!a.readOnlyHint) {
+        expect(typeof a.destructiveHint, `${tool.name} destructiveHint`).toBe('boolean');
+        expect(typeof a.idempotentHint, `${tool.name} idempotentHint`).toBe('boolean');
+      }
+    }
+  });
+
+  it('classifies read-only tools exactly', () => {
+    const readOnly = tools.filter(t => t.annotations.readOnlyHint).map(t => t.name).sort();
+    expect(readOnly).toEqual([
+      'bc_list_companies', 'bc_lookup', 'bc_navigate', 'bc_open_page',
+      'bc_query', 'bc_read_data', 'bc_search_pages',
+    ]);
   });
 
   it('bc_execute_action describes create/delete workflow', () => {

@@ -20,6 +20,7 @@ Examples:
 - Drill down from a document line: { "pageContextId": "abc", "bookmark": "XXXX", "action": "drill_down", "section": "lines" }`,
     inputSchema: toMcpJsonSchema(NavigateSchema),
     zodSchema: NavigateSchema,
+    annotations: { readOnlyHint: true, openWorldHint: false },
     execute: (input) => ops.navigate.execute(input as Parameters<typeof ops.navigate.execute>[0]),
   };
 }
