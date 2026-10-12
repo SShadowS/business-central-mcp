@@ -3,7 +3,7 @@ import { ConnectionError } from '../core/errors.js';
 import type { ConnectionFactory } from '../connection/connection-factory.js';
 import { EventDecoder } from '../protocol/event-decoder.js';
 import { InteractionEncoder } from '../protocol/interaction-encoder.js';
-import { BCSession } from './bc-session.js';
+import { BCSession, DEFAULT_LIVENESS, type InvokeLiveness } from './bc-session.js';
 import type { Logger } from '../core/logger.js';
 import type { SessionCreateError } from './session-create-error.js';
 
@@ -16,16 +16,14 @@ export class SessionFactory {
     private readonly tenantId: string,
     private readonly timeoutMs: number = 30000,
     private readonly profile: string = '',
-    private readonly resolveTenantId?: () => string,
+    private readonly liveness: InvokeLiveness = DEFAULT_LIVENESS,
   ) {}
 
   async create(): Promise<Result<BCSession, SessionCreateError>> {
     const wsResult = await this.connectionFactory.create();
     if (isErr(wsResult)) return wsResult;
 
-    const tenantId = this.resolveTenantId?.()
-      ?? this.connectionFactory.sessionTenantId
-      ?? this.tenantId;
+    const tenantId = this.connectionFactory.sessionTenantId ?? this.tenantId;
     const session = new BCSession(
       wsResult.value,
       this.decoder,
@@ -34,6 +32,7 @@ export class SessionFactory {
       tenantId,
       this.timeoutMs,
       this.profile,
+      this.liveness,
     );
 
     try {

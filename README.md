@@ -25,7 +25,7 @@
 | BC versions | BC27, BC28 (wire-compatible) |
 | Auth | On-prem NavUserPassword. BC Online: ESTS cookie session for `/csh` (no password in env) + device-code for `bc_query`. |
 | Tools | 15 |
-| Tests | 901 unit/protocol + 111 integration |
+| Tests | 1087 unit/protocol + 163 integration |
 | License | MIT |
 
 ## Install
@@ -155,7 +155,9 @@ Restart Claude Desktop.
 | `LOG_LEVEL` | No | `info` | `debug` / `info` / `warn` / `error`. |
 | `LOG_DIR` | No | `./logs` | Directory for log files. |
 | `STATE_DIR` | No | `{cwd}/.state` | Per-repo directory for `saas-web-cookies.json` and `oauth-tokens.json` (mode 0600). Relative paths resolve against the MCP process working directory (the project you started the agent in). Sessions in the same repo share the file; different repos never share a login. |
-| `BC_INVOKE_TIMEOUT` | No | `30000` | Per-invoke timeout in ms. Kills hung sessions. |
+| `BC_INVOKE_TIMEOUT` | No | `30000` | RPC timeout in ms for OpenSession and modal-recovery calls. |
+| `BC_ISEXECUTING_POLL_INTERVAL` | No | `10000` | While a call runs, ask BC every N ms whether it is still processing. A long post or report stays alive as long as BC says yes; a hung call is killed once BC says no. |
+| `BC_INVOKE_MAX_DURATION` | No | `600000` | Hard cap in ms for one call, even while BC is still processing. |
 | `BC_RECONNECT_MAX_RETRIES` | No | `4` | Reconnect attempts after session death. |
 | `BC_RECONNECT_BASE_DELAY` | No | `1000` | Base delay (ms) for exponential reconnect backoff. |
 

@@ -134,6 +134,24 @@ describe('InteractionEncoder', () => {
     expect(namedParams.files).toEqual([{ FileName: 'ext.app', FileToken: 'TEMP\\abc123' }]);
   });
 
+  it('encodes IsExecuting exactly as the Gate A probe sent it (no form, SuppressInvalidSession)', () => {
+    const result = encoder.encode({ type: 'IsExecuting' }, {
+      callbackId: 'cb-10',
+      sequenceNo: 'spa1#10',
+      lastClientAckSequenceNumber: 9,
+      openFormIds: new Set(['f1']),
+      session: testSession,
+    });
+    const params = result.params[0] as Record<string, unknown>;
+    const inv = (params.interactionsToInvoke as Record<string, unknown>[])[0]!;
+    expect(result.method).toBe('Invoke');
+    expect(inv).toEqual({
+      interactionName: 'IsExecuting',
+      namedParameters: JSON.stringify({ SuppressInvalidSession: true }),
+      callbackId: 'cb-10',
+    });
+  });
+
   it('encodes Filter with AddLine operation', () => {
     const interaction = {
       type: 'Filter' as const,

@@ -7,7 +7,8 @@ argument invalid.
 **Size:** M
 **Build order:** 5 of 7 (see [gap analysis](2026-07-24-mcp-gap-analysis.md))
 **Branch:** `feat/long-running-ops`
-**Status:** **Gate A CLOSED (2026-07-24, passed). Branch 1 selected; Branch 2 dropped. Gate B moot.**
+**Status:** **IMPLEMENTED 2026-10-13.** Gate A CLOSED (2026-07-24, passed). Branch 1 selected; Branch 2 dropped. Gate B moot.
+**Deviations from this design:** (1) a single `IsExecuting=false` is re-probed after 2 s before declaring `wedged` -- Gate A itself showed the answer flips to false before a large response is flushed; (2) the per-call ceiling is `max(explicit timeout, BC_INVOKE_MAX_DURATION)`, so the report flow's explicit 120 s extends rather than shrinks it; (3) `BC_INVOKE_TIMEOUT` now only bounds OpenSession and modal-reconcile sub-invokes; (4) the Progress event is not implemented (follow-up).
 Live probe: `scripts/gate-a-isexecuting.ts`; captured wire fixture:
 `src/protocol/captures/isexecuting-concurrent-2026-07-24.json`.
 

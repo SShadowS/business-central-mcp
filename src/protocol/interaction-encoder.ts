@@ -191,6 +191,8 @@ export class InteractionEncoder {
         return { interactionName: interaction.actionName, namedParameters: JSON.stringify(interaction.namedParameters ?? {}), controlPath: interaction.controlPath ?? 'server:c[0]', callbackId };
       case 'InvokeFileUploadAction':
         return { interactionName: 'InvokeFileUploadAction', formId: interaction.formId, controlPath: interaction.controlPath, namedParameters: JSON.stringify({ files: interaction.files }), callbackId };
+      case 'IsExecuting':
+        return { interactionName: 'IsExecuting', namedParameters: JSON.stringify({ SuppressInvalidSession: true }), callbackId };
       case 'SortColumn':
         // BC's InvokeActionExecutionStrategy reads SortOrder from a nested "Data"
         // sub-dictionary (GetOptionalNamedParameter<Dictionary>(namedParameters,

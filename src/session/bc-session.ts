@@ -13,9 +13,34 @@ import { findLicenseDialog } from './license-dialog.js';
 import { resolveFormatLabel } from './report-format-resolver.js';
 import { buildFormTree } from '../protocol/form-tree-builder.js';
 import { walkTree } from '../protocol/form-tree-walk.js';
+import { watchLiveness, parseIsExecutingAnswer, type LivenessVerdict, type ProbeAnswer } from './isexecuting-poller.js';
 
 const DEFAULT_TIMEOUT_MS = 30000;
 const QUIESCENCE_MS = 150; // Trailing window for async Message bursts
+// Re-probe delay before declaring a wedge: IsExecuting flips to false BEFORE a
+// large response frame is flushed (Gate A), so one false is not conclusive.
+const WEDGE_CONFIRM_MS = 2000;
+// sendRpc's own deadline sits past the ceiling so the RPC layer never races
+// the watchdog's verdict.
+const RPC_GRACE_MS = 5000;
+
+export interface InvokeLiveness {
+  /** Silence tolerated before probing IsExecuting (BC_ISEXECUTING_POLL_INTERVAL). */
+  pollIntervalMs: number;
+  /** Absolute ceiling per invoke, even while IsExecuting is true (BC_INVOKE_MAX_DURATION). */
+  maxDurationMs: number;
+}
+
+export const DEFAULT_LIVENESS: InvokeLiveness = { pollIntervalMs: 10_000, maxDurationMs: 600_000 };
+
+const VERDICT_MESSAGES: Record<LivenessVerdict, (ceilingMs: number) => string> = {
+  wedged: () => 'BC reported it stopped processing (IsExecuting=false) but the operation did not return. '
+    + 'Session killed. The operation may have committed server-side -- verify before retrying.',
+  ceiling: (ms) => `Operation exceeded the ${ms / 1000}s cap while BC was still processing. Session killed. `
+    + 'The operation may have committed server-side -- verify before retrying. '
+    + 'Raise BC_INVOKE_MAX_DURATION if this operation is legitimately this slow.',
+  'transport-dead': () => 'The connection stopped answering IsExecuting probes. Session killed and will reconnect on next request.',
+};
 
 export class BCSession {
   private queue: Promise<void> = Promise.resolve();
@@ -37,6 +62,7 @@ export class BCSession {
     private readonly tenantId: string,
     private readonly timeoutMs: number = DEFAULT_TIMEOUT_MS,
     private readonly profile: string = '',
+    private readonly liveness: InvokeLiveness = DEFAULT_LIVENESS,
   ) {
     if (typeof this.ws.setRequestHandler === 'function') {
       // Safe default handler for any server-initiated inbound JSON-RPC request.
@@ -219,15 +245,14 @@ export class BCSession {
     timeoutMs?: number,
   ): Promise<Result<BCEvent[], ProtocolError>> {
     if (this.dead) return err(new ProtocolError('Session is dead'));
-    const effectiveTimeout = timeoutMs ?? this.timeoutMs;
+    const ceiling = this.ceilingFor(timeoutMs);
     try {
-      // The timeout must wrap execution INSIDE the queued task, not the enqueue
+      // The watchdog must wrap execution INSIDE the queued task, not the enqueue
       // itself — otherwise time spent waiting behind earlier queued invokes
-      // counts against the timer and a healthy backlog spuriously kills the
-      // session.
-      return await this.enqueue(() => this.withTimeout(
-        this.invokeUnqueued(interaction, expect, effectiveTimeout),
-        effectiveTimeout + 5000, // Session-level timeout is 5s longer than RPC timeout
+      // counts against it and a healthy backlog spuriously kills the session.
+      return await this.enqueue(() => this.withLiveness(
+        this.invokeUnqueued(interaction, expect, ceiling + RPC_GRACE_MS),
+        ceiling,
         `Invoke(${interaction.type})`,
       ));
     } catch (e) {
@@ -253,38 +278,83 @@ export class BCSession {
   ): Promise<Result<BCEvent[], ProtocolError>> {
     if (this.dead) return err(new ProtocolError('Session is dead'));
     if (interactions.length === 0) return ok([]);
-    const effectiveTimeout = timeoutMs ?? this.timeoutMs;
+    const ceiling = this.ceilingFor(timeoutMs);
     try {
-      return await this.enqueue(() => this.withTimeout((async () => {
+      return await this.enqueue(() => this.withLiveness((async () => {
         const all: BCEvent[] = [];
         for (let i = 0; i < interactions.length; i++) {
           const isLast = i === interactions.length - 1;
           const predicate: EventPredicate = isLast ? expect : (e) => e.type === 'InvokeCompleted';
-          const r = await this.invokeUnqueued(interactions[i]!, predicate, effectiveTimeout);
+          const r = await this.invokeUnqueued(interactions[i]!, predicate, ceiling + RPC_GRACE_MS);
           if (isErr(r)) return r;
           all.push(...r.value);
         }
         return ok(all);
-      })(), effectiveTimeout * interactions.length + 5000, `InvokeSequence(${interactions.length})`));
+      })(), ceiling, `InvokeSequence(${interactions.length})`));
     } catch (e) {
       if (e instanceof TimeoutError) return err(new ProtocolError(e.message));
       throw e;
     }
   }
 
-  private withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  /**
+   * Per-call ceiling. BC_INVOKE_MAX_DURATION is the floor; an explicit
+   * per-call timeout (the report flow passes >=120s) can only extend it.
+   */
+  private ceilingFor(timeoutMs?: number): number {
+    return Math.max(timeoutMs ?? 0, this.liveness.maxDurationMs);
+  }
+
+  /**
+   * Run `promise` under the IsExecuting watchdog (see isexecuting-poller.ts).
+   * While BC answers IsExecuting=true the invoke may run up to `ceilingMs`; a
+   * wedged / unanswered / over-ceiling verdict kills the session so
+   * SessionManager reconnects on the next request.
+   */
+  private withLiveness<T>(promise: Promise<T>, ceilingMs: number, label: string): Promise<T> {
     return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.logger.error(`${label} timed out after ${ms}ms, killing session`);
-        this.markDead();
-        this.closeWs();
-        reject(new TimeoutError(`BC did not respond within ${ms / 1000}s. Session has been killed and will reconnect on next request.`));
-      }, ms);
+      const stop = watchLiveness({
+        probe: () => this.probeIsExecuting(),
+        pollIntervalMs: this.liveness.pollIntervalMs,
+        confirmDelayMs: WEDGE_CONFIRM_MS,
+        ceilingMs,
+        onVerdict: (verdict) => {
+          this.logger.error(`${label}: liveness verdict '${verdict}', killing session`);
+          this.markDead();
+          this.closeWs();
+          reject(new TimeoutError(VERDICT_MESSAGES[verdict](ceilingMs)));
+        },
+      });
       promise.then(
-        (val) => { clearTimeout(timer); resolve(val); },
-        (rejection) => { clearTimeout(timer); reject(rejection); },
+        (val) => { stop(); resolve(val); },
+        (rejection) => { stop(); reject(rejection); },
       );
     });
+  }
+
+  /** One out-of-band IsExecuting probe; any transport failure reads as 'error'. */
+  private async probeIsExecuting(): Promise<ProbeAnswer> {
+    const encoded = this.encoder.encode({ type: 'IsExecuting' }, this.encodeContext(uuid()));
+    const r = await this.ws.sendOutOfBand(encoded.method, encoded.params, this.liveness.pollIntervalMs);
+    const answer = isOk(r) ? parseIsExecutingAnswer(r.value) : 'error';
+    this.logger.debug('protocol', `IsExecuting probe: ${answer}`);
+    return answer;
+  }
+
+  private encodeContext(callbackId: string): EncodeContext {
+    return {
+      callbackId,
+      sequenceNo: this.ws.nextSequenceNo,
+      lastClientAckSequenceNumber: this.ws.lastClientAckSequenceNumber,
+      openFormIds: this._openFormIds,
+      session: {
+        sessionId: this.sessionId,
+        sessionKey: this.sessionKey,
+        company: this.company,
+        tenantId: this.tenantId,
+        spaInstanceId: this.ws.spaInstanceId,
+      },
+    };
   }
 
   /**
@@ -335,20 +405,7 @@ export class BCSession {
 
     try {
       // Encode the interaction
-      const context: EncodeContext = {
-        callbackId,
-        sequenceNo: this.ws.nextSequenceNo,
-        lastClientAckSequenceNumber: this.ws.lastClientAckSequenceNumber,
-        openFormIds: this._openFormIds,
-        session: {
-          sessionId: this.sessionId,
-          sessionKey: this.sessionKey,
-          company: this.company,
-          tenantId: this.tenantId,
-          spaInstanceId: this.ws.spaInstanceId,
-        },
-      };
-      const encoded = this.encoder.encode(interaction, context);
+      const encoded = this.encoder.encode(interaction, this.encodeContext(callbackId));
 
       this.logger.debug('protocol', `Invoke: ${interaction.type}`, {
         callbackId,
@@ -381,20 +438,7 @@ export class BCSession {
             return err(new ModalReconcileError(`Modal reconciliation failed: ${reconcile.error.message}`, { originalError: msg }));
           }
           // Re-encode -- sequence numbers / openFormIds may have advanced.
-          const retryContext: EncodeContext = {
-            callbackId,
-            sequenceNo: this.ws.nextSequenceNo,
-            lastClientAckSequenceNumber: this.ws.lastClientAckSequenceNumber,
-            openFormIds: this._openFormIds,
-            session: {
-              sessionId: this.sessionId,
-              sessionKey: this.sessionKey,
-              company: this.company,
-              tenantId: this.tenantId,
-              spaInstanceId: this.ws.spaInstanceId,
-            },
-          };
-          const retryEncoded = this.encoder.encode(interaction, retryContext);
+          const retryEncoded = this.encoder.encode(interaction, this.encodeContext(callbackId));
           const retryRpc = await this.ws.sendRpc(retryEncoded.method, retryEncoded.params, timeoutMs);
           if (isErr(retryRpc)) {
             this.markDead();
@@ -623,11 +667,11 @@ export class BCSession {
     expect: EventPredicate,
     timeoutMs?: number,
   ): Promise<Result<BCEvent[], ProtocolError>> {
-    const effectiveTimeout = timeoutMs ?? this.timeoutMs;
+    const ceiling = this.ceilingFor(timeoutMs);
     try {
-      return await this.enqueue(() => this.withTimeout(
-        this.invokeUnqueued(interaction, expect, effectiveTimeout, /* bypassDeadCheck */ true),
-        effectiveTimeout + 5000,
+      return await this.enqueue(() => this.withLiveness(
+        this.invokeUnqueued(interaction, expect, ceiling + RPC_GRACE_MS, /* bypassDeadCheck */ true),
+        ceiling,
         `InvokeRaw(${interaction.type})`,
       ));
     } catch (e) {

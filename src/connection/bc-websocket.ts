@@ -229,57 +229,79 @@ export class BCWebSocket {
     params: unknown[],
     timeoutMs: number,
   ): Promise<Result<unknown, ProtocolError>> {
-    return this.enqueueSend(async () => {
-      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-        return err(new ProtocolError('WebSocket is not connected'));
-      }
+    return this.enqueueSend(() => this.sendNow(method, params, timeoutMs));
+  }
 
-      const id = uuid();
-      const payload = JSON.stringify({ jsonrpc: '2.0', id, method, params });
+  /**
+   * Send an RPC WITHOUT waiting behind the serialised send queue. A deliberate,
+   * narrow exception used ONLY for the `IsExecuting` liveness probe, which BC
+   * answers while another Invoke is outstanding (decompiled `CallbackHandler.cs`
+   * handles it before EnterProcessing; verified live by Gate A, 2026-07-24).
+   * Every other RPC must use `sendRpc` -- concurrent sends of ordinary
+   * interactions corrupt BC's stateful protocol.
+   */
+  sendOutOfBand(
+    method: string,
+    params: unknown[],
+    timeoutMs: number,
+  ): Promise<Result<unknown, ProtocolError>> {
+    return this.sendNow(method, params, timeoutMs);
+  }
 
-      return new Promise<Result<unknown, ProtocolError>>((resolve) => {
-        const { signal, cleanup } = composeWithTimeout(timeoutMs);
+  private async sendNow(
+    method: string,
+    params: unknown[],
+    timeoutMs: number,
+  ): Promise<Result<unknown, ProtocolError>> {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return err(new ProtocolError('WebSocket is not connected'));
+    }
 
-        this.pendingRequests.set(id, {
-          resolve: (value) => {
-            cleanup();
-            const decompressed = decompressIfNeeded(value);
-            resolve(decompressed);
-          },
-          reject: (reason) => {
-            cleanup();
-            resolve(err(new ProtocolError(reason.message)));
-          },
-        });
+    const id = uuid();
+    const payload = JSON.stringify({ jsonrpc: '2.0', id, method, params });
 
-        signal.addEventListener(
-          'abort',
-          () => {
-            this.pendingRequests.delete(id);
-            resolve(
-              err(
-                new ProtocolError(
-                  signal.reason instanceof TimeoutError
-                    ? `RPC timed out after ${timeoutMs}ms`
-                    : 'RPC aborted',
-                ),
-              ),
-            );
-          },
-          { once: true },
-        );
+    return new Promise<Result<unknown, ProtocolError>>((resolve) => {
+      const { signal, cleanup } = composeWithTimeout(timeoutMs);
 
-        this.ws!.send(payload, (sendError?: Error) => {
-          if (sendError) {
-            const pending = this.pendingRequests.get(id);
-            if (pending) {
-              this.pendingRequests.delete(id);
-              pending.reject(new ConnectionError(`WebSocket send failed for ${id}: ${sendError.message}`));
-            }
-          }
-        });
-        this.logger.debug('protocol', `Sent RPC: ${method} (id: ${id})`);
+      this.pendingRequests.set(id, {
+        resolve: (value) => {
+          cleanup();
+          const decompressed = decompressIfNeeded(value);
+          resolve(decompressed);
+        },
+        reject: (reason) => {
+          cleanup();
+          resolve(err(new ProtocolError(reason.message)));
+        },
       });
+
+      signal.addEventListener(
+        'abort',
+        () => {
+          this.pendingRequests.delete(id);
+          resolve(
+            err(
+              new ProtocolError(
+                signal.reason instanceof TimeoutError
+                  ? `RPC timed out after ${timeoutMs}ms`
+                  : 'RPC aborted',
+              ),
+            ),
+          );
+        },
+        { once: true },
+      );
+
+      this.ws!.send(payload, (sendError?: Error) => {
+        if (sendError) {
+          const pending = this.pendingRequests.get(id);
+          if (pending) {
+            this.pendingRequests.delete(id);
+            pending.reject(new ConnectionError(`WebSocket send failed for ${id}: ${sendError.message}`));
+          }
+        }
+      });
+      this.logger.debug('protocol', `Sent RPC: ${method} (id: ${id})`);
     });
   }
 

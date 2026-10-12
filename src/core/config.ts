@@ -28,6 +28,10 @@ export interface BCConfig {
   serverMajor: number;
   timeoutMs: number;
   invokeTimeoutMs: number;
+  /** Silence tolerated on an in-flight invoke before probing BC's IsExecuting. */
+  isExecutingPollIntervalMs: number;
+  /** Absolute ceiling for one invoke, enforced even while IsExecuting is true. */
+  invokeMaxDurationMs: number;
   reconnectMaxRetries: number;
   reconnectBaseDelayMs: number;
   /** Base URL for the BC OData / Standard API endpoint (port 7048).
@@ -102,6 +106,12 @@ export function loadConfig(): AppConfig {
     throw new Error('API_TOKEN is required when BIND_ADDRESS is non-loopback');
   }
 
+  const isExecutingPollIntervalMs = optionalEnvInt('BC_ISEXECUTING_POLL_INTERVAL', 10_000);
+  const invokeMaxDurationMs = optionalEnvInt('BC_INVOKE_MAX_DURATION', 600_000);
+  if (isExecutingPollIntervalMs <= 0 || isExecutingPollIntervalMs >= invokeMaxDurationMs) {
+    throw new Error(`BC_ISEXECUTING_POLL_INTERVAL (${isExecutingPollIntervalMs}) must be > 0 and below BC_INVOKE_MAX_DURATION (${invokeMaxDurationMs})`);
+  }
+
   const rawBaseUrl = requireEnv('BC_BASE_URL').replace(/\/+$/, '');
   const saas = parseSaasUrl(rawBaseUrl);
   const resolved = resolveAuth(saas);
@@ -122,6 +132,8 @@ export function loadConfig(): AppConfig {
       serverMajor: optionalEnvInt('BC_SERVER_MAJOR', 28),
       timeoutMs: optionalEnvInt('BC_TIMEOUT', 120000),
       invokeTimeoutMs: optionalEnvInt('BC_INVOKE_TIMEOUT', 30000),
+      isExecutingPollIntervalMs,
+      invokeMaxDurationMs,
       reconnectMaxRetries: optionalEnvInt('BC_RECONNECT_MAX_RETRIES', 4),
       reconnectBaseDelayMs: optionalEnvInt('BC_RECONNECT_BASE_DELAY', 1000),
       odataUrl: deriveODataUrl(saas ? saas.portalUrl : rawBaseUrl),

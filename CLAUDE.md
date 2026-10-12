@@ -86,7 +86,7 @@ All invokes are serialized via a promise queue in `BCSession` (`src/session/bc-s
 ### Session Lifecycle
 `SessionManager` (`src/session/session-manager.ts`) owns lazy session creation and dead-session recovery with exponential backoff (1s, 2s, 4s, 8s). Server entry points (`server.ts`, `stdio-server.ts`) use it instead of managing sessions directly. When a dead session is detected, all page contexts are cleared and `SessionLostError` is thrown. `LogicalModalityViolationException` (stale modal state from crashed sessions) is handled with the same retry logic. License/evaluation dialogs are auto-dismissed during session init (via `findLicenseDialog`).
 
-Configurable via env vars: `BC_INVOKE_TIMEOUT` (default 30s), `BC_RECONNECT_MAX_RETRIES` (default 4), `BC_RECONNECT_BASE_DELAY` (default 1s), `BC_PROFILE` (BC profile id e.g. `BUSINESS MANAGER`; empty = server default — see Tell Me Search section).
+Configurable via env vars: `BC_INVOKE_TIMEOUT` (default 30s; OpenSession and modal-reconcile sub-invokes only), `BC_ISEXECUTING_POLL_INTERVAL` (default 10s), `BC_INVOKE_MAX_DURATION` (default 600s), `BC_RECONNECT_MAX_RETRIES` (default 4), `BC_RECONNECT_BASE_DELAY` (default 1s), `BC_PROFILE` (BC profile id e.g. `BUSINESS MANAGER`; empty = server default — see Tell Me Search section).
 
 ## BC Protocol Patterns (Verified from Decompiled Source)
 
@@ -315,7 +315,13 @@ Source: https://platform.claude.com/docs/en/docs/agents-and-tools/tool-use/defin
 Document pages (Sales Order=42/43, Purchase Order=50/51) carry a header form and a lines subpage form. `FormState.rows` is keyed per repeater controlPath and each section (header/lines/factbox) resolves to its own formId + repeaterControlPath, so header and lines rows never collide. Child-form discovery + load is a shared `ChildFormHydrationStrategy` (`src/services/strategies/child-form-hydration.ts`) run not only by `bc_open_page` but also by `bc_navigate(drill_down)` (`NavigationService.drillDown`) and action-opened pages (`ActionService.invokeAction`), so a document reached via drill-down or an action exposes its `lines` section just like a directly-opened page — earlier it had a `header` section only. Verified: `tests/integration/drilldown-lines.test.ts`, `tests/integration/multi-section.test.ts`.
 
 ### Session Recovery
-After a session-killing error, BC holds the NTLM slot for ~15 seconds. The SessionManager handles this with exponential backoff (up to 4 retries). If an invoke hangs indefinitely (confirmed BC bug), the session-level timeout (default 30s) kills the connection and triggers auto-recovery on the next request.
+After a session-killing error, BC holds the NTLM slot for ~15 seconds. The SessionManager handles this with exponential backoff (up to 4 retries). Invoke liveness is decided by BC itself, not a wall clock. While an invoke is in flight, `BCSession.withLiveness` runs an `IsExecuting` watchdog (`src/session/isexecuting-poller.ts`): every `BC_ISEXECUTING_POLL_INTERVAL` it sends an out-of-band `IsExecuting` interaction via `BCWebSocket.sendOutOfBand` (the only RPC that bypasses the send queue). BC answers it before `EnterProcessing` even while another interaction is blocked (decompiled `CallbackHandler.cs`), so:
+- `true` -> still working, keep waiting (a long post or report no longer dies at 30s).
+- `false` twice, 2s apart -> wedged (the confirmed BC hung-invoke bug); kill + reconnect. One `false` is not enough: BC flips it before a large response frame is flushed.
+- probe error/timeout -> transport dead; kill + reconnect.
+- `BC_INVOKE_MAX_DURATION` elapsed -> kill even while `true`. An explicit per-call timeout (report flow, >=120s) can only raise this ceiling, never lower it.
+
+Each verdict has its own error message; wedged/ceiling warn that the operation may have committed server-side. Verified live (Gate A on BC28.0, and `tests/integration/isexecuting-liveness.test.ts` on BC29): in-flight probes answer in ms, idle answers `false`, no sequence corruption. Design: `docs/superpowers/specs/2026-07-24-long-running-ops-design.md`.
 
 ### File Download Capture — IMPLEMENTED
 
@@ -334,7 +340,7 @@ Downloads are captured generically on `bc_execute_action`, `bc_respond_dialog`, 
 Reference: `ResponseManager.RegisterUriToShowEvents` (`Microsoft.Dynamics.Framework.UI.Web/`), `FileUrlAddressProvider.cs` (`Microsoft.Dynamics.Framework.UI.Web/`), `UriToShowStyle.cs` (decompiled).
 
 ### Async Message Timing
-The invoke quiescence window (150ms) is a best-effort wait for trailing async `Message` notifications. In rare cases, late-arriving messages may be missed.
+The invoke quiescence window (150ms) is a best-effort wait for trailing async `Message` notifications. In rare cases, late-arriving messages may be missed. Long operations do NOT rely on BC volunteering frames (`CallbackHandler` awaits the whole interaction before responding, so a long AL phase is silent) -- liveness comes from polling `IsExecuting`, see Session Recovery. An earlier claim that IsExecuting is unavailable on `/csh` came from grepping the wrong assembly (`ClientService` serves `/ws/connect`, not `/csh`) and is retracted.
 
 ## Claude Desktop Configuration
 

@@ -209,3 +209,41 @@ describe('max selection', () => {
     expect(loadConfig().bc.maxSelection).toBe(25);
   });
 });
+
+describe('invoke liveness (IsExecuting watchdog)', () => {
+  const KEYS = ['BC_ISEXECUTING_POLL_INTERVAL', 'BC_INVOKE_MAX_DURATION', 'BC_BASE_URL', 'BC_USERNAME', 'BC_PASSWORD'];
+  let saved: Record<string, string | undefined>;
+  beforeEach(() => {
+    saved = Object.fromEntries(KEYS.map(k => [k, process.env[k]]));
+    KEYS.forEach(k => delete process.env[k]);
+    process.env.BC_BASE_URL = 'http://x/BC';
+    process.env.BC_USERNAME = 'test';
+    process.env.BC_PASSWORD = 'test';
+  });
+  afterEach(() => { KEYS.forEach(k => { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }); });
+
+  it('defaults to a 10s poll interval and a 600s ceiling', () => {
+    const { bc } = loadConfig();
+    expect(bc.isExecutingPollIntervalMs).toBe(10_000);
+    expect(bc.invokeMaxDurationMs).toBe(600_000);
+  });
+
+  it('reads both from env (milliseconds, like BC_INVOKE_TIMEOUT)', () => {
+    process.env.BC_ISEXECUTING_POLL_INTERVAL = '5000';
+    process.env.BC_INVOKE_MAX_DURATION = '900000';
+    const { bc } = loadConfig();
+    expect(bc.isExecutingPollIntervalMs).toBe(5000);
+    expect(bc.invokeMaxDurationMs).toBe(900_000);
+  });
+
+  it('rejects a poll interval at or above the ceiling', () => {
+    process.env.BC_ISEXECUTING_POLL_INTERVAL = '60000';
+    process.env.BC_INVOKE_MAX_DURATION = '60000';
+    expect(() => loadConfig()).toThrow(/BC_ISEXECUTING_POLL_INTERVAL/);
+  });
+
+  it('rejects a non-positive poll interval', () => {
+    process.env.BC_ISEXECUTING_POLL_INTERVAL = '0';
+    expect(() => loadConfig()).toThrow(/BC_ISEXECUTING_POLL_INTERVAL/);
+  });
+});

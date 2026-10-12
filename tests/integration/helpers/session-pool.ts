@@ -115,6 +115,8 @@ const CRONUS28: BCConfig = {
   serverMajor: 28,
   timeoutMs: 120000,
   invokeTimeoutMs: 30000,
+  isExecutingPollIntervalMs: 10_000,
+  invokeMaxDurationMs: 600_000,
   reconnectMaxRetries: 4,
   reconnectBaseDelayMs: 1000,
 };

@@ -201,7 +201,8 @@ export type BCInteraction =
   | ScrollRepeaterInteraction
   | SessionActionInteraction
   | SortColumnInteraction
-  | FileUploadActionInteraction;
+  | FileUploadActionInteraction
+  | IsExecutingInteraction;
 
 interface BaseInteraction {
   readonly formId?: string;
@@ -288,6 +289,20 @@ export interface FileUploadActionInteraction extends BaseInteraction {
   readonly formId: string;
   readonly controlPath: string;
   readonly files: ReadonlyArray<{ FileName: string; FileToken: string }>;
+}
+
+/**
+ * Ask BC whether it is still processing the in-flight invoke. Sent OUT OF BAND
+ * (BCWebSocket.sendOutOfBand) while another Invoke is outstanding; BC answers
+ * with `DN.IsExecutingHandler` ["true"|"false"]. Used only by the liveness
+ * watchdog (src/session/isexecuting-poller.ts).
+ *
+ * Reference: decompiled `CallbackHandler.cs` (matched by interaction name,
+ * answered before EnterProcessing); live Gate A capture
+ * `src/protocol/captures/isexecuting-concurrent-2026-07-24.json`.
+ */
+export interface IsExecutingInteraction extends BaseInteraction {
+  readonly type: 'IsExecuting';
 }
 
 /**
