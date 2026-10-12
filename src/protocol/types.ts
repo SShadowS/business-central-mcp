@@ -200,7 +200,8 @@ export type BCInteraction =
   | SetCurrentRowInteraction
   | ScrollRepeaterInteraction
   | SessionActionInteraction
-  | SortColumnInteraction;
+  | SortColumnInteraction
+  | FileUploadActionInteraction;
 
 interface BaseInteraction {
   readonly formId?: string;
@@ -269,6 +270,24 @@ export interface SessionActionInteraction extends BaseInteraction {
   readonly type: 'SessionAction';
   readonly actionName: string;
   readonly namedParameters?: Record<string, unknown>;
+}
+
+/**
+ * Drive a declarative `fileuploadaction` control (wire type `fla`) after the
+ * file bytes have been POSTed to `/up` and a temp FileToken obtained. BC's
+ * FileUploadActionInteraction casts the target control to FileUploadActionControl
+ * and invokes it with the temp files, firing the AL OnUpload trigger.
+ * `controlPath` MUST point at the `fla` control; `formId` is required so the web
+ * handler builds the LogicalControlReference.
+ *
+ * Reference: decompiled `FileUploadActionInteraction` (name "InvokeFileUploadAction"),
+ * `FileUploadActionInteractionInput.Files` (UploadedTempFile[] { FileName, FileToken }).
+ */
+export interface FileUploadActionInteraction extends BaseInteraction {
+  readonly type: 'InvokeFileUploadAction';
+  readonly formId: string;
+  readonly controlPath: string;
+  readonly files: ReadonlyArray<{ FileName: string; FileToken: string }>;
 }
 
 /**

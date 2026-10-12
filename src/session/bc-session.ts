@@ -66,6 +66,15 @@ export class BCSession {
     return this.company;
   }
 
+  /**
+   * The ServerSessionId BC assigned at OpenSession. BC also uses this value as
+   * the `sessionid=` handler-session id on download/img/upload URLs, so the file
+   * upload path needs it to build the DynamicFileUploadHandler URL.
+   */
+  get serverSessionId(): string {
+    return this.sessionId;
+  }
+
   /** The tenant this session is bound to — used as the default for page opens. */
   get boundTenantId(): string {
     return this.tenantId;

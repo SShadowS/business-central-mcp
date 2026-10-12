@@ -94,6 +94,15 @@ export const RunReportSchema = z.object({
   format: z.enum(['pdf', 'excel', 'word']).optional().describe(FORMAT_DESCRIBE),
 });
 
+export const UploadFileSchema = z.object({
+  pageContextId: z.string().min(1).describe('Page context ID of the host page whose upload action you just invoked (e.g. page 9650 after "Import Layout"). The open FileUploadForm dialog on that page is targeted automatically.'),
+  path: z.string().min(1).optional().describe('Absolute path to a local file to upload. Provide exactly one of `path` or `base64`.'),
+  base64: z.string().min(1).optional().describe('Base64-encoded file content, as an alternative to `path`. Provide exactly one of `path` or `base64`.'),
+  fileName: z.string().min(1).optional().describe('File name BC should see (e.g. "extension.app"). Required with `base64`; defaults to the basename of `path`.'),
+  formId: z.string().min(1).optional().describe('Override the target dialog form id. By default the open FileUploadForm dialog on the page is used. Pass the form id from bc_execute_action\'s dialogsOpened to target a specific upload dialog; it must be a FileUploadForm.'),
+}).refine((v) => (v.path ? 1 : 0) + (v.base64 ? 1 : 0) === 1, { message: 'Provide exactly one of `path` or `base64`.' })
+  .refine((v) => !(v.base64 && !v.fileName), { message: '`fileName` is required when uploading via `base64`.' });
+
 export const ListCompaniesSchema = z.object({});
 
 export const WizardNavigateSchema = z.object({

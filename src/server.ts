@@ -32,6 +32,8 @@ import { ListCompaniesOperation } from './operations/list-companies.js';
 import { RunReportOperation } from './operations/run-report.js';
 import { WizardNavigateOperation } from './operations/wizard-navigate.js';
 import { DownloadService } from './services/download-service.js';
+import { UploadService } from './services/upload-service.js';
+import { UploadFileOperation } from './operations/upload-file.js';
 import { LookupService } from './services/lookup-service.js';
 import { LookupOperation } from './operations/lookup.js';
 import { createQueryOperation } from './operations/query.js';
@@ -114,6 +116,7 @@ async function main() {
     // base on SaaS), not the portal baseUrl, or cluster DynamicFileHandler
     // URLs are misclassified as external and never fetched.
     const downloadService = new DownloadService(httpClient, connectionFactory.httpBaseUrl, config.bc.downloadLimits, logger);
+    const uploadService = new UploadService(s, pageContextRepo, httpClient, logger);
 
     const operations: Operations = {
       openPage: new OpenPageOperation(pageService),
@@ -130,6 +133,7 @@ async function main() {
       wizardNavigate: new WizardNavigateOperation(actionService, pageContextRepo, downloadService),
       lookup: new LookupOperation(lookupService),
       query: queryOperation,
+      uploadFile: new UploadFileOperation(uploadService),
     };
 
     return { operations, tools: buildToolRegistry(operations) };

@@ -111,6 +111,29 @@ describe('InteractionEncoder', () => {
     expect(namedParams.systemAction).toBe(40);
   });
 
+  it('encodes InvokeFileUploadAction with files, formId and controlPath', () => {
+    const interaction = {
+      type: 'InvokeFileUploadAction' as const,
+      formId: 'dlg1',
+      controlPath: 'server:c[0]/c[1]',
+      files: [{ FileName: 'ext.app', FileToken: 'TEMP\\abc123' }],
+    };
+    const result = encoder.encode(interaction, {
+      callbackId: 'cb-9',
+      sequenceNo: 'spa1#9',
+      lastClientAckSequenceNumber: 8,
+      openFormIds: new Set(['dlg1']),
+      session: testSession,
+    });
+    const params = result.params[0] as Record<string, unknown>;
+    const inv = (params.interactionsToInvoke as Record<string, unknown>[])[0]!;
+    expect(inv.interactionName).toBe('InvokeFileUploadAction');
+    expect(inv.formId).toBe('dlg1');            // required so the server builds LogicalControlReference
+    expect(inv.controlPath).toBe('server:c[0]/c[1]');
+    const namedParams = JSON.parse(inv.namedParameters as string);
+    expect(namedParams.files).toEqual([{ FileName: 'ext.app', FileToken: 'TEMP\\abc123' }]);
+  });
+
   it('encodes Filter with AddLine operation', () => {
     const interaction = {
       type: 'Filter' as const,

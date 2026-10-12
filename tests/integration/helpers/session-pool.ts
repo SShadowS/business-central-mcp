@@ -105,7 +105,7 @@ export class IntegrationSessionPool {
 // ---- Configured singleton for integration tests (real Cronus28 sessions) ----
 
 const CRONUS28: BCConfig = {
-  baseUrl: 'http://cronus28/BC',
+  baseUrl: process.env.BC_BASE_URL ?? 'http://cronus28/BC',
   username: 'sshadows',          // overridden per-slot below
   password: process.env.BC_TEST_PASSWORD ?? '1234',
   tenantId: 'default',
