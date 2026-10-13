@@ -4,6 +4,11 @@ export default defineConfig({
   test: {
     globals: true,
     testTimeout: 60000,
+    // A pool checkout can wait out a 16s post-poison cooldown plus a cold connect.
+    // A beforeAll that times out abandons its checkOut, which then completes and
+    // holds its user forever; with one pool user (BC_TEST_USERS) that hangs every
+    // later file. The 10s default is too short for that.
+    hookTimeout: 120000,
     include: ['tests/integration/**/*.test.ts'],
     // Record-modifying cases live in `*-destructive.test.ts` (vitest.destructive.config.ts),
     // so a normal-tier run never writes an existing record.
