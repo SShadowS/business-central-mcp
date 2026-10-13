@@ -56,7 +56,7 @@ function makeCardPageContext(repo: PageContextRepository, pcId: string, formId: 
 
 function makeSession(invokeResult: unknown = ok([] as BCEvent[])) {
   return {
-    invoke: vi.fn(async () => invokeResult),
+    invoke: vi.fn(async (..._args: unknown[]) => invokeResult),
   };
 }
 

@@ -10,6 +10,7 @@ import { SignInRequiredError } from '../../src/core/errors.js';
 import { createNullLogger } from '../../src/core/logger.js';
 import type { IBCAuthProvider } from '../../src/connection/auth/auth-provider.js';
 import type { BCConfig } from '../../src/core/config.js';
+import { makeTestBCConfig } from '../helpers/test-config.js';
 
 const auth: IBCAuthProvider = {
   isAuthenticated: () => true,
@@ -27,22 +28,12 @@ const auth: IBCAuthProvider = {
 };
 
 function cfg(): BCConfig {
-  return {
-    baseUrl: 'http://cronus28/BC',
-    username: 'u',
-    password: 'p',
-    tenantId: 'default',
-    profile: '',
-    applicationId: 'FIN',
-    clientVersionString: '28.0.0.0',
-    serverMajor: 28,
+  return makeTestBCConfig({
     timeoutMs: 1000,
     invokeTimeoutMs: 1000,
     reconnectMaxRetries: 0,
     reconnectBaseDelayMs: 0,
-    odataUrl: '',
-    odataCompanyName: undefined,
-  };
+  });
 }
 
 describe('SessionFactory tenant override', () => {

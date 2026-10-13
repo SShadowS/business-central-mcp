@@ -16,7 +16,6 @@ import { describe, it, expect, vi } from 'vitest';
 import { BCSession } from '../../src/session/bc-session.js';
 import { EventDecoder } from '../../src/protocol/event-decoder.js';
 import { InteractionEncoder } from '../../src/protocol/interaction-encoder.js';
-import type { BCEvent } from '../../src/protocol/types.js';
 import { isOk, isErr } from '../../src/core/result.js';
 
 function createMockLogger() {

@@ -23,7 +23,7 @@ function makeConfig(overrides?: Partial<ConstructorParameters<typeof ODataClient
 
 function mockFetch(responses: Array<{ ok: boolean; status: number; body: unknown }>) {
   let call = 0;
-  return vi.fn(async () => {
+  return vi.fn(async (_url: string, _init?: RequestInit) => {
     const resp = responses[call++] ?? responses[responses.length - 1]!;
     return {
       ok: resp.ok,

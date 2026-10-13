@@ -151,7 +151,7 @@ describe('Edge Case & Stress Tests', () => {
     console.error(`[EC4] Total row count (from BC): ${totalRowCount}`);
     console.error(`[EC4] Columns: ${state.repeater.columns.length}`);
 
-    if (totalRowCount > initialRows) {
+    if (totalRowCount !== null && totalRowCount > initialRows) {
       console.error(`[EC4] BC reports more rows (${totalRowCount}) than loaded (${initialRows})`);
       console.error('[EC4] This means BC uses row virtualization / lazy loading');
       console.error('[EC4] GAP CHECK: Do we have a way to request more rows (scroll)?');
@@ -353,7 +353,7 @@ describe('Edge Case & Stress Tests', () => {
       const drillResult = await navigationService.drillDown(listState.pageContextId, bookmark);
       if (isErr(drillResult)) {
         console.error(`[EC3] Drill-down FAILED: ${drillResult.error.message}`);
-        console.error(`[EC3] Details: ${JSON.stringify(drillResult.error.details)}`);
+        console.error(`[EC3] Details: ${JSON.stringify(drillResult.error.context)}`);
         await closeAndUntrack(listState.pageContextId);
         return;
       }
@@ -370,7 +370,7 @@ describe('Edge Case & Stress Tests', () => {
       console.error(`[EC3] actions: ${targetPageState.actions.length}`);
 
       for (const child of targetPageState.childForms) {
-        console.error(`[EC3] ChildForm: formId=${child.formId}, type=${child.type ?? 'unknown'}`);
+        console.error(`[EC3] ChildForm: formId=${child.formId}, caption=${child.caption}`);
       }
 
       if (targetPageState.repeater) {
@@ -553,7 +553,7 @@ describe('Edge Case & Stress Tests', () => {
       const writeResult = await dataService.writeField(cardCtx, 'Phone No.', testValue);
       if (isErr(writeResult)) {
         console.error(`[EC1] Write FAILED: ${writeResult.error.message}`);
-        console.error(`[EC1] Details: ${JSON.stringify(writeResult.error.details)}`);
+        console.error(`[EC1] Details: ${JSON.stringify(writeResult.error.context)}`);
       } else {
         console.error(`[EC1] Write result: success=${writeResult.value.success}, newValue="${writeResult.value.newValue}"`);
 
@@ -775,7 +775,7 @@ describe('Edge Case & Stress Tests', () => {
         }
       } else {
         console.error(`[EC8] Filter FAILED: ${filterResult.error.message}`);
-        console.error(`[EC8] Details: ${JSON.stringify(filterResult.error.details)}`);
+        console.error(`[EC8] Details: ${JSON.stringify(filterResult.error.context)}`);
         console.error('[EC8] GAP: Wildcard filter on "Name" column causes ArgumentOutOfRangeException');
         console.error('[EC8] Possible cause: Filter(AddLine) controlPath or filterColumnId mismatch for text columns');
       }
@@ -789,7 +789,7 @@ describe('Edge Case & Stress Tests', () => {
       try {
         const clearResult = await filterService.clearFilters(state.pageContextId);
         if (isOk(clearResult)) {
-          console.error(`[EC8] Cleared OK: rows=${clearResult.value.repeater?.rows.length ?? 0}`);
+          console.error(`[EC8] Cleared OK: rows=${derivePageState(clearResult.value).repeater?.rows.length ?? 0}`);
         } else {
           console.error(`[EC8] Clear FAILED: ${clearResult.error.message}`);
         }
@@ -881,7 +881,7 @@ describe('Edge Case & Stress Tests', () => {
         }
       } else {
         console.error(`[EC2] Delete FAILED: ${deleteResult.error.message}`);
-        console.error(`[EC2] Details: ${JSON.stringify(deleteResult.error.details)}`);
+        console.error(`[EC2] Details: ${JSON.stringify(deleteResult.error.context)}`);
         console.error('[EC2] GAP: executeSystemAction(Delete) throws ArgumentOutOfRangeException');
         console.error('[EC2] Possible cause: controlPath resolution fails after selectRow changes layout');
       }

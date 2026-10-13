@@ -9,7 +9,7 @@ const ctx: EncodeContext = {
 };
 
 function invocationOf(enc: ReturnType<InteractionEncoder['encode']>) {
-  return (enc.params[0] as { interactionsToInvoke: Array<{ interactionName: string; namedParameters: string }> }).interactionsToInvoke[0];
+  return (enc.params[0] as { interactionsToInvoke: Array<{ interactionName: string; namedParameters: string }> }).interactionsToInvoke[0]!;
 }
 
 describe('SetCurrentRow encoding', () => {

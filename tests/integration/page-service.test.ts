@@ -4,7 +4,7 @@ import type { BCSession } from '../../src/session/bc-session.js';
 import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
 import { derivePageState } from '../../src/protocol/types.js';
 import { PageService } from '../../src/services/page-service.js';
-import { isOk, unwrap } from '../../src/core/result.js';
+import { isOk } from '../../src/core/result.js';
 import { integrationPool, type PooledLease } from './helpers/session-pool.js';
 
 describe('PageService (integration)', () => {

@@ -31,7 +31,7 @@ Uses NavUserPassword authentication (not Windows/NTLM).
 ### Essential Commands
 ```bash
 cd U:/git/bc-mcp
-npx tsc --noEmit                    # Type check
+npm run typecheck                    # Type check src (tsconfig.json) AND src+tests (tsconfig.test.json)
 npx vitest run                       # Unit + protocol tests
 npx vitest run --config vitest.integration.config.ts  # Integration tests against real BC28
 npm start                            # HTTP server on port 3000
@@ -40,7 +40,8 @@ npm run start:stdio-direct           # Direct stdio for Claude Desktop
 
 ### Rules
 - Use Windows paths with forward slashes in bash
-- Always run `npx tsc --noEmit` after changes
+- Always run `npm run typecheck` after changes. Plain `npx tsc --noEmit` checks only `src/`, and vitest strips types without checking them, so test fakes drift silently without it.
+- Build test `BCConfig` objects with `makeTestBCConfig(overrides)` (`tests/helpers/test-config.ts`), never a hand-written literal.
 - Run integration tests after any protocol-level change
 - ESM project -- use `.js` extensions in all imports
 

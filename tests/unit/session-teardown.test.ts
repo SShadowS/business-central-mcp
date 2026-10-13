@@ -151,8 +151,6 @@ describe('ClosePageOperation: page context always removed on close error', () =>
     const { ClosePageOperation } = await import('../../src/operations/close-page.js');
 
     const repo = new PageContextRepository();
-    const ws = createMockWs({ rejectOnSend: true });
-    const session = makeSession(ws);
 
     // We need a minimal session stub that throws on invoke
     const throwingSession = {

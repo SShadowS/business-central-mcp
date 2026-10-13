@@ -23,6 +23,7 @@ function makePageContext(
   return {
     pageContextId: 'ctx:1', rootFormId: 'root', pageType: 'Document',
     caption: 'Sales Order', forms, sections, dialogs: [], ownedFormIds: ['root'],
+    generation: 0, isModal: false, wizardState: null,
   };
 }
 

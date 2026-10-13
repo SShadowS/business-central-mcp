@@ -10,7 +10,6 @@ const PORTAL = `https://businesscentral.dynamics.com/${TENANT}/DEV`;
 const AUTHORIZE = `https://login.microsoftonline.com/${TENANT}/oauth2/authorize`;
 const LOGIN = `https://login.microsoftonline.com/${TENANT}/login`;
 const GCT = 'https://login.microsoftonline.com/common/GetCredentialType?mkt=en-US';
-const KMSI = `https://login.microsoftonline.com/kmsi`;
 const BEGIN = 'https://login.microsoftonline.com/common/SAS/BeginAuth';
 const END = 'https://login.microsoftonline.com/common/SAS/EndAuth';
 const PROCESS = 'https://login.microsoftonline.com/common/SAS/ProcessAuth';
@@ -50,7 +49,7 @@ interface Step {
 
 function scriptedFetch(steps: Step[]): typeof fetch {
   let i = 0;
-  return (async (input: RequestInfo | URL, init?: RequestInit) => {
+  return (async (input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     const step = steps[i++];
     if (!step) throw new Error(`unexpected fetch ${init?.method ?? 'GET'} ${url}`);

@@ -119,7 +119,8 @@ async function createHalfShippableOrder(r: Rig): Promise<{ pcId: string; bookmar
   const listPc = unwrap(await r.pageService.openPage('42')).pageContextId;
   // New opens the blank order as a NEW ownerless form, registered as its own page context.
   const created = unwrap(await r.actionService.executeAction(listPc, 'New')).events
-    .find(e => e.type === 'FormCreated' && !e.parentFormId && e.formId !== r.repo.get(listPc)!.rootFormId);
+    .find((e): e is Extract<BCEvent, { type: 'FormCreated' }> =>
+      e.type === 'FormCreated' && !e.parentFormId && e.formId !== r.repo.get(listPc)!.rootFormId);
   const pcId = created ? r.repo.getByFormId(created.formId)?.pageContextId : undefined;
   if (!pcId) throw new Error('New opened no new order form; refusing to continue');
   await r.pageService.closePage(listPc, { discardChanges: true });

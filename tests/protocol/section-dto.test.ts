@@ -6,8 +6,9 @@ import { buildFormTree } from '../../src/protocol/form-tree-builder.js';
 import type { PageContext } from '../../src/protocol/page-context.js';
 import type { FormState } from '../../src/protocol/form-state.js';
 import type { SectionDescriptor } from '../../src/protocol/section-resolver.js';
+import type { RepeaterRow } from '../../src/protocol/types.js';
 
-function makeFormState(formId: string, raw: unknown): FormState {
+function makeFormState(formId: string, raw: unknown): FormState & { rows: Map<string, readonly RepeaterRow[]> } {
   return { formId, root: buildFormTree(raw), rows: new Map() };
 }
 
@@ -25,6 +26,7 @@ function makeCtx(opts: {
     sections: opts.sections,
     dialogs: [],
     ownedFormIds: [opts.rootFormId],
+    generation: 0,
     isModal: false,
     wizardState: null,
   };
@@ -198,7 +200,7 @@ describe('buildSection', () => {
       ]),
     });
     const section = buildSection(ctx, 'lines');
-    expect(section!.rows![0].cells).toEqual({ 'No.': 'ITEM1', 'Quantity': '5' });
+    expect(section!.rows![0]!.cells).toEqual({ 'No.': 'ITEM1', 'Quantity': '5' });
   });
 
   it('returns null for an invalid (valid:false) section', () => {
@@ -229,7 +231,7 @@ describe('buildSection', () => {
     });
     const section = buildSection(ctx, 'header');
     expect(section!.actions).toHaveLength(2);
-    expect(section!.actions![0].name).toBe('New');
+    expect(section!.actions![0]!.name).toBe('New');
   });
 });
 
@@ -274,7 +276,7 @@ describe('buildSection cues projection', () => {
     expect(section!.cues![1]).toMatchObject({
       name: 'Sales Orders', value: '12', groupCaption: 'Ongoing Sales', hasAction: true,
     });
-    expect(section!.cues![1].synopsis).toBeUndefined();
+    expect(section!.cues![1]!.synopsis).toBeUndefined();
   });
 
   it('header section without cuegroups omits cues', () => {

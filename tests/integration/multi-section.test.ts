@@ -5,7 +5,7 @@ import type { BCSession } from '../../src/session/bc-session.js';
 import { PageService } from '../../src/services/page-service.js';
 import { DataService } from '../../src/services/data-service.js';
 import { ActionService } from '../../src/services/action-service.js';
-import { isOk, unwrap } from '../../src/core/result.js';
+import { isOk } from '../../src/core/result.js';
 import { RespondDialogOperation } from '../../src/operations/respond-dialog.js';
 import { repeaters as treeRepeaters } from '../../src/protocol/form-views.js';
 import { bookmarkTableId } from '../../src/protocol/form-state.js';

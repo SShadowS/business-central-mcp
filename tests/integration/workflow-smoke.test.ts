@@ -74,14 +74,6 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
   // Helpers
   // ---------------------------------------------------------------------------
 
-  /** Guard: skip the test body if the session has already died. */
-  function requireLiveSession(tag: string): void {
-    if (sessionDead) {
-      console.error(`[${tag}] SKIPPED -- session is dead (InvalidSessionException in a prior workflow)`);
-      return; // caller should return immediately after this
-    }
-  }
-
   /** Detect InvalidSessionException in a Result error. */
   function isSessionDead(result: { ok: false; error: { message: string } }): boolean {
     return result.error.message.includes('InvalidSessionException');
@@ -250,7 +242,7 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
     try {
       const drillResult = await navigationService.drillDown(listState.pageContextId, bookmark);
       if (isOk(drillResult)) {
-        const { sourcePageContextId, targetPageContext } = unwrap(drillResult);
+        const { targetPageContext } = unwrap(drillResult);
         const targetPageState = derivePageState(targetPageContext);
         openedPages.push(targetPageState.pageContextId);
         console.error(`[W3] Drill down success! target pageContextId=${targetPageState.pageContextId}`);
@@ -275,7 +267,7 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
         await closeAndUntrack(targetPageState.pageContextId);
       } else {
         console.error(`[W3] Drill down FAILED: ${drillResult.error.message}`);
-        console.error(`[W3] Details: ${JSON.stringify(drillResult.error.details)}`);
+        console.error(`[W3] Details: ${JSON.stringify(drillResult.error.context)}`);
         // Don't fail the test — we want to discover gaps, not block the suite
       }
     } catch (e: unknown) {
@@ -319,7 +311,7 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
         console.error(`[W4] Event types: ${ar.events.map(e => e.type).join(', ')}`);
       } else {
         console.error(`[W4] Refresh FAILED: ${actionResult.error.message}`);
-        console.error(`[W4] Details: ${JSON.stringify(actionResult.error.details)}`);
+        console.error(`[W4] Details: ${JSON.stringify(actionResult.error.context)}`);
       }
     } catch (e: unknown) {
       console.error(`[W4] Refresh THREW: ${e instanceof Error ? e.message : String(e)}`);
@@ -404,7 +396,7 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
         console.error(`[W5] Write success: field="${wr.fieldName}", newValue="${wr.newValue}", success=${wr.success}`);
       } else {
         console.error(`[W5] Write FAILED: ${writeResult.error.message}`);
-        console.error(`[W5] Details: ${JSON.stringify(writeResult.error.details)}`);
+        console.error(`[W5] Details: ${JSON.stringify(writeResult.error.context)}`);
       }
     } catch (e: unknown) {
       console.error(`[W5] Write THREW: ${e instanceof Error ? e.message : String(e)}`);
@@ -461,7 +453,7 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
         }
       } else {
         console.error(`[W6] Filter FAILED: ${filterResult.error.message}`);
-        console.error(`[W6] Details: ${JSON.stringify(filterResult.error.details)}`);
+        console.error(`[W6] Details: ${JSON.stringify(filterResult.error.context)}`);
       }
     } catch (e: unknown) {
       console.error(`[W6] Filter THREW: ${e instanceof Error ? e.message : String(e)}`);
@@ -588,7 +580,7 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
           }
         } else {
           console.error(`[W8] Search "${query}" FAILED: ${result.error.message}`);
-          console.error(`[W8] Details: ${JSON.stringify(result.error.details)}`);
+          console.error(`[W8] Details: ${JSON.stringify(result.error.context)}`);
         }
       } catch (e: unknown) {
         console.error(`[W8] Search "${query}" THREW: ${e instanceof Error ? e.message : String(e)}`);
@@ -652,8 +644,8 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
         );
         if (isErr(writeResult)) {
           console.error(`[E3] Failed as expected: ${writeResult.error.message}`);
-          if (writeResult.error.details) {
-            const details = writeResult.error.details as Record<string, unknown>;
+          if (writeResult.error.context) {
+            const details = writeResult.error.context as Record<string, unknown>;
             const available = details['availableFields'] as string[] | undefined;
             console.error(`[E3] Available fields (first 10): ${(available ?? []).slice(0, 10).join(', ')}`);
           }
@@ -708,8 +700,8 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
         );
         if (isErr(result)) {
           console.error(`[E5] Failed as expected: ${result.error.message}`);
-          if (result.error.details) {
-            const details = result.error.details as Record<string, unknown>;
+          if (result.error.context) {
+            const details = result.error.context as Record<string, unknown>;
             const available = details['availableActions'] as string[] | undefined;
             console.error(`[E5] Available actions: ${(available ?? []).slice(0, 10).join(', ')}`);
           }

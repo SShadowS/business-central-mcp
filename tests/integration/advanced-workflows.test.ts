@@ -20,7 +20,6 @@ import { DataService } from '../../src/services/data-service.js';
 import { ActionService } from '../../src/services/action-service.js';
 import { FilterService } from '../../src/services/filter-service.js';
 import { NavigationService } from '../../src/services/navigation-service.js';
-import { SearchService } from '../../src/services/search-service.js';
 import { isOk, isErr, unwrap } from '../../src/core/result.js';
 import { integrationPool, type PooledLease } from './helpers/session-pool.js';
 
@@ -31,7 +30,6 @@ describe('Advanced Workflow Tests (v2)', () => {
   let actionService: ActionService;
   let filterService: FilterService;
   let navigationService: NavigationService;
-  let searchService: SearchService;
   const logger = createNullLogger();
 
   const openedPages: string[] = [];
@@ -63,7 +61,6 @@ describe('Advanced Workflow Tests (v2)', () => {
     actionService = new ActionService(session, repo, logger);
     filterService = new FilterService(session, repo, logger);
     navigationService = new NavigationService(session, repo, logger);
-    searchService = new SearchService(session, logger);
   }
 
   async function recreateSession(): Promise<boolean> {
@@ -408,7 +405,7 @@ describe('Advanced Workflow Tests (v2)', () => {
         await closeAndUntrack(targetPageState.pageContextId);
       } else {
         console.error(`[A7] Drill-down FAILED: ${drillResult.error.message}`);
-        console.error(`[A7] Details: ${JSON.stringify(drillResult.error.details)}`);
+        console.error(`[A7] Details: ${JSON.stringify(drillResult.error.context)}`);
       }
     } catch (e: unknown) {
       console.error(`[A7] Drill-down THREW: ${e instanceof Error ? e.message : String(e)}`);
@@ -619,7 +616,7 @@ describe('Advanced Workflow Tests (v2)', () => {
         }
       } else {
         console.error(`[A10] Action FAILED: ${actionResult.error.message}`);
-        console.error(`[A10] Details: ${JSON.stringify(actionResult.error.details)}`);
+        console.error(`[A10] Details: ${JSON.stringify(actionResult.error.context)}`);
       }
     } catch (e: unknown) {
       console.error(`[A10] Action THREW: ${e instanceof Error ? e.message : String(e)}`);

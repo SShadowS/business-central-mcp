@@ -48,6 +48,10 @@ function makeMockOps(): Operations {
     listCompanies: makeOp() as never,
     runReport: makeOp() as never,
     wizardNavigate: makeOp() as never,
+    lookup: makeOp() as never,
+    query: makeOp() as never,
+    uploadFile: makeOp() as never,
+    getOperation: makeOp() as never,
   };
 }
 

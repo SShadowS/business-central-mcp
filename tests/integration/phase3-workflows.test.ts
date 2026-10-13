@@ -13,8 +13,6 @@ import { PageService } from '../../src/services/page-service.js';
 import { DataService } from '../../src/services/data-service.js';
 import { ActionService } from '../../src/services/action-service.js';
 import { RespondDialogOperation } from '../../src/operations/respond-dialog.js';
-import type { PageContext } from '../../src/protocol/page-context.js';
-import type { BCEvent } from '../../src/protocol/types.js';
 import { detectDialogs, detectChangedSections } from '../../src/protocol/mutation-result.js';
 import { actions as treeActions, repeaters as treeRepeaters } from '../../src/protocol/form-views.js';
 import { isOk, isErr, unwrap } from '../../src/core/result.js';
@@ -426,7 +424,7 @@ describe.sequential('Test 4.2b: Non-existent field errors', () => {
       console.error(`[4.2b] Error (expected): ${writeResult.error.message}`);
 
       // Verify the error includes field suggestions
-      const details = writeResult.error.details as Record<string, unknown> | undefined;
+      const details = writeResult.error.context as Record<string, unknown> | undefined;
       const availableFields = details?.['availableFields'] as string[] | undefined;
 
       console.error(`[4.2b] Available fields in error: ${availableFields ? availableFields.length : 'NONE'}`);

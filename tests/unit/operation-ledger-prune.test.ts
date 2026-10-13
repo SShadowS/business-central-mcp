@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { OperationLedger } from '../../src/mcp/operation-ledger.js';
+import type { Download } from '../../src/services/download-service.js';
 
 const HOUR = 3_600_000;
 const retention = { completedTtlMs: 24 * HOUR, inDoubtTtlMs: 30 * 24 * HOUR };
@@ -69,7 +70,7 @@ describe('OperationLedger retention (#29)', () => {
   it('stores download metadata but not the inline bytes, marking stripped entries NOT_REPLAYED', async () => {
     await ledger.claim('d', 'bc_execute_action', 'd');
     const tooLarge = { fileName: 'b.pdf', contentType: 'y', sizeBytes: 9, style: 'Download', error: { code: 'TOO_LARGE', message: 'big' } };
-    const result = { replaySafe: true, downloads: [{ fileName: 'a.xlsx', contentType: 'x', sizeBytes: 3, style: 'Download', bytes: 'AAAA', savedPath: '/tmp/a.xlsx' }, tooLarge], externalUris: [] };
+    const result = { replaySafe: true, downloads: <Download[]>[{ fileName: 'a.xlsx', contentType: 'x', sizeBytes: 3, style: 'Download', bytes: 'AAAA', savedPath: '/tmp/a.xlsx' }, tooLarge], externalUris: [] };
     await ledger.settle('d', { status: 'completed', result });
     const stored = (await ledger.get('d'))?.result as { downloads: Array<Record<string, unknown> & { error?: { code: string; message: string } }> };
     expect(stored.downloads[0]).toMatchObject({ fileName: 'a.xlsx', contentType: 'x', sizeBytes: 3, style: 'Download', savedPath: '/tmp/a.xlsx' });

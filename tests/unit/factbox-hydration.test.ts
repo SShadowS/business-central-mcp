@@ -82,7 +82,7 @@ function factboxEntries(repo: PageContextRepository, pcId: string) {
 /** Build a minimal mock session whose invoke() resolves with ok([]) immediately. */
 function makeSession() {
   return {
-    invoke: vi.fn(async () => ok([] as BCEvent[])),
+    invoke: vi.fn(async (_interaction: any, _predicate?: (e: BCEvent) => boolean) => ok([] as BCEvent[])),
   };
 }
 

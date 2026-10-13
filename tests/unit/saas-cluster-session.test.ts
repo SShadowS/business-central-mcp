@@ -48,7 +48,7 @@ function recordFetch(handler: (url: string, init?: RequestInit) => Response | Pr
   calls: Call[];
 } {
   const calls: Call[] = [];
-  const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  const fetchFn = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     const headers: Record<string, string> = {};
     new Headers(init?.headers).forEach((v, k) => { headers[k.toLowerCase()] = v; });
@@ -89,7 +89,7 @@ describe('SaasClusterSession', () => {
 
   it('authenticateToken posts to cluster /auth?tenant= and never /tab/', async () => {
     let rpc: { method?: string; params?: unknown[] } = {};
-    const { fetchFn, calls } = recordFetch((url, init) => {
+    const { fetchFn, calls } = recordFetch((_url, init) => {
       rpc = JSON.parse(String(init?.body ?? '{}')) as typeof rpc;
       return new Response(JSON.stringify({ result: { csrfToken: 'csrf-1' } }), { status: 200 });
     });

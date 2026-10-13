@@ -1,12 +1,12 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { createRequire } from 'node:module';
 import { z } from 'zod';
 import { MCPHandler, URL_ELICITATION_JSONRPC_CODE } from '../../src/mcp/handler.js';
 import type { ToolDefinition } from '../../src/mcp/tool-registry.js';
-import { BCError, SessionLostError, BusinessError, BusinessValidationError, SignInRequiredError, UrlElicitationRequiredError } from '../../src/core/errors.js';
+import { SessionLostError, BusinessError, BusinessValidationError, SignInRequiredError, UrlElicitationRequiredError } from '../../src/core/errors.js';
 import { ClientElicitationPort } from '../../src/mcp/elicitation-port.js';
-import pkg from '../../package.json' with { type: 'json' };
 
-const pkgVersion = pkg.version;
+const pkgVersion = (createRequire(import.meta.url)('../../package.json') as { version: string }).version;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -187,8 +187,8 @@ describe('MCPHandler.handleRequest — tools/call: zod validation failure', () =
     expect(res.error).toBeUndefined();
     const result = res.result as { content: Array<{ type: string; text: string }>; isError: boolean };
     expect(result.isError).toBe(true);
-    expect(result.content[0].type).toBe('text');
-    expect(result.content[0].text).toContain('Input validation error');
+    expect(result.content[0]!.type).toBe('text');
+    expect(result.content[0]!.text).toContain('Input validation error');
     // execute must NOT have been called
     expect(execute).not.toHaveBeenCalled();
   });
@@ -221,8 +221,8 @@ describe('MCPHandler.handleRequest — tools/call: success', () => {
     const result = res.result as { content: Array<{ type: string; text: string }>; isError?: boolean };
     expect(result.isError).toBeUndefined();
     expect(result.content).toHaveLength(1);
-    expect(result.content[0].type).toBe('text');
-    expect(JSON.parse(result.content[0].text)).toEqual(payload);
+    expect(result.content[0]!.type).toBe('text');
+    expect(JSON.parse(result.content[0]!.text)).toEqual(payload);
   });
 
   it('passes validated (parsed) arguments to execute', async () => {
@@ -249,9 +249,9 @@ describe('MCPHandler.handleRequest — tools/call: err result', () => {
     const res = await handler.handleRequest(makeRequest('tools/call', { name: 'bc_w', arguments: {} }));
     const result = res.result as { content: Array<{ text: string }>; isError: boolean };
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain('Error [VALIDATION_ERROR]: Name is required.');
+    expect(result.content[0]!.text).toContain('Error [VALIDATION_ERROR]: Name is required.');
     // VALIDATION_ERROR has a registered hint
-    expect(result.content[0].text).toContain('Hint:');
+    expect(result.content[0]!.text).toContain('Hint:');
   });
 
   it('returns "Error: <message>" when err has no code', async () => {
@@ -262,7 +262,7 @@ describe('MCPHandler.handleRequest — tools/call: err result', () => {
     const res = await handler.handleRequest(makeRequest('tools/call', { name: 'bc_w2', arguments: {} }));
     const result = res.result as { content: Array<{ text: string }>; isError: boolean };
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toBe('Error: something went wrong');
+    expect(result.content[0]!.text).toBe('Error: something went wrong');
   });
 
   it('returns "Unknown error" fallback when err object has no message', async () => {
@@ -272,7 +272,7 @@ describe('MCPHandler.handleRequest — tools/call: err result', () => {
     const res = await handler.handleRequest(makeRequest('tools/call', { name: 'bc_w3', arguments: {} }));
     const result = res.result as { content: Array<{ text: string }>; isError: boolean };
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain('Unknown error');
+    expect(result.content[0]!.text).toContain('Unknown error');
   });
 });
 
@@ -307,8 +307,8 @@ describe('MCPHandler.handleRequest — tools/call: thrown BCError', () => {
     expect(res.error).toBeUndefined();
     const result = res.result as { content: Array<{ text: string }>; isError: boolean };
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain('Error [SIGN_IN_REQUIRED]:');
-    expect(result.content[0].text).toContain('Hint:');
+    expect(result.content[0]!.text).toContain('Error [SIGN_IN_REQUIRED]:');
+    expect(result.content[0]!.text).toContain('Hint:');
   });
 
   it('returns isError:true with formatBcError output when execute throws BCError subclass', async () => {
@@ -320,8 +320,8 @@ describe('MCPHandler.handleRequest — tools/call: thrown BCError', () => {
     const res = await handler.handleRequest(makeRequest('tools/call', { name: 'bc_post', arguments: {} }));
     const result = res.result as { content: Array<{ text: string }>; isError: boolean };
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain('Error [BUSINESS_ERROR]');
-    expect(result.content[0].text).toContain('Cannot post invoice.');
+    expect(result.content[0]!.text).toContain('Error [BUSINESS_ERROR]');
+    expect(result.content[0]!.text).toContain('Cannot post invoice.');
     // Non-SessionLost BCError should log at error level
     expect(logger.error).toHaveBeenCalled();
     expect(logger.info).not.toHaveBeenCalled();
@@ -336,8 +336,8 @@ describe('MCPHandler.handleRequest — tools/call: thrown BCError', () => {
     const res = await handler.handleRequest(makeRequest('tools/call', { name: 'bc_op', arguments: {} }));
     const result = res.result as { content: Array<{ text: string }>; isError: boolean };
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain('Error [SESSION_LOST]');
-    expect(result.content[0].text).toContain('Session died');
+    expect(result.content[0]!.text).toContain('Error [SESSION_LOST]');
+    expect(result.content[0]!.text).toContain('Session died');
     // SessionLostError -> info, not error
     expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('ctx:1'));
     expect(logger.error).not.toHaveBeenCalled();
@@ -350,8 +350,8 @@ describe('MCPHandler.handleRequest — tools/call: thrown BCError', () => {
 
     const res = await handler.handleRequest(makeRequest('tools/call', { name: 'bc_gone', arguments: {} }));
     const result = res.result as { content: Array<{ text: string }>; isError: boolean };
-    expect(result.content[0].text).toContain('Hint:');
-    expect(result.content[0].text).toContain('bc_open_page');
+    expect(result.content[0]!.text).toContain('Hint:');
+    expect(result.content[0]!.text).toContain('bc_open_page');
   });
 
   it('returns SessionLostError recovery state structurally', async () => {
@@ -374,7 +374,7 @@ describe('MCPHandler.handleRequest — tools/call: thrown BCError', () => {
     const handler = new MCPHandler([makeTool('bc_x', z.object({}), execute)], logger);
 
     await handler.handleRequest(makeRequest('tools/call', { name: 'bc_x', arguments: {} }));
-    const logCall = (logger.info as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    const logCall = (logger.info as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string;
     expect(logCall).toContain('pcA');
     expect(logCall).toContain('pcB');
   });
@@ -386,7 +386,7 @@ describe('MCPHandler.handleRequest — tools/call: thrown BCError', () => {
     const handler = new MCPHandler([makeTool('bc_y', z.object({}), execute)], logger);
 
     await handler.handleRequest(makeRequest('tools/call', { name: 'bc_y', arguments: {} }));
-    const logCall = (logger.info as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    const logCall = (logger.info as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string;
     expect(logCall).toContain('none');
   });
 
@@ -398,7 +398,7 @@ describe('MCPHandler.handleRequest — tools/call: thrown BCError', () => {
     const res = await handler.handleRequest(makeRequest('tools/call', { name: 'bc_z', arguments: {} }));
     const result = res.result as { content: Array<{ text: string }>; isError: boolean };
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toBe('Tool error: disk full');
+    expect(result.content[0]!.text).toBe('Tool error: disk full');
     expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('disk full'));
   });
 
@@ -409,7 +409,7 @@ describe('MCPHandler.handleRequest — tools/call: thrown BCError', () => {
     const res = await handler.handleRequest(makeRequest('tools/call', { name: 'bc_str', arguments: {} }));
     const result = res.result as { content: Array<{ text: string }>; isError: boolean };
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain('raw string error');
+    expect(result.content[0]!.text).toContain('raw string error');
   });
 
   it('forwards BusinessValidationError as BCError with VALIDATION_ERROR code', async () => {
@@ -421,8 +421,8 @@ describe('MCPHandler.handleRequest — tools/call: thrown BCError', () => {
     const res = await handler.handleRequest(makeRequest('tools/call', { name: 'bc_val', arguments: {} }));
     const result = res.result as { content: Array<{ text: string }>; isError: boolean };
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain('Error [VALIDATION_ERROR]');
-    expect(result.content[0].text).toContain('Name too long');
+    expect(result.content[0]!.text).toContain('Error [VALIDATION_ERROR]');
+    expect(result.content[0]!.text).toContain('Name too long');
     expect(logger.error).toHaveBeenCalled();
   });
 });

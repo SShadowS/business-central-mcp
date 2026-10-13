@@ -117,7 +117,7 @@ describe('resolveConnection', () => {
     const cfg = writeConfig('{ "default":"a", "connections": { "a": { "baseUrl":"http://x/BC", "bogus":"y" } } }');
     const warnings: string[] = [];
     const env: NodeJS.ProcessEnv = { BC_MCP_CONFIG: cfg };
-    const r = resolveConnection({ env, cwd: 'U:/x', homeDir: dir, warn: (m) => warnings.push(m) });
+    resolveConnection({ env, cwd: 'U:/x', homeDir: dir, warn: (m) => warnings.push(m) });
     expect(env.BC_BASE_URL).toBe('http://x/BC');
     expect(warnings.join(' ')).toMatch(/bogus/);
   });

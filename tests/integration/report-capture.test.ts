@@ -6,7 +6,7 @@ import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
 import { DownloadService } from '../../src/services/download-service.js';
 import { loadConfig } from '../../src/core/config.js';
 import { createNullLogger } from '../../src/core/logger.js';
-import { isOk, isErr, unwrap } from '../../src/core/result.js';
+import { isOk, isErr } from '../../src/core/result.js';
 import { integrationPool, type PooledLease } from './helpers/session-pool.js';
 import { realDownloadService } from './helpers/download-service.js';
 

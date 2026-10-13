@@ -32,7 +32,7 @@ import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
 import { PageService } from '../../src/services/page-service.js';
 import { DataService } from '../../src/services/data-service.js';
 import { ActionService } from '../../src/services/action-service.js';
-import { extractValidationErrors, detectDialogs } from '../../src/protocol/mutation-result.js';
+import { extractValidationErrors } from '../../src/protocol/mutation-result.js';
 import type { BCEvent, PropertyChangedEvent, SaveValueInteraction, MessageToShowEvent, InvokeActionInteraction } from '../../src/protocol/types.js';
 import { SystemAction } from '../../src/protocol/types.js';
 import { isOk, isErr, unwrap } from '../../src/core/result.js';
@@ -156,7 +156,6 @@ describe('Validation errors (integration)', () => {
 
     // DrillDown on first row to open Customer Card in view mode.
     console.error('[ValErr] DrillDown on first Customer row...');
-    const firstBookmark = rows[0]!.bookmark;
     const drillResult = await actionService.executeSystemAction(listCtx.pageContextId, SystemAction.Edit);
     if (isErr(drillResult)) {
       console.error(`[ValErr] DrillDown failed: ${drillResult.error.message}`);

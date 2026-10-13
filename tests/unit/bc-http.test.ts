@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { BCHttpClient } from '../../src/connection/bc-http.js';
 
-const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as never;
+const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
 const BASE = 'http://cronus28/BC';
 const AUTH = () => ({ Cookie: 'session=abc' });
 

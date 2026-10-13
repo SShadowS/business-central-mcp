@@ -6,6 +6,7 @@ import { InteractionEncoder } from '../../../src/protocol/interaction-encoder.js
 import { SessionFactory } from '../../../src/session/session-factory.js';
 import { unwrap } from '../../../src/core/result.js';
 import type { BCConfig } from '../../../src/core/config.js';
+import { makeTestBCConfig } from '../../helpers/test-config.js';
 import type { BCSession } from '../../../src/session/bc-session.js';
 
 export interface PooledLease {
@@ -104,22 +105,12 @@ export class IntegrationSessionPool {
 
 // ---- Configured singleton for integration tests (real Cronus28 sessions) ----
 
-const CRONUS28: BCConfig = {
+const CRONUS28: BCConfig = makeTestBCConfig({
   baseUrl: process.env.BC_BASE_URL ?? 'http://cronus28/BC',
   username: 'sshadows',          // overridden per-slot below
   password: process.env.BC_TEST_PASSWORD ?? '1234',
-  tenantId: 'default',
-  profile: '',
   applicationId: process.env.BC_APPLICATION_ID ?? 'FIN',
-  clientVersionString: '28.0.0.0',
-  serverMajor: 28,
-  timeoutMs: 120000,
-  invokeTimeoutMs: 30000,
-  isExecutingPollIntervalMs: 10_000,
-  invokeMaxDurationMs: 600_000,
-  reconnectMaxRetries: 4,
-  reconnectBaseDelayMs: 1000,
-};
+});
 
 const POOL_USERS = (process.env.BC_TEST_USERS ?? 'sshadows,bcmcp_test1,bcmcp_test2')
   .split(',').map(s => s.trim()).filter(Boolean);

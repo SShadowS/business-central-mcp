@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -6,7 +6,7 @@ import { SaasWebSessionProvider } from '../../src/connection/auth/saas-web-sessi
 import { FileCookieStore } from '../../src/connection/auth/saas/cookie-store.js';
 import { CookieJar } from '../../src/connection/auth/saas/cookie-jar.js';
 import { parseSaasUrl } from '../../src/connection/saas-url.js';
-import { isErr, isOk, ok } from '../../src/core/result.js';
+import { isErr, isOk, ok, type Result } from '../../src/core/result.js';
 import { SignInRequiredError } from '../../src/core/errors.js';
 import { createNullLogger } from '../../src/core/logger.js';
 import type { CookieRecord } from '../../src/connection/auth/saas/cookie-jar.js';
@@ -36,7 +36,7 @@ interface Call { url: string; method: string }
 
 function recordFetch(handler: (url: string) => Response): { fetchFn: typeof fetch; calls: Call[] } {
   const calls: Call[] = [];
-  const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  const fetchFn = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     calls.push({ url, method: (init?.method ?? 'GET').toUpperCase() });
     return handler(url);
@@ -112,7 +112,7 @@ describe('SaasWebSessionProvider', () => {
     const result = await provider.authenticate();
     expect(isOk(result)).toBe(true);
     expect(provider.isAuthenticated()).toBe(true);
-    expect(provider.getAccessToken).toBeUndefined();
+    expect((provider as { getAccessToken?: unknown }).getAccessToken).toBeUndefined();
   });
 
   it('stored cookies + portal 302 Entra opens login and returns SIGN_IN_REQUIRED when no display', async () => {
@@ -270,7 +270,7 @@ describe('SaasWebSessionProvider', () => {
     const p1 = await provider.prepare();
     const p2 = await provider.prepare();
     const a2 = await provider.authenticate();
-    for (const r of [a1, p1, p2, a2]) {
+    for (const r of [a1, p1, p2, a2] as Result<unknown, { code: string }>[]) {
       expect(isErr(r) && r.error.code === 'CONNECTION_ERROR').toBe(true);
     }
     expect(provider.isAuthenticated()).toBe(true);

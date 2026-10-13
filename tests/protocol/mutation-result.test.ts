@@ -17,6 +17,9 @@ function makeCtx(overrides: Partial<PageContext> = {}): PageContext {
     ]),
     dialogs: [],
     ownedFormIds: ['root', 'child1', 'child2'],
+    generation: 0,
+    isModal: false,
+    wizardState: null,
     ...overrides,
   };
 }

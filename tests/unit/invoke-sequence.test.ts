@@ -17,7 +17,7 @@ function fakeWs(sendOrder: string[]) {
     onMessage: () => () => {},
     setRequestHandler: undefined,
     async sendRpc(_method: string, params: unknown[]) {
-      const inv = (params[0] as { interactionsToInvoke: Array<{ interactionName: string }> }).interactionsToInvoke[0];
+      const inv = (params[0] as { interactionsToInvoke: Array<{ interactionName: string }> }).interactionsToInvoke[0]!;
       sendOrder.push(inv.interactionName);
       // Return a decoder-compatible CallbackResponseProperties payload -> InvokeCompleted event.
       return ok([{ handlerType: 'DN.CallbackResponseProperties', parameters: [{ CompletedInteractions: [{ CallbackId: 'x' }] }] }]);
@@ -75,7 +75,7 @@ describe('BCSession.invokeSequence', () => {
       onMessage: () => () => {},
       setRequestHandler: undefined,
       async sendRpc(_method: string, params: unknown[]) {
-        const inv = (params[0] as { interactionsToInvoke: Array<{ interactionName: string; controlPath: string }> }).interactionsToInvoke[0];
+        const inv = (params[0] as { interactionsToInvoke: Array<{ interactionName: string; controlPath: string }> }).interactionsToInvoke[0]!;
         callCount++;
         if (callCount === 1) {
           // Stall the first send of the sequence until the concurrent invoke()

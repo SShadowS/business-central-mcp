@@ -4,8 +4,9 @@ import type { BCSession } from '../../src/session/bc-session.js';
 import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
 import { PageService } from '../../src/services/page-service.js';
 import { DataService } from '../../src/services/data-service.js';
-import { isOk, isErr, unwrap } from '../../src/core/result.js';
-import type { BCEvent, InvokeActionInteraction } from '../../src/protocol/types.js';
+import { isOk, isErr } from '../../src/core/result.js';
+import type { InvokeActionInteraction } from '../../src/protocol/types.js';
+import { fields as treeFields } from '../../src/protocol/form-views.js';
 import { SystemAction } from '../../src/protocol/types.js';
 import { integrationPool, type PooledLease } from './helpers/session-pool.js';
 
@@ -29,33 +30,6 @@ describe('Phase 5 features (integration)', () => {
   afterAll(async () => {
     if (lease) await integrationPool.checkIn(lease, { poisoned: !session?.isAlive });
   });
-
-  /**
-   * Helper: dismiss any license expiration dialog that appears in events.
-   */
-  async function dismissDialogsIfPresent(events: BCEvent[]): Promise<BCEvent[]> {
-    const dialogs = events.filter(e => e.type === 'DialogOpened');
-    for (const dialog of dialogs) {
-      if (dialog.type === 'DialogOpened' && dialog.formId) {
-        console.error(`[TEST] Dismissing dialog: ${dialog.formId}`);
-        const dismissResult = await session.invoke(
-          {
-            type: 'InvokeAction',
-            formId: dialog.formId,
-            controlPath: 'server:c[0]',
-            systemAction: SystemAction.Ok,
-          } satisfies InvokeActionInteraction,
-          (event) => event.type === 'InvokeCompleted',
-        );
-        if (isOk(dismissResult)) {
-          console.error(`[TEST] Dialog dismissed, got ${dismissResult.value.length} events`);
-        } else {
-          console.error(`[TEST] Dialog dismiss failed:`, dismissResult.error);
-        }
-      }
-    }
-    return events.filter(e => e.type !== 'DialogOpened');
-  }
 
   it('session.companyName returns a non-empty string after init', () => {
     const company = session.companyName;
@@ -91,10 +65,10 @@ describe('Phase 5 features (integration)', () => {
       console.error('[TEST] readRows failed:', rowsResult.error);
       // Even if readRows fails, the page opened successfully -- log what we have
       for (const [formId, form] of ctx.forms) {
-        console.error(`[TEST] Form ${formId}: fields=${form.controlTree.length}, repeaters=${form.repeaters.size}`);
-        for (const [rPath, rep] of form.repeaters) {
-          console.error(`[TEST]   Repeater ${rPath}: ${rep.rows.length} rows, ${rep.columns.length} cols`);
-          for (const row of rep.rows) {
+        console.error(`[TEST] Form ${formId}: fields=${treeFields(form.root).length}, repeaters=${form.rows.size}`);
+        for (const [rPath, rows] of form.rows) {
+          console.error(`[TEST]   Repeater ${rPath}: ${rows.length} rows`);
+          for (const row of rows) {
             console.error(`[TEST]     Row cells: ${JSON.stringify(row.cells)}`);
           }
         }

@@ -77,11 +77,11 @@ describe('ReadDataOperation post-mutation context', () => {
         injectRows(repo, pcId, formId, newCount);
         return ok(rowsForFormId(formId, newCount));
       },
-    } as unknown as Parameters<typeof ReadDataOperation>[0];
+    } as unknown as ConstructorParameters<typeof ReadDataOperation>[0];
 
     const filterService = {
       applyFilters: async () => ok([]),
-    } as unknown as Parameters<typeof ReadDataOperation>[1];
+    } as unknown as ConstructorParameters<typeof ReadDataOperation>[1];
 
     const op = new ReadDataOperation(
       dataService as never,
@@ -115,11 +115,11 @@ describe('ReadDataOperation post-mutation context', () => {
       getRepeaterTotalRowCount: () => { serviceCalls += 1; return null; },
       getTabs: () => { serviceCalls += 1; return ok([]); },
       scrollRepeater: async () => { serviceCalls += 1; return ok([]); },
-    } as unknown as Parameters<typeof ReadDataOperation>[0];
+    } as unknown as ConstructorParameters<typeof ReadDataOperation>[0];
 
     const filterService = {
       applyFilters: async () => { serviceCalls += 1; return ok([]); },
-    } as unknown as Parameters<typeof ReadDataOperation>[1];
+    } as unknown as ConstructorParameters<typeof ReadDataOperation>[1];
 
     const op = new ReadDataOperation(
       dataService as never,

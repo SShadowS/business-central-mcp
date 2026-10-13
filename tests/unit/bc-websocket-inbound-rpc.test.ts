@@ -20,7 +20,7 @@ function createMockLogger() {
  * We cast to `WebSocket` because _setWsForTesting accepts that type; the real
  * WebSocket class is only used for its OPEN constant check.
  */
-function createFakeWs(readyState = WebSocket.OPEN) {
+function createFakeWs(readyState: number = WebSocket.OPEN) {
   return {
     readyState,
     send: vi.fn(),
@@ -93,7 +93,7 @@ describe('BCWebSocket inbound JSON-RPC request dispatch', () => {
     expect(handler).toHaveBeenCalledOnce();
     expect(handler).toHaveBeenCalledWith('FileActionDialog', [{ x: 1 }], 'abc');
 
-    const sent = JSON.parse((fakeWs.send as ReturnType<typeof vi.fn>).mock.calls[0][0] as string);
+    const sent = JSON.parse((fakeWs.send as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string);
     expect(sent).toEqual({ jsonrpc: '2.0', id: 'abc', result: { accepted: true } });
   });
 
@@ -107,7 +107,7 @@ describe('BCWebSocket inbound JSON-RPC request dispatch', () => {
 
     await vi.waitUntil(() => (fakeWs.send as ReturnType<typeof vi.fn>).mock.calls.length > 0);
 
-    const sent = JSON.parse((fakeWs.send as ReturnType<typeof vi.fn>).mock.calls[0][0] as string);
+    const sent = JSON.parse((fakeWs.send as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string);
     expect(sent.jsonrpc).toBe('2.0');
     expect(sent.id).toBe('err-id');
     expect(sent.result).toBeUndefined();

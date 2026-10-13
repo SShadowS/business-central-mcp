@@ -21,7 +21,7 @@ import type { BCEvent } from '../../src/protocol/types.js';
 
 function makeSession(returnEvents: BCEvent[] = []) {
   return {
-    invoke: vi.fn(async () => ok(returnEvents)),
+    invoke: vi.fn(async (_interaction: any, _predicate?: (e: BCEvent) => boolean) => ok(returnEvents)),
   };
 }
 

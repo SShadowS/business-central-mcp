@@ -22,13 +22,8 @@ describe('collectDownloads', () => {
   it('maps style ordinals 0..5 to names, and out-of-range to unknown:<n>', () => {
     const styles = ['0', '1', '2', '3', '4', '5', '9'].map(s => collectDownloads([dl('DynamicFileHandler.axd', s)], { baseUrl: BASE }));
     // ordinals 0..4 are same-origin file styles -> refs; 5 (mailto) has a file path here so still a ref by origin, name still 'mailto'
-    expect(styles[0].refs[0].style).toBe('view');
-    expect(styles[1].refs[0].style).toBe('download');
-    expect(styles[2].refs[0].style).toBe('print');
-    expect(styles[3].refs[0].style).toBe('preview');
-    expect(styles[4].refs[0].style).toBe('previewWithoutDownload');
-    expect(styles[5].refs[0].style).toBe('mailto');
-    expect(styles[6].refs[0].style).toBe('unknown:9');
+    expect(styles.map(s => s.refs[0]!.style)).toEqual(
+      ['view', 'download', 'print', 'preview', 'previewWithoutDownload', 'mailto', 'unknown:9']);
   });
 
   it('routes an off-origin absolute URL to external, never a ref', () => {

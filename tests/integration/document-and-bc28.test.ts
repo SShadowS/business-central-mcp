@@ -13,7 +13,6 @@ import { derivePageState } from '../../src/protocol/types.js';
 import type { BCSession } from '../../src/session/bc-session.js';
 import { PageService } from '../../src/services/page-service.js';
 import { DataService } from '../../src/services/data-service.js';
-import { ActionService } from '../../src/services/action-service.js';
 import { FilterService } from '../../src/services/filter-service.js';
 import { NavigationService } from '../../src/services/navigation-service.js';
 import { SearchService } from '../../src/services/search-service.js';
@@ -28,10 +27,8 @@ describe('Document Page Workflows (BC27)', () => {
   let session: BCSession;
   let pageService: PageService;
   let dataService: DataService;
-  let actionService: ActionService;
   let filterService: FilterService;
   let navigationService: NavigationService;
-  let searchService: SearchService;
   const logger = createNullLogger();
 
   const openedPages: string[] = [];
@@ -56,10 +53,8 @@ describe('Document Page Workflows (BC27)', () => {
     const repo = new PageContextRepository();
     pageService = new PageService(session, repo, logger);
     dataService = new DataService(session, repo, logger);
-    actionService = new ActionService(session, repo, logger);
     filterService = new FilterService(session, repo, logger);
     navigationService = new NavigationService(session, repo, logger);
-    searchService = new SearchService(session, logger);
   }
 
   async function recreateSession(): Promise<boolean> {
@@ -189,7 +184,7 @@ describe('Document Page Workflows (BC27)', () => {
             await closeAndUntrack(targetPageState.pageContextId);
           } else {
             console.error(`[D1] Drill down FAILED: ${drillResult.error.message}`);
-            console.error(`[D1] Details: ${JSON.stringify(drillResult.error.details)}`);
+            console.error(`[D1] Details: ${JSON.stringify(drillResult.error.context)}`);
           }
         } catch (e: unknown) {
           console.error(`[D1] Drill down THREW: ${e instanceof Error ? e.message : String(e)}`);
@@ -336,7 +331,7 @@ describe('Document Page Workflows (BC27)', () => {
         }
       } else {
         console.error(`[D3] Filter FAILED: ${filterResult.error.message}`);
-        console.error(`[D3] Details: ${JSON.stringify(filterResult.error.details)}`);
+        console.error(`[D3] Details: ${JSON.stringify(filterResult.error.context)}`);
       }
     } catch (e: unknown) {
       console.error(`[D3] Filter THREW: ${e instanceof Error ? e.message : String(e)}`);
@@ -469,7 +464,6 @@ describe('BC28 Cross-Version Tests', () => {
   let session: BCSession;
   let pageService: PageService;
   let dataService: DataService;
-  let actionService: ActionService;
   let filterService: FilterService;
   let navigationService: NavigationService;
   let searchService: SearchService;
@@ -498,7 +492,6 @@ describe('BC28 Cross-Version Tests', () => {
     const repo = new PageContextRepository();
     pageService = new PageService(session, repo, logger);
     dataService = new DataService(session, repo, logger);
-    actionService = new ActionService(session, repo, logger);
     filterService = new FilterService(session, repo, logger);
     navigationService = new NavigationService(session, repo, logger);
     searchService = new SearchService(session, logger);
@@ -620,7 +613,7 @@ describe('BC28 Cross-Version Tests', () => {
         await closeAndUntrack(targetPageState.pageContextId);
       } else {
         console.error(`[B1] Drill down FAILED: ${drillResult.error.message}`);
-        console.error(`[B1] Details: ${JSON.stringify(drillResult.error.details)}`);
+        console.error(`[B1] Details: ${JSON.stringify(drillResult.error.context)}`);
       }
     } catch (e: unknown) {
       console.error(`[B1] Drill down THREW: ${e instanceof Error ? e.message : String(e)}`);
@@ -668,7 +661,7 @@ describe('BC28 Cross-Version Tests', () => {
         }
       } else {
         console.error(`[B2] Filter FAILED: ${filterResult.error.message}`);
-        console.error(`[B2] Details: ${JSON.stringify(filterResult.error.details)}`);
+        console.error(`[B2] Details: ${JSON.stringify(filterResult.error.context)}`);
       }
     } catch (e: unknown) {
       console.error(`[B2] Filter THREW: ${e instanceof Error ? e.message : String(e)}`);
@@ -701,7 +694,7 @@ describe('BC28 Cross-Version Tests', () => {
         expect(results.length).toBeGreaterThan(0);
       } else {
         console.error(`[B3] Search FAILED: ${result.error.message}`);
-        console.error(`[B3] Details: ${JSON.stringify(result.error.details)}`);
+        console.error(`[B3] Details: ${JSON.stringify(result.error.context)}`);
       }
     } catch (e: unknown) {
       console.error(`[B3] Search THREW: ${e instanceof Error ? e.message : String(e)}`);

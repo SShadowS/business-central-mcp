@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { DownloadService } from '../../src/services/download-service.js';
 import type { BCEvent } from '../../src/protocol/types.js';
 
-const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as never;
+const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
 const BASE = 'http://cronus28/BC';
 const LIMITS = { maxBytes: 1000, maxTotalBytes: 1500, maxDownloads: 3, dir: undefined };
 const dl = (fname: string, style = '1'): BCEvent => ({ type: 'FileDownloadReady', formId: '', relativeUrl: `DynamicFileHandler.axd?fname=${fname}`, style } as BCEvent);

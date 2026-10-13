@@ -1,7 +1,7 @@
 // tests/protocol/form-tree-builder.test.ts
 import { describe, it, expect } from 'vitest';
 import { buildFormTree } from '../../src/protocol/form-tree-builder.js';
-import { isLogicalFormNode, isGroupNode, isFieldNode, isActionNode, isRepeaterNode } from '../../src/protocol/form-node.js';
+import { isLogicalFormNode, isGroupNode, isFieldNode, isActionNode, isRepeaterNode, childrenOf } from '../../src/protocol/form-node.js';
 import type { FormNode } from '../../src/protocol/form-node.js';
 
 describe('buildFormTree — root + groups', () => {
@@ -56,7 +56,7 @@ describe('buildFormTree — fields', () => {
     };
     const root = buildFormTree(raw);
     if (!('children' in root)) throw new Error('expected children');
-    const fields = root.children.filter(isFieldNode);
+    const fields = childrenOf(root).filter(isFieldNode);
     expect(fields.length).toBe(4);
     expect(fields[0]!.type).toBe('sc');
     expect(fields[0]!.properties.stringValue).toBe('hi');
@@ -72,7 +72,7 @@ describe('buildFormTree — fields', () => {
     ] };
     const root = buildFormTree(raw);
     if (!('children' in root)) throw new Error('expected children');
-    const fields = root.children.filter(isFieldNode);
+    const fields = childrenOf(root).filter(isFieldNode);
     expect(fields.length).toBe(1);
     expect(fields[0]!.properties.caption).toBe('real text');
   });
@@ -84,7 +84,7 @@ describe('buildFormTree — fields', () => {
     ] };
     const root = buildFormTree(raw);
     if (!('children' in root)) throw new Error('expected children');
-    const fields = root.children.filter(isFieldNode);
+    const fields = childrenOf(root).filter(isFieldNode);
     expect(fields.length).toBe(1);
     expect(fields[0]!.properties.caption).toBe('real');
   });
@@ -107,7 +107,7 @@ describe('buildFormTree — actions', () => {
     ] };
     const root = buildFormTree(raw);
     if (!('children' in root)) throw new Error('expected children');
-    const action = root.children.find(isActionNode);
+    const action = childrenOf(root).find(isActionNode);
     expect(action).toBeDefined();
     expect(action!.systemAction).toBe(0);
     expect(action!.iconIdentifier).toBe('Actions/NextRecord/16.png');
@@ -156,7 +156,7 @@ describe('buildFormTree — repeaters', () => {
     ] };
     const root = buildFormTree(raw);
     if (!('children' in root)) throw new Error();
-    const rep = root.children.find(isRepeaterNode);
+    const rep = childrenOf(root).find(isRepeaterNode);
     expect(rep).toBeDefined();
     expect(rep!.columns.length).toBe(2);
     expect(rep!.columns[0]!.controlPath).toBe('server:c[0]/co[0]');
@@ -173,7 +173,7 @@ describe('buildFormTree — repeaters', () => {
     ] };
     const root = buildFormTree(raw);
     if (!('children' in root)) throw new Error();
-    const rep = root.children.find(isRepeaterNode);
+    const rep = childrenOf(root).find(isRepeaterNode);
     expect(rep!.columns.length).toBe(1);
   });
 });
@@ -196,7 +196,7 @@ describe('buildFormTree — option/enum fields (sec + bc)', () => {
     };
     const root = buildFormTree(raw);
     if (!('children' in root)) throw new Error('expected children');
-    const field = root.children.find(isFieldNode);
+    const field = childrenOf(root).find(isFieldNode);
     expect(field).toBeDefined();
     expect(field!.type).toBe('sec');
     expect(field!.properties.options).toEqual([
@@ -222,7 +222,7 @@ describe('buildFormTree — option/enum fields (sec + bc)', () => {
     };
     const root = buildFormTree(raw);
     if (!('children' in root)) throw new Error('expected children');
-    const field = root.children.find(isFieldNode);
+    const field = childrenOf(root).find(isFieldNode);
     expect(field!.properties.options).toEqual([
       { text: 'No', value: 'False' },
       { text: 'Yes', value: 'True' },
@@ -238,7 +238,7 @@ describe('buildFormTree — option/enum fields (sec + bc)', () => {
     };
     const root = buildFormTree(raw);
     if (!('children' in root)) throw new Error('expected children');
-    const field = root.children.find(isFieldNode);
+    const field = childrenOf(root).find(isFieldNode);
     expect(field!.properties.options).toBeUndefined();
     expect(field!.properties.optionIndex).toBeUndefined();
   });
@@ -271,7 +271,7 @@ describe('buildFormTree — option/enum fields (sec + bc)', () => {
     };
     const root = buildFormTree(raw);
     if (!('children' in root)) throw new Error('expected children');
-    const rep = root.children.find(isRepeaterNode);
+    const rep = childrenOf(root).find(isRepeaterNode);
     expect(rep).toBeDefined();
     const typeCol = rep!.columns.find(c => c.columnBinder?.name === 'type_col');
     expect(typeCol).toBeDefined();
@@ -296,7 +296,7 @@ describe('buildFormTree — fhc + filc', () => {
     ] };
     const root = buildFormTree(raw);
     if (!('children' in root)) throw new Error();
-    const fhc = root.children.find(isFormHostNode);
+    const fhc = childrenOf(root).find(isFormHostNode);
     expect(fhc).toBeDefined();
     expect(fhc!.hostedFormServerId).toBe('CHILD1');
     expect(fhc!.hostedFormCaption).toBe('Customer Stats');

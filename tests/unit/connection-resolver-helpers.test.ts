@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { expandEnv, matchPath, FIELD_TO_ENV } from '../../src/core/connection-resolver.js';
+import { expandEnv, matchPath } from '../../src/core/connection-resolver.js';
 import { ConfigError } from '../../src/core/errors.js';
 
 describe('expandEnv', () => {

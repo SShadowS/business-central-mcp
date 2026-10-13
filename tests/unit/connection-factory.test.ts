@@ -9,14 +9,11 @@ import { bindingFromBaseUrl, type IBCAuthProvider } from '../../src/connection/a
 import { createNullLogger } from '../../src/core/logger.js';
 import type { BCWebSocketConfig } from '../../src/connection/bc-websocket.js';
 import type { BCConfig } from '../../src/core/config.js';
+import { makeTestBCConfig } from '../helpers/test-config.js';
 
 function makeConfig(baseUrl: string): BCConfig {
-  return {
+  return makeTestBCConfig({
     baseUrl,
-    username: 'u',
-    password: 'p',
-    tenantId: 'default',
-    profile: '',
     applicationId: '',
     clientVersionString: '27.0.0.0',
     serverMajor: 27,
@@ -24,9 +21,7 @@ function makeConfig(baseUrl: string): BCConfig {
     invokeTimeoutMs: 1000,
     reconnectMaxRetries: 0,
     reconnectBaseDelayMs: 0,
-    odataUrl: '',
-    odataCompanyName: undefined,
-  };
+  });
 }
 
 function authFor(baseUrl: string, extras: Partial<IBCAuthProvider> = {}): IBCAuthProvider {

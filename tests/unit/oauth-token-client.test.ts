@@ -124,7 +124,7 @@ describe('OAuthTokenClient.deviceCode', () => {
 
 describe('OAuthTokenClient.refresh', () => {
   it('posts the refresh_token grant', async () => {
-    const fetchFn = vi.fn(async () => jsonResponse(200, {
+    const fetchFn = vi.fn(async (_url: string, _init?: RequestInit) => jsonResponse(200, {
       access_token: 'new',
       refresh_token: 'rt2',
       expires_in: 3600,
@@ -133,6 +133,6 @@ describe('OAuthTokenClient.refresh', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.accessToken).toBe('new');
-    expect(String((fetchFn.mock.calls[0] as [string, RequestInit])[1]?.body)).toContain('grant_type=refresh_token');
+    expect(String(fetchFn.mock.calls[0]![1]?.body)).toContain('grant_type=refresh_token');
   });
 });

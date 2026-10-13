@@ -4,10 +4,11 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { UploadFileOperation } from '../../src/operations/upload-file.js';
 import { ok, isOk, isErr } from '../../src/core/result.js';
+import type { UploadInput } from '../../src/services/upload-service.js';
 
 function fakeService() {
   return {
-    upload: vi.fn(async (_pc: string, file: { fileName: string; bytes: Buffer }, _opts?: unknown) =>
+    upload: vi.fn(async (_pc: string, file: UploadInput, _opts?: unknown) =>
       ok({ success: true, fileName: file.fileName, sizeBytes: file.bytes.byteLength, formId: 'f1', events: [] })),
   };
 }
@@ -58,7 +59,7 @@ describe('UploadFileOperation', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const op = new UploadFileOperation(svc as any);
     await op.execute({ pageContextId: 'pc1', path: p });
-    expect((svc.upload.mock.calls[0]![1] as { contentType: string }).contentType).toBe('application/pdf');
+    expect(svc.upload.mock.calls[0]![1].contentType).toBe('application/pdf');
   });
 
   it('cleanup', () => { rmSync(dir, { recursive: true, force: true }); });
