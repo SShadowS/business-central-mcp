@@ -227,6 +227,18 @@ export class MCPHandler {
       if (e instanceof BCError) {
         if (e instanceof SessionLostError) {
           this.logger.info(`Session recovered during ${params.name}. Impacted contexts: ${e.impactedPageContextIds.join(', ') || 'none'}`);
+          // Recovery state as data, not just prose, so an agent can tell which
+          // pageContextIds died and whether the reconnect itself failed.
+          const state = { code: e.code, impactedPageContextIds: e.impactedPageContextIds, reconnectFailed: e.reconnectFailed };
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              content: [{ type: 'text', text: formatBcError(e) }, { type: 'text', text: JSON.stringify(state) }],
+              structuredContent: state,
+              isError: true,
+            },
+          };
         } else {
           this.logger.error(`Tool ${params.name} threw BCError [${e.code}]: ${e.message}`);
         }

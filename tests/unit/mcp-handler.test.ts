@@ -354,6 +354,19 @@ describe('MCPHandler.handleRequest — tools/call: thrown BCError', () => {
     expect(result.content[0].text).toContain('bc_open_page');
   });
 
+  it('returns SessionLostError recovery state structurally', async () => {
+    const sessionErr = new SessionLostError('lost', ['pcA', 'pcB'], { reconnectFailed: true });
+    const execute = vi.fn().mockRejectedValue(sessionErr);
+    const handler = new MCPHandler([makeTool('bc_lost', z.object({}), execute)], makeLogger());
+
+    const res = await handler.handleRequest(makeRequest('tools/call', { name: 'bc_lost', arguments: {} }));
+    const result = res.result as { content: Array<{ text: string }>; structuredContent: unknown; isError: boolean };
+    const expected = { code: sessionErr.code, impactedPageContextIds: ['pcA', 'pcB'], reconnectFailed: true };
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toEqual(expected);
+    expect(JSON.parse(result.content[1]!.text)).toEqual(expected);
+  });
+
   it('includes impacted context ids in logger message for SessionLostError', async () => {
     const sessionErr = new SessionLostError('lost', ['pcA', 'pcB']);
     const execute = vi.fn().mockRejectedValue(sessionErr);
