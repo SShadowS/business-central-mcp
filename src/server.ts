@@ -40,6 +40,7 @@ import { createQueryOperation } from './operations/query.js';
 import { buildToolRegistry, type Operations } from './mcp/tool-registry.js';
 import { MCPHandler } from './mcp/handler.js';
 import { OperationLedger } from './mcp/operation-ledger.js';
+import { IdempotencyGate } from './mcp/idempotency-gate.js';
 import { createTargetDescriber } from './operations/target-descriptor.js';
 import { GetOperationOperation } from './operations/get-operation.js';
 import { PROMPTS } from './mcp/prompts.js';
@@ -107,6 +108,9 @@ async function main() {
   });
 
   const ledger = new OperationLedger(config.stateDir);
+  // One gate for both transports: an operationId / Idempotency-Key means the
+  // same operation over MCP and REST.
+  const gate = new IdempotencyGate(ledger, logger, createTargetDescriber(pageContextRepo, () => sessionManager.currentSession?.companyName));
 
   // Services — built once after session is available
   function buildServices(s: BCSession): { operations: Operations; tools: ReturnType<typeof buildToolRegistry> } {
@@ -155,7 +159,7 @@ async function main() {
     if (realTools === null || sessionManager.needsServiceRebuild) {
       const built = buildServices(s);
       realTools = built.tools;
-      apiRoutes = createApiRoutes(built.operations, logger);
+      apiRoutes = createApiRoutes(built.operations, logger, gate);
       sessionManager.markServicesRebuilt();
     }
     return realTools;
@@ -189,8 +193,7 @@ async function main() {
   }));
   const mcpHandler = new MCPHandler(lazyTools, logger, PROMPTS, {
     elicitationPort,
-    ledger,
-    describeTarget: createTargetDescriber(pageContextRepo, () => sessionManager.currentSession?.companyName),
+    gate,
   });
 
   // HTTP Server

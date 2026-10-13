@@ -14,6 +14,7 @@ import { RespondDialogOperation } from '../../src/operations/respond-dialog.js';
 import { createToolDefinition } from '../../src/operations/respond-dialog.tool.js';
 import { MCPHandler } from '../../src/mcp/handler.js';
 import { OperationLedger } from '../../src/mcp/operation-ledger.js';
+import { IdempotencyGate } from '../../src/mcp/idempotency-gate.js';
 import type { Operations } from '../../src/mcp/tool-registry.js';
 import { createFakeBCSocket, invokeCompleted, type FakeScript } from '../helpers/fake-bc-socket.js';
 
@@ -28,7 +29,7 @@ function harness(script: FakeScript, ledgerDir: string) {
   const repo = new PageContextRepository();
   repo.create('pc:so:1', 'root-1');
   const op = new RespondDialogOperation(session, repo, { capture: async () => ({ downloads: [], externalUris: [] }) } as never);
-  const handler = new MCPHandler([createToolDefinition({ respondDialog: op } as unknown as Operations)], logger(), [], { ledger: new OperationLedger(ledgerDir) });
+  const handler = new MCPHandler([createToolDefinition({ respondDialog: op } as unknown as Operations)], logger(), [], { gate: new IdempotencyGate(new OperationLedger(ledgerDir), logger() as never) });
   const post = () => handler.handleRequest({
     jsonrpc: '2.0', id: 1, method: 'tools/call',
     params: { name: 'bc_respond_dialog', arguments: { pageContextId: 'pc:so:1', dialogFormId: 'dlg-1', response: 'yes', operationId: 'op-post' } },

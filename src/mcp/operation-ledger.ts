@@ -10,7 +10,8 @@ import type { TargetDescriptor } from '../operations/target-descriptor.js';
  * earlier one sent.
  *
  * - `sent`: the call started and has not returned (or the process died mid-call).
- * - `completed`: the call returned; `result` is the MCP tool result to replay.
+ * - `completed`: the call returned; `result` is the tool's output value to replay
+ *   (each transport renders it the way it rendered the first response).
  * - `unknown`: the call failed in a way that may have committed server-side
  *   (timeout, session loss, transport error).
  *

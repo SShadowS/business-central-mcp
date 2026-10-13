@@ -4,8 +4,7 @@ import type { Logger } from '../core/logger.js';
 import { SessionLostError, BCError, UrlElicitationRequiredError, errorHint } from '../core/errors.js';
 import { applyElicitationCapabilities, type ClientElicitationPort } from './elicitation-port.js';
 import { SERVER_VERSION } from '../core/version.js';
-import { digestInput, type OperationLedger } from './operation-ledger.js';
-import type { DescribeTarget, TargetDescriptor } from '../operations/target-descriptor.js';
+import { IdempotencyGate, invalidOperationId, isAmbiguousFailure, type Failure } from './idempotency-gate.js';
 
 export const URL_ELICITATION_JSONRPC_CODE = -32042;
 
@@ -47,8 +46,7 @@ export function formatBcError(e: { code?: string; message: string }): string {
 export class MCPHandler {
   private initialized = false;
   private readonly elicitationPort: ClientElicitationPort | undefined;
-  private readonly ledger: OperationLedger | undefined;
-  private readonly describeTarget: DescribeTarget | undefined;
+  private readonly gate: IdempotencyGate | undefined;
 
   get isInitialized(): boolean {
     return this.initialized;
@@ -58,11 +56,10 @@ export class MCPHandler {
     private readonly tools: ToolDefinition[],
     private readonly logger: Logger,
     private readonly prompts: PromptDefinition[] = [],
-    opts?: { elicitationPort?: ClientElicitationPort; ledger?: OperationLedger; describeTarget?: DescribeTarget },
+    opts?: { elicitationPort?: ClientElicitationPort; gate?: IdempotencyGate },
   ) {
     this.elicitationPort = opts?.elicitationPort;
-    this.ledger = opts?.ledger;
-    this.describeTarget = opts?.describeTarget;
+    this.gate = opts?.gate;
   }
 
   async handleRequest(request: JsonRpcRequest): Promise<JsonRpcResponse> {
@@ -126,7 +123,7 @@ export class MCPHandler {
         tools: this.tools.map(t => ({
           name: t.name,
           description: t.description,
-          inputSchema: this.ledger && !t.annotations.readOnlyHint ? withOperationId(t.inputSchema) : t.inputSchema,
+          inputSchema: this.gate && !t.annotations.readOnlyHint ? withOperationId(t.inputSchema) : t.inputSchema,
           annotations: t.annotations,
         })),
       },
@@ -183,12 +180,11 @@ export class MCPHandler {
     }
 
     const args: Record<string, unknown> = { ...((params.arguments ?? {}) as Record<string, unknown>) };
-    const gated = this.ledger !== undefined && !tool.annotations.readOnlyHint;
+    const gated = this.gate !== undefined && !tool.annotations.readOnlyHint;
     const operationId = gated ? args['operationId'] : undefined;
     if (gated) delete args['operationId'];
-    if (operationId !== undefined && (typeof operationId !== 'string' || operationId.length === 0 || operationId.length > 200)) {
-      return toolError(request.id, 'Input validation error: operationId must be a non-empty string of at most 200 characters');
-    }
+    const badId = operationId === undefined ? undefined : invalidOperationId(operationId);
+    if (badId) return toolError(request.id, `Input validation error: operationId ${badId}`);
 
     // Validate input via Zod
     const parseResult = tool.zodSchema.safeParse(args);
@@ -197,73 +193,33 @@ export class MCPHandler {
     }
 
     if (operationId === undefined) return (await this.runTool(tool, parseResult.data, request.id)).response;
-    return this.runIdempotent(tool, operationId, parseResult.data, request.id);
+    return this.runIdempotent(tool, operationId as string, parseResult.data, request.id);
   }
 
-  /**
-   * Replay gate (epic #17). A known operationId with the same tool and input
-   * returns the stored result without touching BC; with different input it is
-   * rejected; while its outcome is unresolved it is reported as in doubt.
-   */
+  /** Replay gate (epic #17): JSON-RPC adapter over the shared IdempotencyGate. */
   private async runIdempotent(tool: ToolDefinition, operationId: string, input: unknown, id: unknown): Promise<JsonRpcResponse> {
-    const ledger = this.ledger!;
-    const inputDigest = digestInput(input);
-    // Snapshot the target before the call runs: session loss mid-call wipes the
-    // page contexts it would otherwise be read from. Best-effort; never blocks the call.
-    let target: TargetDescriptor | undefined;
-    try {
-      target = this.describeTarget?.(input);
-    } catch (e) {
-      this.logger.warn(`Could not describe ${tool.name} target for operationId ${operationId}: ${e instanceof Error ? e.message : String(e)}`);
+    const gated = await this.gate!.run(tool.name, operationId, input, () => this.runTool(tool, input, id));
+    switch (gated.kind) {
+      case 'ran': return gated.outcome.response;
+      case 'replayed': return { jsonrpc: '2.0', id, result: successResult(gated.value) };
+      case 'reused': return toolError(id, formatBcError({ code: 'OPERATION_ID_REUSED', message: gated.message }));
+      case 'inDoubt':
+        return {
+          jsonrpc: '2.0',
+          id,
+          result: {
+            content: [
+              { type: 'text', text: formatBcError({ code: 'OPERATION_IN_DOUBT', message: gated.message }) },
+              { type: 'text', text: JSON.stringify(gated.state) },
+            ],
+            structuredContent: gated.state,
+            isError: true,
+          },
+        };
     }
-    const claim = await ledger.claim(operationId, tool.name, inputDigest, target);
-    if (!claim.claimed) {
-      const ex = claim.existing;
-      if (ex.tool !== tool.name || ex.inputDigest !== inputDigest) {
-        return toolError(id, formatBcError({ code: 'OPERATION_ID_REUSED', message: `operationId '${operationId}' was already used for a different ${ex.tool === tool.name ? 'input' : `tool (${ex.tool})`}.` }));
-      }
-      if (ex.status === 'completed') {
-        this.logger.info(`Replayed ${tool.name} result for operationId ${operationId}`);
-        return { jsonrpc: '2.0', id, result: ex.result };
-      }
-      const state = { code: 'OPERATION_IN_DOUBT', operationId, status: ex.status, replaySafe: false, createdAt: ex.createdAt, ...(ex.error ? { error: ex.error } : {}), ...(ex.target ? { target: ex.target } : {}) };
-      return {
-        jsonrpc: '2.0',
-        id,
-        result: {
-          content: [
-            { type: 'text', text: formatBcError({ code: 'OPERATION_IN_DOUBT', message: ex.status === 'sent'
-              ? `operationId '${operationId}' is still in flight, or its process died before it returned.`
-              : `operationId '${operationId}' failed in a way that may have committed server-side (${ex.error?.code ?? 'unknown error'}).` }) },
-            { type: 'text', text: JSON.stringify(state) },
-          ],
-          structuredContent: state,
-          isError: true,
-        },
-      };
-    }
-
-    let outcome: Awaited<ReturnType<MCPHandler['runTool']>>;
-    try {
-      outcome = await this.runTool(tool, input, id);
-    } catch (e) {
-      await ledger.settle(operationId, { status: 'unknown', replaySafe: false, error: { message: e instanceof Error ? e.message : String(e) } });
-      throw e;
-    }
-    const { response, failure } = outcome;
-    if (!failure) {
-      await ledger.settle(operationId, { status: 'completed', replaySafe: outcome.replaySafe === true, result: response.result });
-    } else if (isAmbiguousFailure(failure.code)) {
-      await ledger.settle(operationId, { status: 'unknown', replaySafe: false, error: failure });
-    } else {
-      // BC gave a definite answer (validation, business rule, sign-in...): nothing
-      // committed, so free the id for a corrected retry.
-      await ledger.release(operationId);
-    }
-    return response;
   }
 
-  private async runTool(tool: ToolDefinition, input: unknown, id: unknown): Promise<{ response: JsonRpcResponse; failure?: { code?: string; message: string }; replaySafe?: boolean }> {
+  private async runTool(tool: ToolDefinition, input: unknown, id: unknown): Promise<ToolRun> {
     const outcome = await this.executeTool(tool, input, id);
     const { failure } = outcome;
     const result = outcome.response.result as { content: Array<{ type: string; text: string }>; structuredContent?: Record<string, unknown> } | undefined;
@@ -276,18 +232,12 @@ export class MCPHandler {
     return outcome;
   }
 
-  private async executeTool(tool: ToolDefinition, input: unknown, id: unknown): Promise<{ response: JsonRpcResponse; failure?: { code?: string; message: string }; replaySafe?: boolean }> {
+  private async executeTool(tool: ToolDefinition, input: unknown, id: unknown): Promise<ToolRun> {
     try {
       const result = await tool.execute(input);
       // Result is a Result<T, BCError>
       const r = result as { ok: boolean; value?: unknown; error?: { message: string } };
-      if (r.ok) {
-        const replaySafe = (r.value as { replaySafe?: unknown } | undefined)?.replaySafe;
-        return {
-          response: { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(r.value, null, 2) }] } },
-          ...(typeof replaySafe === 'boolean' ? { replaySafe } : {}),
-        };
-      }
+      if (r.ok) return { response: { jsonrpc: '2.0', id, result: successResult(r.value) }, value: r.value };
       const errObj = r.error as { code?: string; message?: string } | undefined;
       const failure = { code: errObj?.code, message: errObj?.message ?? 'Unknown error' };
       if (errObj instanceof UrlElicitationRequiredError || errObj?.code === 'URL_ELICITATION_REQUIRED') {
@@ -333,9 +283,13 @@ export class MCPHandler {
   }
 }
 
-/** Failures after which the mutation may or may not have reached BC. */
-const AMBIGUOUS_FAILURE_CODES = new Set(['TIMEOUT_ERROR', 'SESSION_LOST', 'CONNECTION_ERROR', 'PROTOCOL_ERROR', 'ABORTED_ERROR']);
-const isAmbiguousFailure = (code: string | undefined): boolean => code === undefined || AMBIGUOUS_FAILURE_CODES.has(code);
+/** One tool run: the JSON-RPC response, plus the raw output value or the failure. */
+interface ToolRun { response: JsonRpcResponse; value?: unknown; failure?: Failure }
+
+/** A successful tool result. A replay renders the stored value the same way, so it is byte-identical. */
+function successResult(value: unknown): { content: Array<{ type: 'text'; text: string }> } {
+  return { content: [{ type: 'text', text: JSON.stringify(value, null, 2) }] };
+}
 
 const OPERATION_ID_SCHEMA = {
   type: 'string',

@@ -334,6 +334,22 @@ An `OPERATION_IN_DOUBT` response is always `replaySafe: false`, and so is the fi
 
 `bc_get_operation { operationId }` (read-only) returns the ledger entry: status, tool, timestamps, `replaySafe`, the stored result and the `target` snapshot. When the status is not `completed` or `replaySafe` is false, it also re-reads the target in the current session: it re-opens the page by page id on the recorded record bookmark, reads the record's primary-key fields (by table field number, from the page's own key metadata; a key that no longer matches returns `readBackError: KEY_MISMATCH` without an `evidenceHash`) plus any written fields (or the targeted list row, `null` if it is gone; a document header also gets its loaded `lines`, since a posting changes line state such as "Quantity Shipped" but not the header key fields), closes the page, and returns that as `readBack` with `evidenceHash`, the SHA-256 of its sorted-key JSON. It does not switch company for you (`readBackError: COMPANY_MISMATCH`), does not open a page while a dialog is open (`MODAL_OPEN`: opening would cancel it; answer it first), and never re-opens a page without a recorded record bookmark (`NO_TARGET`). A card in edit mode keeps a written value until the page is closed or leaves the record, so a read-back taken while the original page is still open can show the old value.
 
+The HTTP transport's REST API (`POST /api/v1/...`) uses the same ledger. Its three mutating routes take the key in an `Idempotency-Key` header and record it under their MCP tool name (`pages/write` = `bc_write_data`, `pages/action` = `bc_execute_action`, `pages/close` = `bc_close_page`), so a key means the same operation on both transports and `bc_get_operation` can look up a REST call. Responses:
+
+| Case | HTTP status |
+|------|-------------|
+| success | `200` |
+| replay of a completed call | `200` with the stored body and `Idempotent-Replayed: true` |
+| `OPERATION_ID_REUSED` (key used for a different route or body) | `422` |
+| `OPERATION_IN_DOUBT` | `409`, body `{ code, operationId, status, replaySafe: false, target, ... }` |
+| definite failure (validation, business error) | `400` |
+| sign-in required | `401` |
+| `TIMEOUT_ERROR` | `504` |
+| other ambiguous failure (`SESSION_LOST`, `CONNECTION_ERROR`, `PROTOCOL_ERROR`, `ABORTED_ERROR`) | `503` |
+| unclassified error | `500` |
+
+Ambiguous failures (`503`/`504`/`500`) of a mutating route carry `replaySafe: false`, with or without a key. Read-only routes ignore the header.
+
 ## How it works
 
 This server speaks BC's internal WebSocket protocol directly -- the same protocol the browser-based web client uses. It was reverse-engineered from decompiled BC server assemblies. No OData endpoints, no SOAP services, no Selenium.

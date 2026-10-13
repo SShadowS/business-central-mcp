@@ -37,6 +37,7 @@ import { createTargetDescriber } from '../../src/operations/target-descriptor.js
 import { createToolDefinition as respondDialogTool } from '../../src/operations/respond-dialog.tool.js';
 import { createToolDefinition as getOperationTool } from '../../src/operations/get-operation.tool.js';
 import { OperationLedger, digestInput } from '../../src/mcp/operation-ledger.js';
+import { IdempotencyGate } from '../../src/mcp/idempotency-gate.js';
 import { MCPHandler } from '../../src/mcp/handler.js';
 import type { Operations } from '../../src/mcp/tool-registry.js';
 import { buildSection } from '../../src/protocol/section-dto.js';
@@ -76,7 +77,7 @@ async function rig(stateDir: string): Promise<Rig> {
     getOperation: new GetOperationOperation(ledger, pageService, () => session.companyName, () => session.modalStackSnapshot().length > 0),
   } as unknown as Operations;
   const handler = new MCPHandler([respondDialogTool(ops), getOperationTool(ops)], logger, [], {
-    ledger, describeTarget: createTargetDescriber(repo, () => session.companyName),
+    gate: new IdempotencyGate(ledger, logger, createTargetDescriber(repo, () => session.companyName)),
   });
   const call = async (name: string, args: Record<string, unknown>): Promise<ToolResult> => {
     const res = await handler.handleRequest({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } });

@@ -7,6 +7,7 @@ import { createTargetDescriber } from '../../src/operations/target-descriptor.js
 import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
 import { MCPHandler } from '../../src/mcp/handler.js';
 import { OperationLedger } from '../../src/mcp/operation-ledger.js';
+import { IdempotencyGate } from '../../src/mcp/idempotency-gate.js';
 import { TimeoutError } from '../../src/core/errors.js';
 import type { BCEvent } from '../../src/protocol/types.js';
 
@@ -136,8 +137,9 @@ describe('replay gate stores the target descriptor', () => {
       annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false as const },
     };
     const ledger = new OperationLedger(dir);
-    const h = new MCPHandler([tool], { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } as never, [], {
-      ledger, describeTarget: createTargetDescriber(repo, () => 'CRONUS'),
+    const log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } as never;
+    const h = new MCPHandler([tool], log, [], {
+      gate: new IdempotencyGate(ledger, log, createTargetDescriber(repo, () => 'CRONUS')),
     });
     const args = { pageContextId: PC, action: 'Post', bookmark: 'BM1', operationId: 'op-t' };
     const call = () => h.handleRequest({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: tool.name, arguments: args } });

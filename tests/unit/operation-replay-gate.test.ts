@@ -5,10 +5,12 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { MCPHandler } from '../../src/mcp/handler.js';
 import { OperationLedger, digestInput } from '../../src/mcp/operation-ledger.js';
+import { IdempotencyGate } from '../../src/mcp/idempotency-gate.js';
 import type { ToolDefinition } from '../../src/mcp/tool-registry.js';
 import { BusinessValidationError, SessionLostError, TimeoutError } from '../../src/core/errors.js';
 
 const logger = () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() });
+const withGate = (ledger: OperationLedger) => ({ gate: new IdempotencyGate(ledger, logger()) });
 
 function mutatingTool(execute: ToolDefinition['execute'], readOnly = false): ToolDefinition {
   return {
@@ -34,9 +36,9 @@ describe('operationId replay gate', () => {
 
   it('replays the stored result for a repeated id + input without re-executing, across ledger instances', async () => {
     const execute = vi.fn().mockResolvedValue({ ok: true, value: { posted: 'SO-1' } });
-    const first = await call(new MCPHandler([mutatingTool(execute)], logger(), [], { ledger: new OperationLedger(dir) }), { value: 'x', operationId: 'op-1' });
+    const first = await call(new MCPHandler([mutatingTool(execute)], logger(), [], withGate(new OperationLedger(dir))), { value: 'x', operationId: 'op-1' });
     // A fresh handler + ledger over the same dir = a restarted process.
-    const second = await call(new MCPHandler([mutatingTool(execute)], logger(), [], { ledger: new OperationLedger(dir) }), { value: 'x', operationId: 'op-1' });
+    const second = await call(new MCPHandler([mutatingTool(execute)], logger(), [], withGate(new OperationLedger(dir))), { value: 'x', operationId: 'op-1' });
     expect(execute).toHaveBeenCalledTimes(1);
     expect(execute).toHaveBeenCalledWith({ value: 'x' }); // operationId stripped before the tool sees input
     expect(second).toEqual(first);
@@ -45,15 +47,15 @@ describe('operationId replay gate', () => {
   it('records the tool\'s replaySafe verdict on the ledger entry; unknown outcomes are never replay-safe', async () => {
     const ledger = new OperationLedger(dir);
     const ok = vi.fn().mockResolvedValue({ ok: true, value: { replaySafe: true } });
-    await call(new MCPHandler([mutatingTool(ok)], logger(), [], { ledger }), { value: 'x', operationId: 'rs-1' });
+    await call(new MCPHandler([mutatingTool(ok)], logger(), [], withGate(ledger)), { value: 'x', operationId: 'rs-1' });
     expect((await ledger.get('rs-1'))?.replaySafe).toBe(true);
 
     const noVerdict = vi.fn().mockResolvedValue({ ok: true, value: {} });
-    await call(new MCPHandler([mutatingTool(noVerdict)], logger(), [], { ledger }), { value: 'x', operationId: 'rs-2' });
+    await call(new MCPHandler([mutatingTool(noVerdict)], logger(), [], withGate(ledger)), { value: 'x', operationId: 'rs-2' });
     expect((await ledger.get('rs-2'))?.replaySafe).toBe(false);
 
     const timeout = vi.fn().mockResolvedValue({ ok: false, error: new TimeoutError('watchdog') });
-    const h = new MCPHandler([mutatingTool(timeout)], logger(), [], { ledger });
+    const h = new MCPHandler([mutatingTool(timeout)], logger(), [], withGate(ledger));
     await call(h, { value: 'x', operationId: 'rs-3' });
     expect((await ledger.get('rs-3'))?.replaySafe).toBe(false);
     expect((await call(h, { value: 'x', operationId: 'rs-3' })).structuredContent).toMatchObject({ code: 'OPERATION_IN_DOUBT', replaySafe: false });
@@ -61,7 +63,7 @@ describe('operationId replay gate', () => {
 
   it('puts replaySafe:false on the first response to an ambiguous failure, with or without operationId', async () => {
     const timeout = vi.fn().mockResolvedValue({ ok: false, error: new TimeoutError('watchdog') });
-    const gated = await call(new MCPHandler([mutatingTool(timeout)], logger(), [], { ledger: new OperationLedger(dir) }), { value: 'x', operationId: 'af-1' });
+    const gated = await call(new MCPHandler([mutatingTool(timeout)], logger(), [], withGate(new OperationLedger(dir))), { value: 'x', operationId: 'af-1' });
     expect(gated.isError).toBe(true);
     expect(gated.structuredContent).toEqual({ code: 'TIMEOUT_ERROR', replaySafe: false });
     expect(JSON.parse(gated.content[1]!.text)).toEqual({ code: 'TIMEOUT_ERROR', replaySafe: false });
@@ -79,7 +81,7 @@ describe('operationId replay gate', () => {
 
   it('rejects a reused id with different input', async () => {
     const execute = vi.fn().mockResolvedValue({ ok: true, value: {} });
-    const h = new MCPHandler([mutatingTool(execute)], logger(), [], { ledger: new OperationLedger(dir) });
+    const h = new MCPHandler([mutatingTool(execute)], logger(), [], withGate(new OperationLedger(dir)));
     await call(h, { value: 'x', operationId: 'op-2' });
     const r = await call(h, { value: 'y', operationId: 'op-2' });
     expect(r.isError).toBe(true);
@@ -89,7 +91,7 @@ describe('operationId replay gate', () => {
 
   it('reports an ambiguous failure as in doubt on retry, never re-executing', async () => {
     const execute = vi.fn().mockResolvedValue({ ok: false, error: new TimeoutError('watchdog') });
-    const h = new MCPHandler([mutatingTool(execute)], logger(), [], { ledger: new OperationLedger(dir) });
+    const h = new MCPHandler([mutatingTool(execute)], logger(), [], withGate(new OperationLedger(dir)));
     await call(h, { value: 'x', operationId: 'op-3' });
     const r = await call(h, { value: 'x', operationId: 'op-3' });
     expect(execute).toHaveBeenCalledTimes(1);
@@ -101,7 +103,7 @@ describe('operationId replay gate', () => {
     const execute = vi.fn()
       .mockResolvedValueOnce({ ok: false, error: new BusinessValidationError([{ field: 'x', description: 'bad' }]) })
       .mockResolvedValueOnce({ ok: true, value: { ok: 1 } });
-    const h = new MCPHandler([mutatingTool(execute)], logger(), [], { ledger: new OperationLedger(dir) });
+    const h = new MCPHandler([mutatingTool(execute)], logger(), [], withGate(new OperationLedger(dir)));
     expect((await call(h, { value: 'x', operationId: 'op-4' })).isError).toBe(true);
     expect((await call(h, { value: 'x', operationId: 'op-4' })).isError).toBeUndefined();
     expect(execute).toHaveBeenCalledTimes(2);
@@ -110,7 +112,7 @@ describe('operationId replay gate', () => {
   it('lets only one of two truly concurrent calls with one id execute', async () => {
     const releases: Array<() => void> = [];
     const execute = vi.fn().mockImplementation(() => new Promise(res => { releases.push(() => res({ ok: true, value: {} })); }));
-    const h = new MCPHandler([mutatingTool(execute)], logger(), [], { ledger: new OperationLedger(dir) });
+    const h = new MCPHandler([mutatingTool(execute)], logger(), [], withGate(new OperationLedger(dir)));
     // Fire both before either claim settles: the loser must see the winner's complete entry.
     const a = call(h, { value: 'x', operationId: 'op-5' });
     const b = call(h, { value: 'x', operationId: 'op-5' });
@@ -140,7 +142,7 @@ describe('operationId replay gate', () => {
 
   it('advertises operationId only on mutating tools and leaves read-only input untouched', async () => {
     const execute = vi.fn().mockResolvedValue({ ok: true, value: {} });
-    const h = new MCPHandler([mutatingTool(execute), mutatingTool(execute, true)], logger(), [], { ledger: new OperationLedger(dir) });
+    const h = new MCPHandler([mutatingTool(execute), mutatingTool(execute, true)], logger(), [], withGate(new OperationLedger(dir)));
     const list = (await h.handleRequest({ jsonrpc: '2.0', id: 1, method: 'tools/list' })).result as { tools: Array<{ name: string; inputSchema: { properties: Record<string, unknown> } }> };
     expect(list.tools.find(t => t.name === 'bc_write')!.inputSchema.properties).toHaveProperty('operationId');
     expect(list.tools.find(t => t.name === 'bc_read')!.inputSchema.properties).not.toHaveProperty('operationId');

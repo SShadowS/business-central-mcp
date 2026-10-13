@@ -31,6 +31,7 @@ import { createTargetDescriber } from '../../src/operations/target-descriptor.js
 import { createToolDefinition as writeDataTool } from '../../src/operations/write-data.tool.js';
 import { createToolDefinition as getOperationTool } from '../../src/operations/get-operation.tool.js';
 import { OperationLedger, digestInput } from '../../src/mcp/operation-ledger.js';
+import { IdempotencyGate } from '../../src/mcp/idempotency-gate.js';
 import { MCPHandler } from '../../src/mcp/handler.js';
 import type { Operations } from '../../src/mcp/tool-registry.js';
 import { SystemAction } from '../../src/protocol/types.js';
@@ -69,7 +70,7 @@ describe('bc_get_operation (integration)', () => {
       getOperation: new GetOperationOperation(ledger, pageService, () => session.companyName, () => session.modalStackSnapshot().length > 0),
     } as unknown as Operations;
     handler = new MCPHandler([writeDataTool(ops), getOperationTool(ops)], logger, [], {
-      ledger, describeTarget: createTargetDescriber(repo, () => session.companyName),
+      gate: new IdempotencyGate(ledger, logger, createTargetDescriber(repo, () => session.companyName)),
     });
     dataService = dataSvc;
     actionService = new ActionService(session, repo, logger);
