@@ -154,7 +154,7 @@ Restart Claude Desktop.
 | `PORT` | No | `3000` | HTTP transport port (stdio transport ignores this). |
 | `LOG_LEVEL` | No | `info` | `debug` / `info` / `warn` / `error`. |
 | `LOG_DIR` | No | `./logs` | Directory for log files. |
-| `STATE_DIR` | No | `{cwd}/.state` | Per-repo directory for `saas-web-cookies.json` and `oauth-tokens.json` (mode 0600). Relative paths resolve against the MCP process working directory (the project you started the agent in). Sessions in the same repo share the file; different repos never share a login. |
+| `STATE_DIR` | No | `{cwd}/.state` | Per-repo directory for `saas-web-cookies.json` and `oauth-tokens.json` (mode 0600), and the `operations/` replay ledger. Relative paths resolve against the MCP process working directory (the project you started the agent in). Sessions in the same repo share the file; different repos never share a login. |
 | `BC_INVOKE_TIMEOUT` | No | `30000` | RPC timeout in ms for OpenSession and modal-recovery calls. |
 | `BC_ISEXECUTING_POLL_INTERVAL` | No | `10000` | While a call runs, ask BC every N ms whether it is still processing. A long post or report stays alive as long as BC says yes; a hung call is killed once BC says no. |
 | `BC_INVOKE_MAX_DURATION` | No | `600000` | Hard cap in ms for one call, even while BC is still processing. |
@@ -314,6 +314,8 @@ Known wart: when the browser sign-in fails (65002, blocked consent), Entra keeps
 | `bc_upload_file` | Upload a local file into a BC file-upload dialog (e.g. Import Layout) |
 
 Every tool carries MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`), so clients can auto-approve the read-only ones and ask before writes, actions, dialogs, reports and uploads.
+
+The eight tools that change state accept an optional `operationId` (an idempotency key you generate). A retry with the same id and arguments returns the first call's stored result instead of running the change again, so retrying after a timeout or dropped connection cannot double-post. The same id with different arguments returns `OPERATION_ID_REUSED`. If the first call's outcome is unknown (timeout, session loss), the retry returns `OPERATION_IN_DOUBT`: check the record before acting under a new id. Calls are recorded in `STATE_DIR/operations/`, so this survives a server restart.
 
 ## How it works
 

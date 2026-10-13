@@ -40,6 +40,7 @@ import { LookupOperation } from './operations/lookup.js';
 import { createQueryOperation } from './operations/query.js';
 import { buildToolRegistry, type Operations } from './mcp/tool-registry.js';
 import { MCPHandler } from './mcp/handler.js';
+import { OperationLedger } from './mcp/operation-ledger.js';
 import { PROMPTS } from './mcp/prompts.js';
 // isErr no longer needed — SessionManager handles session creation errors internally
 
@@ -165,7 +166,7 @@ async function main() {
     },
   }));
 
-  const mcpHandler = new MCPHandler(lazyTools, logger, PROMPTS, { elicitationPort });
+  const mcpHandler = new MCPHandler(lazyTools, logger, PROMPTS, { elicitationPort, ledger: new OperationLedger(config.stateDir) });
 
   // Read JSON-RPC from stdin, write responses to stdout
   const rl = createInterface({ input: process.stdin, terminal: false });

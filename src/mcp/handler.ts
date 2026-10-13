@@ -4,6 +4,7 @@ import type { Logger } from '../core/logger.js';
 import { SessionLostError, BCError, UrlElicitationRequiredError, errorHint } from '../core/errors.js';
 import { applyElicitationCapabilities, type ClientElicitationPort } from './elicitation-port.js';
 import { SERVER_VERSION } from '../core/version.js';
+import { digestInput, type OperationLedger } from './operation-ledger.js';
 
 export const URL_ELICITATION_JSONRPC_CODE = -32042;
 
@@ -45,6 +46,7 @@ export function formatBcError(e: { code?: string; message: string }): string {
 export class MCPHandler {
   private initialized = false;
   private readonly elicitationPort: ClientElicitationPort | undefined;
+  private readonly ledger: OperationLedger | undefined;
 
   get isInitialized(): boolean {
     return this.initialized;
@@ -54,9 +56,10 @@ export class MCPHandler {
     private readonly tools: ToolDefinition[],
     private readonly logger: Logger,
     private readonly prompts: PromptDefinition[] = [],
-    opts?: { elicitationPort?: ClientElicitationPort },
+    opts?: { elicitationPort?: ClientElicitationPort; ledger?: OperationLedger },
   ) {
     this.elicitationPort = opts?.elicitationPort;
+    this.ledger = opts?.ledger;
   }
 
   async handleRequest(request: JsonRpcRequest): Promise<JsonRpcResponse> {
@@ -120,7 +123,7 @@ export class MCPHandler {
         tools: this.tools.map(t => ({
           name: t.name,
           description: t.description,
-          inputSchema: t.inputSchema,
+          inputSchema: this.ledger && !t.annotations.readOnlyHint ? withOperationId(t.inputSchema) : t.inputSchema,
           annotations: t.annotations,
         })),
       },
@@ -176,93 +179,153 @@ export class MCPHandler {
       return { jsonrpc: '2.0', id: request.id, error: { code: -32602, message: `Unknown tool: ${params.name}` } };
     }
 
+    const args: Record<string, unknown> = { ...((params.arguments ?? {}) as Record<string, unknown>) };
+    const gated = this.ledger !== undefined && !tool.annotations.readOnlyHint;
+    const operationId = gated ? args['operationId'] : undefined;
+    if (gated) delete args['operationId'];
+    if (operationId !== undefined && (typeof operationId !== 'string' || operationId.length === 0 || operationId.length > 200)) {
+      return toolError(request.id, 'Input validation error: operationId must be a non-empty string of at most 200 characters');
+    }
+
     // Validate input via Zod
-    const parseResult = tool.zodSchema.safeParse(params.arguments ?? {});
+    const parseResult = tool.zodSchema.safeParse(args);
     if (!parseResult.success) {
+      return toolError(request.id, `Input validation error: ${parseResult.error.message}`);
+    }
+
+    if (operationId === undefined) return (await this.runTool(tool, parseResult.data, request.id)).response;
+    return this.runIdempotent(tool, operationId, parseResult.data, request.id);
+  }
+
+  /**
+   * Replay gate (epic #17). A known operationId with the same tool and input
+   * returns the stored result without touching BC; with different input it is
+   * rejected; while its outcome is unresolved it is reported as in doubt.
+   */
+  private async runIdempotent(tool: ToolDefinition, operationId: string, input: unknown, id: unknown): Promise<JsonRpcResponse> {
+    const ledger = this.ledger!;
+    const inputDigest = digestInput(input);
+    const claim = await ledger.claim(operationId, tool.name, inputDigest);
+    if (!claim.claimed) {
+      const ex = claim.existing;
+      if (ex.tool !== tool.name || ex.inputDigest !== inputDigest) {
+        return toolError(id, formatBcError({ code: 'OPERATION_ID_REUSED', message: `operationId '${operationId}' was already used for a different ${ex.tool === tool.name ? 'input' : `tool (${ex.tool})`}.` }));
+      }
+      if (ex.status === 'completed') {
+        this.logger.info(`Replayed ${tool.name} result for operationId ${operationId}`);
+        return { jsonrpc: '2.0', id, result: ex.result };
+      }
+      const state = { code: 'OPERATION_IN_DOUBT', operationId, status: ex.status, createdAt: ex.createdAt, ...(ex.error ? { error: ex.error } : {}) };
       return {
         jsonrpc: '2.0',
-        id: request.id,
+        id,
         result: {
-          content: [{ type: 'text', text: `Input validation error: ${parseResult.error.message}` }],
+          content: [
+            { type: 'text', text: formatBcError({ code: 'OPERATION_IN_DOUBT', message: ex.status === 'sent'
+              ? `operationId '${operationId}' is still in flight, or its process died before it returned.`
+              : `operationId '${operationId}' failed in a way that may have committed server-side (${ex.error?.code ?? 'unknown error'}).` }) },
+            { type: 'text', text: JSON.stringify(state) },
+          ],
+          structuredContent: state,
           isError: true,
         },
       };
     }
 
-    // Execute the tool
+    let outcome: { response: JsonRpcResponse; failure?: { code?: string; message: string } };
     try {
-      const result = await tool.execute(parseResult.data);
+      outcome = await this.runTool(tool, input, id);
+    } catch (e) {
+      await ledger.settle(operationId, { status: 'unknown', error: { message: e instanceof Error ? e.message : String(e) } });
+      throw e;
+    }
+    const { response, failure } = outcome;
+    if (!failure) {
+      await ledger.settle(operationId, { status: 'completed', result: response.result });
+    } else if (failure.code === undefined || AMBIGUOUS_FAILURE_CODES.has(failure.code)) {
+      await ledger.settle(operationId, { status: 'unknown', error: failure });
+    } else {
+      // BC gave a definite answer (validation, business rule, sign-in...): nothing
+      // committed, so free the id for a corrected retry.
+      await ledger.release(operationId);
+    }
+    return response;
+  }
+
+  private async runTool(tool: ToolDefinition, input: unknown, id: unknown): Promise<{ response: JsonRpcResponse; failure?: { code?: string; message: string } }> {
+    try {
+      const result = await tool.execute(input);
       // Result is a Result<T, BCError>
       const r = result as { ok: boolean; value?: unknown; error?: { message: string } };
       if (r.ok) {
-        return {
-          jsonrpc: '2.0',
-          id: request.id,
-          result: {
-            content: [{ type: 'text', text: JSON.stringify(r.value, null, 2) }],
-          },
-        };
-      } else {
-        const errObj = r.error as { code?: string; message?: string } | undefined;
-        if (errObj instanceof UrlElicitationRequiredError || errObj?.code === 'URL_ELICITATION_REQUIRED') {
-          return urlElicitationResponse(request.id, errObj as UrlElicitationRequiredError);
-        }
-        const text = (errObj && typeof errObj.code === 'string')
-          ? formatBcError(errObj as { code: string; message: string })
-          : `Error: ${errObj?.message ?? 'Unknown error'}`;
-        return {
-          jsonrpc: '2.0',
-          id: request.id,
-          result: {
-            content: [{ type: 'text', text }],
-            isError: true,
-          },
-        };
+        return { response: { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(r.value, null, 2) }] } } };
       }
+      const errObj = r.error as { code?: string; message?: string } | undefined;
+      const failure = { code: errObj?.code, message: errObj?.message ?? 'Unknown error' };
+      if (errObj instanceof UrlElicitationRequiredError || errObj?.code === 'URL_ELICITATION_REQUIRED') {
+        return { response: urlElicitationResponse(id, errObj as UrlElicitationRequiredError), failure };
+      }
+      const text = (errObj && typeof errObj.code === 'string')
+        ? formatBcError(errObj as { code: string; message: string })
+        : `Error: ${failure.message}`;
+      return { response: toolError(id, text), failure };
     } catch (e) {
       if (e instanceof UrlElicitationRequiredError) {
-        return urlElicitationResponse(request.id, e);
+        return { response: urlElicitationResponse(id, e), failure: { code: e.code, message: e.message } };
       }
       // BCError subclasses (BusinessValidationError, BusinessError, SessionLostError, etc.)
       if (e instanceof BCError) {
+        const failure = { code: e.code, message: e.message };
         if (e instanceof SessionLostError) {
-          this.logger.info(`Session recovered during ${params.name}. Impacted contexts: ${e.impactedPageContextIds.join(', ') || 'none'}`);
+          this.logger.info(`Session recovered during ${tool.name}. Impacted contexts: ${e.impactedPageContextIds.join(', ') || 'none'}`);
           // Recovery state as data, not just prose, so an agent can tell which
           // pageContextIds died and whether the reconnect itself failed.
           const state = { code: e.code, impactedPageContextIds: e.impactedPageContextIds, reconnectFailed: e.reconnectFailed };
           return {
-            jsonrpc: '2.0',
-            id: request.id,
-            result: {
-              content: [{ type: 'text', text: formatBcError(e) }, { type: 'text', text: JSON.stringify(state) }],
-              structuredContent: state,
-              isError: true,
+            response: {
+              jsonrpc: '2.0',
+              id,
+              result: {
+                content: [{ type: 'text', text: formatBcError(e) }, { type: 'text', text: JSON.stringify(state) }],
+                structuredContent: state,
+                isError: true,
+              },
             },
+            failure,
           };
-        } else {
-          this.logger.error(`Tool ${params.name} threw BCError [${e.code}]: ${e.message}`);
         }
-        return {
-          jsonrpc: '2.0',
-          id: request.id,
-          result: {
-            content: [{ type: 'text', text: formatBcError(e) }],
-            isError: true,
-          },
-        };
+        this.logger.error(`Tool ${tool.name} threw BCError [${e.code}]: ${e.message}`);
+        return { response: toolError(id, formatBcError(e)), failure };
       }
 
-      this.logger.error(`Tool ${params.name} failed: ${e instanceof Error ? e.message : String(e)}`);
-      return {
-        jsonrpc: '2.0',
-        id: request.id,
-        result: {
-          content: [{ type: 'text', text: `Tool error: ${e instanceof Error ? e.message : String(e)}` }],
-          isError: true,
-        },
-      };
+      const message = e instanceof Error ? e.message : String(e);
+      this.logger.error(`Tool ${tool.name} failed: ${message}`);
+      return { response: toolError(id, `Tool error: ${message}`), failure: { message } };
     }
   }
+}
+
+/** Failures after which the mutation may or may not have reached BC. */
+const AMBIGUOUS_FAILURE_CODES = new Set(['TIMEOUT_ERROR', 'SESSION_LOST', 'CONNECTION_ERROR', 'PROTOCOL_ERROR', 'ABORTED_ERROR']);
+
+const OPERATION_ID_SCHEMA = {
+  type: 'string',
+  minLength: 1,
+  maxLength: 200,
+  description: 'Optional idempotency key (e.g. a UUID you generate). Retrying with the same operationId and the same '
+    + 'arguments returns the first call\'s stored result instead of running the change again, so a retry after a '
+    + 'dropped connection or timeout cannot double-post. Reusing it with different arguments is rejected '
+    + '(OPERATION_ID_REUSED). If the first call\'s outcome is unknown, the retry returns OPERATION_IN_DOUBT: '
+    + 'check the record\'s state before acting again under a new operationId.',
+};
+
+function withOperationId(schema: Record<string, unknown>): Record<string, unknown> {
+  const properties = (schema['properties'] ?? {}) as Record<string, unknown>;
+  return { ...schema, properties: { ...properties, operationId: OPERATION_ID_SCHEMA } };
+}
+
+function toolError(id: unknown, text: string): JsonRpcResponse {
+  return { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text }], isError: true } };
 }
 
 function urlElicitationResponse(id: unknown, e: UrlElicitationRequiredError): JsonRpcResponse {

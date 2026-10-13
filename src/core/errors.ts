@@ -278,6 +278,8 @@ const ERROR_HINTS: Record<string, string> = {
   SESSION_LOST: 'The session was reconnected. Re-open any pages with bc_open_page, then retry.',
   MODAL_RECONCILE_ERROR: 'A stuck modal was cleared by resetting the session. Re-open the page and retry.',
   TIMEOUT_ERROR: 'BC did not respond in time. Retry; if it persists the operation may be too heavy.',
+  OPERATION_ID_REUSED: 'Generate a new operationId for a call with different arguments.',
+  OPERATION_IN_DOUBT: 'Read the affected page/record to see whether the change landed, then act under a new operationId.',
   CARDPART_STUB: 'This page is a CardPart stub when opened standalone. See the hostHint in this error and open that host page instead.',
   STALE_CONTEXT: 'The page changed since you last read it (stateVersion mismatch). Re-read with bc_read_data to get the current stateVersion, then retry.',
   INVALID_BOOKMARK: 'The anchor bookmark is no longer loaded in BC. Re-read the section with bc_read_data and retry with a current bookmark.',

@@ -39,6 +39,7 @@ import { LookupOperation } from './operations/lookup.js';
 import { createQueryOperation } from './operations/query.js';
 import { buildToolRegistry, type Operations } from './mcp/tool-registry.js';
 import { MCPHandler } from './mcp/handler.js';
+import { OperationLedger } from './mcp/operation-ledger.js';
 import { PROMPTS } from './mcp/prompts.js';
 import { createApiRoutes } from './api/routes.js';
 import { parseJsonBody, checkApiToken, bcErrorToHttp } from './api/middleware.js';
@@ -181,7 +182,7 @@ async function main() {
       return resolved.execute(input);
     },
   }));
-  const mcpHandler = new MCPHandler(lazyTools, logger, PROMPTS, { elicitationPort });
+  const mcpHandler = new MCPHandler(lazyTools, logger, PROMPTS, { elicitationPort, ledger: new OperationLedger(config.stateDir) });
 
   // HTTP Server
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {

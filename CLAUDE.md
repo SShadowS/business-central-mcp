@@ -323,6 +323,10 @@ After a session-killing error, BC holds the NTLM slot for ~15 seconds. The Sessi
 
 Each verdict has its own error message; wedged/ceiling warn that the operation may have committed server-side. Verified live (Gate A on BC28.0, and `tests/integration/isexecuting-liveness.test.ts` on BC29): in-flight probes answer in ms, idle answers `false`, no sequence corruption. Design: `docs/superpowers/specs/2026-07-24-long-running-ops-design.md`.
 
+### Replay Gate (`operationId`, epic #17)
+
+`MCPHandler` gates every tool with `readOnlyHint: false`: it advertises an optional `operationId` in tools/list, strips it before zod validation, and records the call in `OperationLedger` (`src/mcp/operation-ledger.ts`, one file per sha256(id) under `{STATE_DIR}/operations/`, claimed atomically with `wx`). Same id + same input digest -> stored result replayed, BC untouched; different input -> `OPERATION_ID_REUSED`; status `sent`/`unknown` -> `OPERATION_IN_DOUBT` with structured state. Ambiguous failures (`TIMEOUT_ERROR`, `SESSION_LOST`, `CONNECTION_ERROR`, `PROTOCOL_ERROR`, `ABORTED_ERROR`, untyped throws) settle as `unknown`; definite BC answers release the id. The REST API (`src/api/`) is not gated. Read-back descriptor (#23), replaySafe (#24) and bc_get_operation (#25) are still open.
+
 ### File Download Capture — IMPLEMENTED
 
 Downloads are captured generically on `bc_execute_action`, `bc_respond_dialog`, `bc_wizard_navigate`, and `bc_run_report` via a shared `DownloadService` (`src/services/download-service.ts`), which uses the same-origin `collectDownloads` guard (`src/protocol/download-collector.ts`) and the streaming `BCHttpClient` (`src/connection/bc-http.ts`). All four tools return a `downloads: Download[]` field (always present, may be empty) where `Download = { fileName, contentType, sizeBytes, style, bytes? (base64), savedPath?, error? {code, message} }`, plus `externalUris: Array<{uri, style}>`. `bc_run_report`'s old singular `download` field is replaced by `downloads[]`.
