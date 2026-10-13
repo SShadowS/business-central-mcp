@@ -15,9 +15,9 @@ import { PageService } from '../../src/services/page-service.js';
 import { DataService } from '../../src/services/data-service.js';
 import { ActionService } from '../../src/services/action-service.js';
 import { RespondDialogOperation } from '../../src/operations/respond-dialog.js';
-import type { PageContext } from '../../src/protocol/page-context.js';
-import type { BCEvent, ControlField, SaveValueInteraction } from '../../src/protocol/types.js';
-import { detectDialogs, detectChangedSections } from '../../src/protocol/mutation-result.js';
+import type { BCEvent, ControlField, FormCreatedEvent, SaveValueInteraction } from '../../src/protocol/types.js';
+import { detectDialogs } from '../../src/protocol/mutation-result.js';
+import { actions as treeActions } from '../../src/protocol/form-views.js';
 import { isOk, isErr, unwrap } from '../../src/core/result.js';
 import { integrationPool, type PooledLease } from './helpers/session-pool.js';
 import { stubDownloadService } from './helpers/download-service.js';
@@ -118,7 +118,7 @@ function createTestHarness() {
     const listPc = unwrap(await pageService.openPage('42')).pageContextId;
     openedPages.push(listPc);
     const created = unwrap(await actionService.executeAction(listPc, 'New')).events
-      .find(e => e.type === 'FormCreated' && !e.parentFormId && e.formId !== repo.get(listPc)!.rootFormId);
+      .find((e): e is FormCreatedEvent => e.type === 'FormCreated' && !e.parentFormId && e.formId !== repo.get(listPc)!.rootFormId);
     const pcId = created ? repo.getByFormId(created.formId)?.pageContextId : undefined;
     if (!pcId) throw new Error('New opened no new order form; refusing to continue');
     openedPages.push(pcId);
@@ -223,30 +223,16 @@ describe.sequential('Destructive: Post Sales Order end-to-end', () => {
     expect(headerForm).toBeDefined();
     if (!headerForm) return;
 
-    const actions = headerForm.actions.filter(a => a.visible && a.enabled);
-    const postActions = actions.filter(a =>
-      a.caption.toLowerCase().includes('post'),
-    );
+    // Exactly "Post..." ("P&ost..." with the accelerator marker), not "Post and Send..." etc.
+    const postCaption = treeActions(headerForm.root)
+      .filter(a => a.properties.visible !== false && a.properties.enabled !== false)
+      .map(a => a.properties.caption ?? '')
+      .find(c => /^P&?ost\.\.\.$/.test(c));
+    expect(postCaption).toBeDefined();
+    if (!postCaption) return;
 
-    console.error(`[Post] Post-related actions: ${postActions.map(a => `"${a.caption}"`).join(', ') || 'NONE'}`);
-
-    // Look for "Post..." or "P&ost..." (ampersand is the accelerator key marker)
-    const postAction = postActions.find(a =>
-      a.caption === 'Post...' || a.caption === 'P&ost...' || a.caption.startsWith('Post')
-    );
-
-    if (!postAction) {
-      // Log all available actions for debugging
-      console.error('[Post] All available actions:');
-      for (const a of actions.slice(0, 40)) {
-        console.error(`[Post]   "${a.caption}" (systemAction=${a.systemAction}, path=${a.controlPath})`);
-      }
-      console.error('[Post] SKIP: No Post action found');
-      return;
-    }
-
-    console.error(`[Post] Executing action: "${postAction.caption}"...`);
-    const postResult = await h.actionService.executeAction(orderPageContextId, postAction.caption);
+    console.error(`[Post] Executing action: "${postCaption}"...`);
+    const postResult = await h.actionService.executeAction(orderPageContextId, postCaption);
 
     if (isErr(postResult)) {
       console.error(`[Post] Post action failed: ${postResult.error.message}`);
