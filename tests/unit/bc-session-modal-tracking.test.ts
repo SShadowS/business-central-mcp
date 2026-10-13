@@ -1,6 +1,6 @@
 // tests/unit/bc-session-modal-tracking.test.ts
 import { describe, it, expect, vi } from 'vitest';
-import type { BCEvent } from '../../src/protocol/types.js';
+import { SystemAction, type BCEvent } from '../../src/protocol/types.js';
 import { BCSession } from '../../src/session/bc-session.js';
 import { ok } from '../../src/core/result.js';
 import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
@@ -254,6 +254,89 @@ describe('BCSession.reconcileModalStack', () => {
     const result = await s.reconcile();
     expect(result.ok).toBe(true);
     expect(s.stack()).toEqual([]);
+  });
+
+  describe('request page with validation errors (discard-changes confirm)', () => {
+    const errorsOn = (formId: string, results: unknown[], refFormId = formId): BCEvent =>
+      ({ type: 'PropertyChanged', formId, refFormId, controlPath: 'server:', changes: { ValidationResults: results } } as BCEvent);
+    const ERROR = { Severity: 'Error', Description: 'out of range' };
+
+    /** Scripted BC: each call gets the next step's events (fed through tracking, like invokeUnqueued). */
+    function script(s: ReconcileProbe, steps: Array<(i: any) => BCEvent[]>) {
+      let n = 0;
+      (s as any).invokeUnqueued = vi.fn(async (interaction: any) => {
+        const step = steps[n++];
+        if (!step) throw new Error(`unexpected call ${n}: ${JSON.stringify(interaction)}`);
+        return ok((s as any).updateFormTracking(step(interaction)));
+      });
+      return () => (s as any).invokeUnqueued.mock.calls.map((c: any[]) => c[0]);
+    }
+
+    it('answers the first confirm the close raises with Yes, closing both', async () => {
+      const s = new ReconcileProbe();
+      const reported: BCEvent[] = [];
+      s.onReconciledClose = (ev: BCEvent[]) => reported.push(...ev);
+      s.feed([{ type: 'DialogOpened', formId: 'RP', controlTree: { MappingHint: 'RequestPage' } }, errorsOn('RP', [ERROR])]);
+      const calls = script(s, [
+        () => [{ type: 'DialogOpened', formId: 'C1', controlTree: CONFIRM }],
+        () => [closed('C1'), closed('RP')],
+      ]);
+      const result = await s.reconcile();
+      expect(result.ok).toBe(true);
+      expect(s.stack()).toEqual([]);
+      expect(calls()).toEqual([
+        { type: 'CloseForm', formId: 'RP' },
+        { type: 'InvokeAction', formId: 'C1', controlPath: 'server:', systemAction: SystemAction.Yes },
+      ]);
+      expect(reported).toEqual([{ type: 'FormClosed', formId: 'C1' }, { type: 'FormClosed', formId: 'RP' }]);
+    });
+
+    it('answers Yes once per form: a later confirm on the same close is closed as No', async () => {
+      const s = new ReconcileProbe();
+      s.feed([{ type: 'DialogOpened', formId: 'RP', controlTree: { MappingHint: 'RequestPage' } }, errorsOn('RP', [ERROR])]);
+      const calls = script(s, [
+        () => [{ type: 'DialogOpened', formId: 'C1', controlTree: CONFIRM }],
+        () => [closed('C1')], // close prevented afterwards (e.g. AL OnQueryClosePage)
+        () => [{ type: 'DialogOpened', formId: 'C2', controlTree: CONFIRM }],
+        () => [closed('C2')],
+        () => [closed('RP')],
+      ]);
+      const result = await s.reconcile();
+      expect(result.ok).toBe(true);
+      expect(calls().map((c: any) => `${c.type}:${c.formId}`)).toEqual([
+        'CloseForm:RP', 'InvokeAction:C1', 'CloseForm:RP', 'CloseForm:C2', 'CloseForm:RP',
+      ]);
+    });
+
+    it.each([
+      ['no errors were reported', [] as BCEvent[]],
+      ['the errors were cleared', [errorsOn('RP', [ERROR]), errorsOn('RP', [])]],
+      ['only a warning was reported', [errorsOn('RP', [{ Severity: 'Warning' }])]],
+      ["the errors belong to a hosted part's form", [errorsOn('RP', [ERROR], 'PART')]],
+    ])('closes the confirm as No when %s', async (_label, validation) => {
+      const s = new ReconcileProbe();
+      s.feed([{ type: 'DialogOpened', formId: 'RP', controlTree: { MappingHint: 'RequestPage' } }, ...validation]);
+      const calls = script(s, [
+        () => [{ type: 'DialogOpened', formId: 'C1', controlTree: CONFIRM }],
+        () => [closed('C1')],
+        () => [closed('RP')],
+      ]);
+      const result = await s.reconcile();
+      expect(result.ok).toBe(true);
+      expect(calls().every((c: any) => c.type === 'CloseForm')).toBe(true);
+    });
+
+    it('does not answer Yes for a form that is not a request page', async () => {
+      const s = new ReconcileProbe();
+      s.feed([{ type: 'DialogOpened', formId: 'M1', controlTree: CONFIRM }, errorsOn('M1', [ERROR])]);
+      const calls = script(s, [
+        () => [{ type: 'DialogOpened', formId: 'C1', controlTree: CONFIRM }],
+        () => [closed('C1')],
+        () => [closed('M1')],
+      ]);
+      expect((await s.reconcile()).ok).toBe(true);
+      expect(calls().every((c: any) => c.type === 'CloseForm')).toBe(true);
+    });
   });
 
   it('returns ok with empty stack', async () => {

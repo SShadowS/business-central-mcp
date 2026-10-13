@@ -2,7 +2,7 @@ import { v4 as uuid } from 'uuid';
 import { ok, err, isOk, isErr, type Result } from '../core/result.js';
 import { ProtocolError, TimeoutError, ModalReconcileError } from '../core/errors.js';
 import type { BCWebSocket } from '../connection/bc-websocket.js';
-import type { BCEvent, BCInteraction, EventPredicate } from '../protocol/types.js';
+import { SystemAction, type BCEvent, type BCInteraction, type EventPredicate, type PropertyChangedEvent } from '../protocol/types.js';
 import { EventDecoder } from '../protocol/event-decoder.js';
 import { InteractionEncoder, type EncodeContext } from '../protocol/interaction-encoder.js';
 import { decompressPayload } from '../protocol/decompression.js';
@@ -14,6 +14,7 @@ import { resolveFormatLabel } from './report-format-resolver.js';
 import { buildFormTree } from '../protocol/form-tree-builder.js';
 import { walkTree } from '../protocol/form-tree-walk.js';
 import { isFormClosedChange } from '../protocol/replay-safety.js';
+import { isHostedPartChange } from '../protocol/form-state.js';
 import { watchLiveness, parseIsExecutingAnswer, type LivenessVerdict, type ProbeAnswer } from './isexecuting-poller.js';
 
 const DEFAULT_TIMEOUT_MS = 30000;
@@ -30,6 +31,20 @@ const RPC_GRACE_MS = 5000;
 // CreateMessageDialogCore). NavRequestPage closes with CancelClose and turns a
 // null result into Cancel (NavRequestPage.OnFormClosing).
 const SAFE_RECONCILE_HINTS: ReadonlySet<string> = new Set(['ConfirmDialog', 'InfoDialog', 'ErrorDialog', 'RequestPage']);
+
+/**
+ * A form's own validation state: BC observes the form's validation holder like
+ * any control's (LogicalControlObserver.OnValidationResultsChanged) and sends
+ * `ValidationResults` on its `server:` path, aggregated over its fields; an
+ * empty array clears it (live cronus29, report 6 request page). Returns
+ * undefined when the event says nothing about the form's errors.
+ */
+function formHasErrors(event: PropertyChangedEvent): boolean | undefined {
+  if (event.controlPath !== 'server:' || isHostedPartChange(event)) return undefined;
+  const results = event.changes['ValidationResults'];
+  if (results === undefined) return undefined;
+  return Array.isArray(results) && results.some(r => (r as { Severity?: unknown } | null)?.Severity === 'Error');
+}
 
 export interface InvokeLiveness {
   /** Silence tolerated before probing IsExecuting (BC_ISEXECUTING_POLL_INTERVAL). */
@@ -53,6 +68,8 @@ export class BCSession {
   private queue: Promise<void> = Promise.resolve();
   private readonly _openFormIds = new Set<string>();
   private readonly modalStack = new ModalStack();
+  /** Open forms whose own ValidationResults hold an error (`formHasErrors`). */
+  private readonly formsWithErrors = new Set<string>();
   private dead = false;
   /**
    * Receives the FormClosed of each dialog a modal reconcile aborts. Set by
@@ -209,6 +226,7 @@ export class BCSession {
     // recording the forms the OpenSession response opened (e.g. the Role Center).
     this._openFormIds.clear();
     this.modalStack.clear();
+    this.formsWithErrors.clear();
     return ok(this.updateFormTracking(openResult.value));
   }
 
@@ -525,6 +543,11 @@ export class BCSession {
         const hint = tree?.['MappingHint'] ?? tree?.['mappingHint'];
         this.modalStack.push(event.formId, typeof hint === 'string' ? hint : undefined);
       }
+      if (event.type === 'PropertyChanged') {
+        const hasErrors = formHasErrors(event);
+        if (hasErrors === true) this.formsWithErrors.add(event.formId);
+        else if (hasErrors === false) this.formsWithErrors.delete(event.formId);
+      }
       if (isFormClosedChange(event) && this._openFormIds.has(event.formId)) {
         this.removeOpenForm(event.formId);
         out.push({ type: 'FormClosed', formId: event.formId });
@@ -540,6 +563,7 @@ export class BCSession {
   removeOpenForm(formId: string): void {
     this._openFormIds.delete(formId);
     this.modalStack.remove(formId);
+    this.formsWithErrors.delete(formId);
   }
 
   /** Test seam: snapshot of the current modal stack (top-most last). */
@@ -572,6 +596,10 @@ export class BCSession {
    * and is dropped locally; a close that reports nothing is an error (the
    * dialog is still open, retrying the original interaction cannot succeed).
    *
+   * One Yes: a request page with validation errors answers its close with a
+   * discard-changes confirm, which reconcile answers Yes once (see the loop), so
+   * the page closes as Cancel instead of the reconcile running out of attempts.
+   *
    * Only dialogs whose close is proven to read as a refusal are closed
    * (`SAFE_RECONCILE_HINTS`). Any other modal (an AL `Page.RunModal` page, a
    * lookup, a StrMenu) fails the reconcile, so the caller resets the session
@@ -596,12 +624,16 @@ export class BCSession {
    */
   async reconcileModalStack(): Promise<Result<void, ProtocolError>> {
     const MAX_ATTEMPTS = 10;
+    const discardAnswered = new Set<string>();
     for (let i = 0; i < MAX_ATTEMPTS && this.modalStack.size > 0; i++) {
       const top = this.modalStack.peek()!;
       const hint = this.modalStack.mappingHintOf(top);
       if (!hint || !SAFE_RECONCILE_HINTS.has(hint)) {
         return err(new ProtocolError(`reconcileModalStack: formId=${top} (MappingHint=${hint ?? 'none'}) is not a dialog whose close is a refusal; closing it could accept it`));
       }
+      // A request page with errors asks Message_DiscardChanges before it closes,
+      // and that confirm read as No cancels the close (see below).
+      const expectDiscard = hint === 'RequestPage' && this.formsWithErrors.has(top) && !discardAnswered.has(top);
       const result = await this.invokeUnqueued(
         { type: 'CloseForm', formId: top },
         (event) => event.type === 'InvokeCompleted',
@@ -619,6 +651,29 @@ export class BCSession {
       if (closed.length > 0) this.onReconciledClose?.(closed);
       if (this.modalStack.peek() === top) {
         return err(new ProtocolError(`reconcileModalStack: CloseForm on formId=${top} completed but BC did not report the dialog closed (no State=0)`));
+      }
+      const spawned = this.modalStack.peek();
+      if (expectDiscard && spawned !== undefined && this.modalStack.snapshot().includes(top)
+        && this.modalStack.mappingHintOf(spawned) === 'ConfirmDialog') {
+        // The first confirm a close raises on a form with errors is
+        // Message_DiscardChanges: LogicalFormClosingHandler.HandleFormClosingWhenErrors
+        // runs in the FormClosing phase, before NavFormCloseHandler.ExecuteCloseCore
+        // calls into AL (OnQueryClosePage). Yes = LogicalForm.Cancel() (abort the
+        // edit) + RequestForceClose, and NavRequestPage.OnFormClosing then sets
+        // DialogResult Cancel, so the report never runs -- the same outcome as a
+        // close without errors. Answered once per form: a later confirm on the same
+        // form could be AL's, and is closed as No like any other.
+        discardAnswered.add(top);
+        const yes = await this.invokeUnqueued(
+          { type: 'InvokeAction', formId: spawned, controlPath: 'server:', systemAction: SystemAction.Yes },
+          (event) => event.type === 'InvokeCompleted',
+          this.timeoutMs,
+        );
+        if (isErr(yes)) {
+          return err(new ProtocolError(`reconcileModalStack: Yes on discard confirm formId=${spawned} failed: ${yes.error.message}`));
+        }
+        const closedByYes = yes.value.filter(e => e.type === 'FormClosed');
+        if (closedByYes.length > 0) this.onReconciledClose?.(closedByYes);
       }
     }
     if (this.modalStack.size > 0) {

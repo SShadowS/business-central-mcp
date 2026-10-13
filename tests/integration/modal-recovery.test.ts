@@ -58,6 +58,9 @@ async function requestPageWithError(session: BCSession): Promise<DialogOpenedEve
   const hasError = saved.some(e => e.type === 'PropertyChanged'
     && Array.isArray(e.changes['ValidationResults']) && (e.changes['ValidationResults'] as unknown[]).length > 0);
   expect(hasError, 'Expected a validation error on the request page').toBe(true);
+  // The form's own ValidationResults (server:) carry the error, which is what
+  // reconcileModalStack keys the discard confirm on.
+  expect((session as unknown as { formsWithErrors: Set<string> }).formsWithErrors.has(requestPage.formId)).toBe(true);
   return requestPage;
 }
 
@@ -144,40 +147,49 @@ describe('Modal stack reconciliation (integration)', () => {
     expect(session.modalStackSnapshot()).toEqual([]);
   }, 90_000);
 
-  it('reconcileModalStack closes every confirm as No, so a request page with errors never closes (fails safe)', async () => {
+  it('reconcileModalStack closes a request page with errors: the discard confirm its close raises is answered Yes', async () => {
     const reconciled: BCEvent[] = [];
     session.onReconciledClose = (ev) => reconciled.push(...ev);
     const requestPage = await requestPageWithError(session);
-    const confirm = await openDiscardConfirm(session, requestPage);
-    expect(mappingHint(confirm)).toBe('ConfirmDialog');
+    // A stale confirm on top (the Refresh's own discard question), as a caller
+    // that dropped a dialog would leave it.
+    const refreshConfirm = await openDiscardConfirm(session, requestPage);
+    expect(mappingHint(refreshConfirm)).toBe('ConfirmDialog');
 
-    // Closing a top-level form with errors asks Message_DiscardChanges
-    // (decompiled LogicalFormClosingHandler.HandleFormClosingWhenErrors, skipped
-    // only for FormClose.ForceClose); a closed confirm is not Yes, so the close
-    // is cancelled. Reconcile alternates CloseForm(confirm) / CloseForm(request
-    // page -> new confirm) until it gives up, and the caller resets the session.
+    // 1. CloseForm(refresh confirm) -> No, the refresh is abandoned.
+    // 2. CloseForm(request page) -> Message_DiscardChanges (decompiled
+    //    LogicalFormClosingHandler.HandleFormClosingWhenErrors, FormClosing phase,
+    //    before any AL); read as No it would cancel the close.
+    // 3. Yes on it -> Cancel() + RequestForceClose; NavRequestPage closes with
+    //    DialogResult Cancel, so the report does not run. Both forms report State=0.
     const reconcile = await session.reconcileModalStack();
-    expect(isOk(reconcile)).toBe(false);
-    if (!isOk(reconcile)) expect(reconcile.error.message).toContain('still has 2 entries');
-    expect(reconciled.length).toBe(5);
-    expect(reconciled[0]).toEqual({ type: 'FormClosed', formId: confirm!.formId });
-    expect(reconciled.every(e => e.type === 'FormClosed' && e.formId !== requestPage.formId)).toBe(true);
-    const stack = session.modalStackSnapshot();
-    expect(stack[0]).toBe(requestPage.formId);
+    expect(isOk(reconcile), isOk(reconcile) ? '' : reconcile.error.message).toBe(true);
+    expect(session.modalStackSnapshot()).toEqual([]);
+    expect(reconciled[0]).toEqual({ type: 'FormClosed', formId: refreshConfirm!.formId });
+    expect(reconciled).toHaveLength(3);
+    expect(reconciled[2]).toEqual({ type: 'FormClosed', formId: requestPage.formId });
+    expect(session.openFormIds.has(requestPage.formId)).toBe(false);
     expect(session.isAlive).toBe(true);
 
-    // Cleanup: Yes on the closing confirm cancels the request page in memory and
-    // force-closes it (NavRequestPage.OnFormClosing -> DialogResult Cancel).
-    unwrap(await session.invoke(
-      { type: 'InvokeAction', formId: stack[1]!, controlPath: 'server:', systemAction: SystemAction.Yes },
-      (e) => e.type === 'InvokeCompleted',
-    ));
-    expect(session.modalStackSnapshot()).toEqual([]);
+    // BC really closed it: a non-modal OpenForm no longer violates modality.
     const list = await session.invoke(
       { type: 'OpenForm', query: 'page=22&tenant=default', controlPath: 'server:c[0]' },
       (e) => e.type === 'InvokeCompleted',
     );
     expect(isOk(list)).toBe(true);
+  }, 90_000);
+
+  it('a LogicalModalityViolation behind a request page with errors recovers and retries', async () => {
+    const requestPage = await requestPageWithError(session);
+    const list = await session.invoke(
+      { type: 'OpenForm', query: 'page=22&tenant=default', controlPath: 'server:c[0]' },
+      (e) => e.type === 'InvokeCompleted',
+    );
+    expect(isOk(list), isOk(list) ? '' : list.error.message).toBe(true);
+    expect(unwrap(list).some(e => e.type === 'FormCreated')).toBe(true);
+    expect(session.openFormIds.has(requestPage.formId)).toBe(false);
+    expect(session.modalStackSnapshot()).toEqual([]);
+    expect(session.isAlive).toBe(true);
   }, 90_000);
 
   it('the re-ask is the No signal: Yes on the same confirm clears the error and Refresh asks nothing', async () => {
@@ -190,6 +202,10 @@ describe('Modal stack reconciliation (integration)', () => {
       (e) => e.type === 'InvokeCompleted',
     ));
     expect(session.modalStackSnapshot()).toEqual([requestPage.formId]);
+    // The refill clears the form's ValidationResults on server:, so reconcile no
+    // longer expects a discard confirm on this page (a stale flag would make it
+    // answer Yes to whatever confirm a close raised).
+    expect((session as unknown as { formsWithErrors: Set<string> }).formsWithErrors.has(requestPage.formId)).toBe(false);
     expect(await openDiscardConfirm(session, requestPage)).toBeUndefined();
     unwrap(await session.invoke({ type: 'CloseForm', formId: requestPage.formId }, (e) => e.type === 'InvokeCompleted'));
     expect(session.modalStackSnapshot()).toEqual([]);
