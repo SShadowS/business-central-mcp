@@ -16,7 +16,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { integrationPool, type PooledLease } from './helpers/session-pool.js';
 import type { BCSession } from '../../src/session/bc-session.js';
 import { isOk, unwrap } from '../../src/core/result.js';
-import type { BCEvent, DialogOpenedEvent } from '../../src/protocol/types.js';
+import { SystemAction, type BCEvent, type DialogOpenedEvent } from '../../src/protocol/types.js';
+import { formClosed } from '../../src/protocol/replay-safety.js';
 
 async function openRequestPage(session: BCSession): Promise<DialogOpenedEvent> {
   const events = unwrap(await session.invoke(
@@ -48,6 +49,20 @@ describe('Modal stack reconciliation (integration)', () => {
     expect(session.openFormIds.has(dialog.formId)).toBe(true);
     // reconcileModalStack only closes dialogs on its safe-hint list.
     expect((dialog.controlTree as Record<string, unknown>)['MappingHint']).toBe('RequestPage');
+    unwrap(await session.invoke({ type: 'CloseForm', formId: dialog.formId }, (e) => e.type === 'InvokeCompleted'));
+    expect(session.modalStackSnapshot()).toEqual([]);
+  }, 60_000);
+
+  it('Abort on a dialog without an Abort action is ignored: no close, nothing opened (#38)', async () => {
+    const dialog = await openRequestPage(session);
+    const events = unwrap(await session.invoke(
+      { type: 'InvokeAction', formId: dialog.formId, controlPath: 'server:c[0]', systemAction: SystemAction.Abort },
+      (e) => e.type === 'InvokeCompleted',
+    ));
+    // The exact signal bc_respond_dialog turns into an error.
+    expect(formClosed(events, dialog.formId)).toBe(false);
+    expect(events.some(e => e.type === 'DialogOpened' || e.type === 'FormCreated')).toBe(false);
+    expect(session.modalStackSnapshot()).toEqual([dialog.formId]);
     unwrap(await session.invoke({ type: 'CloseForm', formId: dialog.formId }, (e) => e.type === 'InvokeCompleted'));
     expect(session.modalStackSnapshot()).toEqual([]);
   }, 60_000);

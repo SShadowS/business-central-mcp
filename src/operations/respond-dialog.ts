@@ -1,5 +1,5 @@
 import { ok, err, isOk, type Result } from '../core/result.js';
-import { ProtocolError, type BCError } from '../core/errors.js';
+import { ProtocolError, InputValidationError, type BCError } from '../core/errors.js';
 import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import { SystemAction } from '../protocol/types.js';
@@ -98,6 +98,16 @@ export class RespondDialogOperation {
 
     const bizErr = classifyBusinessError(events);
     if (bizErr !== null) return err(bizErr);
+
+    // BC runs Abort only on a dialog that has an Abort action (InvokeActionInteraction: session,
+    // context or form action); confirms, messages and request pages have none (LogicalDialog.AddActions),
+    // so BC answers InvokeCompleted and the dialog stays open (live cronus29, report 6 request page).
+    // The dialog's tree cannot decide this up front: context actions such as a request page's OK are
+    // not serialized as controls. Nothing ran, so this is a definite failure (#38).
+    if (systemAction === SystemAction.Abort && !formClosed(events, input.dialogFormId)
+      && !events.some(e => e.type === 'DialogOpened' || e.type === 'FormCreated')) {
+      return err(new InputValidationError([{ path: 'response', message: `BC ignored 'abort': dialog ${input.dialogFormId} has no Abort action and is still open. Answer it with ok, cancel, yes, no or close.` }]));
+    }
 
     const updatedCtx = this.repo.get(input.pageContextId);
     const changedSections = updatedCtx ? detectChangedSections(updatedCtx, events) : [];

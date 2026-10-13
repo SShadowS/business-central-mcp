@@ -224,3 +224,23 @@ describe('RespondDialogOperation — output shape', () => {
     }
   });
 });
+
+describe('RespondDialogOperation — "abort" BC ignored (#38)', () => {
+  const run = (events: BCEvent[]) => new RespondDialogOperation(
+    makeSession({ invoke: vi.fn(async () => ok(events)) }), makeRepo(), makeDownloadService(),
+  ).execute({ pageContextId: 'pc:dialog:1', dialogFormId: 'dlg-x', response: 'abort' });
+
+  it('fails definitely when BC answers Abort without closing the dialog (no Abort action)', async () => {
+    const result = await run([{ type: 'InvokeCompleted' } as BCEvent]);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('INPUT_VALIDATION_ERROR'); // not ambiguous: the replay gate releases the id
+      expect(result.error.message).toContain('still open');
+    }
+  });
+
+  it('succeeds when the dialog closed (State=0)', async () => {
+    const result = await run([{ type: 'PropertyChanged', formId: 'dlg-x', controlPath: 'server:', changes: { State: 0 } } as BCEvent]);
+    expect(result.ok && result.value.replaySafe).toBe(true);
+  });
+});
