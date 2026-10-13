@@ -14,7 +14,7 @@ Do NOT use this for non-wizard pages -- use bc_execute_action instead. Do NOT ca
 
 Example: { "pageContextId": "abc", "action": "next" }
 
-If the action produces a file (Open in Excel, Print, export), its bytes appear in \`downloads[]\`; links BC would open externally appear in \`externalUris[]\` and are never fetched by the server.`,
+If the action produces a file (Open in Excel, Print, export), its bytes appear in \`downloads[]\` (an operationId replay returns the metadata with error code NOT_REPLAYED instead of the bytes); links BC would open externally appear in \`externalUris[]\` and are never fetched by the server.`,
     inputSchema: toMcpJsonSchema(WizardNavigateSchema),
     zodSchema: WizardNavigateSchema,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },

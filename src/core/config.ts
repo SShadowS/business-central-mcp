@@ -115,6 +115,18 @@ export function loadConfig(): AppConfig {
     throw new Error(`BC_ISEXECUTING_POLL_INTERVAL (${isExecutingPollIntervalMs}) must be > 0 and below BC_INVOKE_MAX_DURATION (${invokeMaxDurationMs})`);
   }
 
+  // prune() deletes `sent` entries older than the in-doubt TTL. A `sent` entry
+  // can be a live call (one tool call may span several invokes, each up to
+  // BC_INVOKE_MAX_DURATION); deleting it lets a same-id retry re-run the
+  // mutation and makes the original call's settle() fail. Floor it well clear.
+  const completedTtlMs = optionalEnvInt('BC_OPERATION_TTL', 86_400_000);
+  const inDoubtTtlMs = optionalEnvInt('BC_OPERATION_INDOUBT_TTL', 2_592_000_000);
+  const minInDoubtTtlMs = Math.max(86_400_000, 2 * invokeMaxDurationMs);
+  if (completedTtlMs <= 0) throw new Error(`BC_OPERATION_TTL (${completedTtlMs}) must be > 0`);
+  if (inDoubtTtlMs < minInDoubtTtlMs) {
+    throw new Error(`BC_OPERATION_INDOUBT_TTL (${inDoubtTtlMs}) must be at least ${minInDoubtTtlMs} (24h, and 2x BC_INVOKE_MAX_DURATION): a younger sent entry may be an in-flight call`);
+  }
+
   const rawBaseUrl = requireEnv('BC_BASE_URL').replace(/\/+$/, '');
   const saas = parseSaasUrl(rawBaseUrl);
   const resolved = resolveAuth(saas);
@@ -166,8 +178,8 @@ export function loadConfig(): AppConfig {
     // two repos never share a login. Sessions in the same repo share the file.
     stateDir: resolve(optionalEnv('STATE_DIR', '.state')),
     operationRetention: {
-      completedTtlMs: optionalEnvInt('BC_OPERATION_TTL', 86_400_000),
-      inDoubtTtlMs: optionalEnvInt('BC_OPERATION_INDOUBT_TTL', 2_592_000_000),
+      completedTtlMs,
+      inDoubtTtlMs,
     },
   };
 }

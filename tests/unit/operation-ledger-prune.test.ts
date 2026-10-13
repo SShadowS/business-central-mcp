@@ -66,12 +66,18 @@ describe('OperationLedger retention (#29)', () => {
     expect(await ledger.prune(Date.now() + 25 * HOUR)).toBe(1);
   });
 
-  it('stores download metadata but not the inline bytes', async () => {
+  it('stores download metadata but not the inline bytes, marking stripped entries NOT_REPLAYED', async () => {
     await ledger.claim('d', 'bc_execute_action', 'd');
-    const result = { replaySafe: true, downloads: [{ fileName: 'a.xlsx', contentType: 'x', sizeBytes: 3, style: 'Download', bytes: 'AAAA', savedPath: '/tmp/a.xlsx' }], externalUris: [] };
+    const tooLarge = { fileName: 'b.pdf', contentType: 'y', sizeBytes: 9, style: 'Download', error: { code: 'TOO_LARGE', message: 'big' } };
+    const result = { replaySafe: true, downloads: [{ fileName: 'a.xlsx', contentType: 'x', sizeBytes: 3, style: 'Download', bytes: 'AAAA', savedPath: '/tmp/a.xlsx' }, tooLarge], externalUris: [] };
     await ledger.settle('d', { status: 'completed', result });
-    const stored = (await ledger.get('d'))?.result as typeof result;
-    expect(stored.downloads).toEqual([{ fileName: 'a.xlsx', contentType: 'x', sizeBytes: 3, style: 'Download', savedPath: '/tmp/a.xlsx' }]);
+    const stored = (await ledger.get('d'))?.result as { downloads: Array<Record<string, unknown> & { error?: { code: string; message: string } }> };
+    expect(stored.downloads[0]).toMatchObject({ fileName: 'a.xlsx', contentType: 'x', sizeBytes: 3, style: 'Download', savedPath: '/tmp/a.xlsx' });
+    expect(stored.downloads[0]!.bytes).toBeUndefined();
+    expect(stored.downloads[0]!.error?.code).toBe('NOT_REPLAYED');
+    expect(stored.downloads[0]!.error?.message).toContain('/tmp/a.xlsx');
+    // An entry that already carried an error (no bytes) is stored unchanged.
+    expect(stored.downloads[1]).toEqual(tooLarge);
     const files = readdirSync(join(dir, 'operations'));
     expect(await readFile(join(dir, 'operations', files[0]!), 'utf8')).not.toContain('AAAA');
     // The caller's own result object is untouched.

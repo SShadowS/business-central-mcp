@@ -11,10 +11,13 @@ export interface Download {
   contentType: string;
   sizeBytes: number;
   style: string;
-  /** base64 file bytes; present on every successful capture (also written to disk when BC_DOWNLOAD_DIR is set); omitted only on error entries. */
+  /**
+   * base64 file bytes; present on every successful capture (also written to disk when BC_DOWNLOAD_DIR is set);
+   * omitted only on error entries. An operationId replay carries `NOT_REPLAYED` instead (the ledger stores no bytes).
+   */
   bytes?: string;
   savedPath?: string;
-  error?: { code: 'TOO_LARGE' | 'FETCH_FAILED'; message: string };
+  error?: { code: 'TOO_LARGE' | 'FETCH_FAILED' | 'NOT_REPLAYED'; message: string };
 }
 export interface CaptureResult { downloads: Download[]; externalUris: ExternalUri[]; }
 

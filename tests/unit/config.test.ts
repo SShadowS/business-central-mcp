@@ -66,6 +66,23 @@ describe('loadConfig', () => {
     expect(config.logging.level).toBe('debug');
   });
 
+  it('rejects an in-doubt TTL short enough to prune an in-flight sent entry (#29)', () => {
+    process.env.BC_OPERATION_INDOUBT_TTL = '60000';
+    expect(() => loadConfig()).toThrow('BC_OPERATION_INDOUBT_TTL');
+    process.env.BC_OPERATION_INDOUBT_TTL = '-1';
+    expect(() => loadConfig()).toThrow('BC_OPERATION_INDOUBT_TTL');
+    // Floor scales with BC_INVOKE_MAX_DURATION above 12h.
+    process.env.BC_OPERATION_INDOUBT_TTL = '86400000';
+    expect(loadConfig().operationRetention.inDoubtTtlMs).toBe(86_400_000);
+    process.env.BC_INVOKE_MAX_DURATION = '50000000';
+    expect(() => loadConfig()).toThrow('BC_OPERATION_INDOUBT_TTL');
+  });
+
+  it('rejects a non-positive BC_OPERATION_TTL', () => {
+    process.env.BC_OPERATION_TTL = '0';
+    expect(() => loadConfig()).toThrow('BC_OPERATION_TTL');
+  });
+
   it('defaults authMode to NavUserPassword for on-prem URLs', () => {
     expect(loadConfig().bc.authMode).toBe('NavUserPassword');
     expect(loadConfig().bc.appendTenantQuery).toBe(true);

@@ -67,11 +67,21 @@ const PRUNE_INTERVAL_MS = 3_600_000;
 /**
  * Drop inline download bytes before storing a result: a replay returns the file
  * metadata (and savedPath when BC_DOWNLOAD_DIR is set), not megabytes of base64.
+ * Each stripped entry gets a `NOT_REPLAYED` error so a replay never looks like a
+ * successful capture (Download contract: bytes on every success, error otherwise).
  */
 function stripDownloadBytes(result: unknown): unknown {
   const downloads = (result as { downloads?: unknown } | null | undefined)?.downloads;
   if (!Array.isArray(downloads)) return result;
-  return { ...(result as object), downloads: downloads.map(d => { const { bytes: _bytes, ...meta } = d as { bytes?: unknown }; return meta; }) };
+  return {
+    ...(result as object),
+    downloads: downloads.map(d => {
+      const { bytes, ...meta } = d as { bytes?: unknown; savedPath?: string };
+      if (bytes === undefined) return meta;
+      const where = meta.savedPath ? `the file was saved to ${meta.savedPath}` : 'the file was delivered only in the original response';
+      return { ...meta, error: { code: 'NOT_REPLAYED', message: `Download bytes are not replayed from the operation ledger; ${where}. Re-run the action with a new operationId to fetch it again.` } };
+    }),
+  };
 }
 
 export class OperationLedger {

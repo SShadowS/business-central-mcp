@@ -14,7 +14,7 @@ Do NOT call this without a preceding dialog -- there is no dialog to respond to 
 
 Example: { "pageContextId": "abc", "dialogFormId": "dialog-123", "response": "yes" }
 
-If the action produces a file (Open in Excel, Print, export), its bytes appear in \`downloads[]\`; links BC would open externally appear in \`externalUris[]\` and are never fetched by the server.`,
+If the action produces a file (Open in Excel, Print, export), its bytes appear in \`downloads[]\` (an operationId replay returns the metadata with error code NOT_REPLAYED instead of the bytes); links BC would open externally appear in \`externalUris[]\` and are never fetched by the server.`,
     inputSchema: toMcpJsonSchema(RespondDialogSchema),
     zodSchema: RespondDialogSchema,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
