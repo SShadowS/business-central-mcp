@@ -46,6 +46,8 @@ describe('Modal stack reconciliation (integration)', () => {
     const dialog = await openRequestPage(session);
     expect(session.modalStackSnapshot()).toEqual([dialog.formId]);
     expect(session.openFormIds.has(dialog.formId)).toBe(true);
+    // reconcileModalStack only closes dialogs on its safe-hint list.
+    expect((dialog.controlTree as Record<string, unknown>)['MappingHint']).toBe('RequestPage');
     unwrap(await session.invoke({ type: 'CloseForm', formId: dialog.formId }, (e) => e.type === 'InvokeCompleted'));
     expect(session.modalStackSnapshot()).toEqual([]);
   }, 60_000);

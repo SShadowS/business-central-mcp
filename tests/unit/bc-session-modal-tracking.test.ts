@@ -39,10 +39,13 @@ class TrackingProbe extends (BCSession as any) {
 const closed = (formId: string, extra: Record<string, unknown> = {}): BCEvent =>
   ({ type: 'PropertyChanged', formId, controlPath: 'server:', changes: { State: 0, ...extra } });
 
+/** A Confirm() dialog as BC sends it (MessageForm.CreateMessageDialogCore). */
+const CONFIRM = { MappingHint: 'ConfirmDialog' };
+
 describe('BCSession modal-stack tracking', () => {
   it('DialogOpened pushes to stack and openFormIds', () => {
     const s = new TrackingProbe();
-    s.feed([{ type: 'DialogOpened', formId: 'M1', controlTree: {} }]);
+    s.feed([{ type: 'DialogOpened', formId: 'M1', controlTree: CONFIRM }]);
     expect(s.stack()).toEqual(['M1']);
     expect(s.open()).toContain('M1');
   });
@@ -50,8 +53,8 @@ describe('BCSession modal-stack tracking', () => {
   it('State=0 on server: pops stack, removes from openFormIds and emits FormClosed after it', () => {
     const s = new TrackingProbe();
     const out = s.feed([
-      { type: 'DialogOpened', formId: 'M1', controlTree: {} },
-      { type: 'DialogOpened', formId: 'M2', controlTree: {} },
+      { type: 'DialogOpened', formId: 'M1', controlTree: CONFIRM },
+      { type: 'DialogOpened', formId: 'M2', controlTree: CONFIRM },
       closed('M2'),
     ]);
     expect(s.stack()).toEqual(['M1']);
@@ -94,7 +97,7 @@ describe('BCSession modal-stack tracking', () => {
     const s = new TrackingProbe();
     s.feed([
       { type: 'FormCreated', formId: 'F1', controlTree: {} },
-      { type: 'DialogOpened', formId: 'M1', controlTree: {} },
+      { type: 'DialogOpened', formId: 'M1', controlTree: CONFIRM },
     ]);
     expect(s.stack()).toEqual(['M1']);
     expect(s.open()).toEqual(expect.arrayContaining(['F1', 'M1']));
@@ -102,7 +105,7 @@ describe('BCSession modal-stack tracking', () => {
 
   it('removeOpenForm clears both openFormIds and modalStack', () => {
     const s = new TrackingProbe();
-    s.feed([{ type: 'DialogOpened', formId: 'M1', controlTree: {} }]);
+    s.feed([{ type: 'DialogOpened', formId: 'M1', controlTree: CONFIRM }]);
     expect(s.stack()).toEqual(['M1']);
     (s as any).removeOpenForm('M1');
     expect(s.stack()).toEqual([]);
@@ -152,8 +155,8 @@ describe('BCSession.reconcileModalStack', () => {
   it('closes topmost first, then next-down, popping stack each time', async () => {
     const s = new ReconcileProbe();
     s.feed([
-      { type: 'DialogOpened', formId: 'M1', controlTree: {} },
-      { type: 'DialogOpened', formId: 'M2', controlTree: {} },
+      { type: 'DialogOpened', formId: 'M1', controlTree: CONFIRM },
+      { type: 'DialogOpened', formId: 'M2', controlTree: CONFIRM },
     ]);
     expect(s.stack()).toEqual(['M1', 'M2']);
 
@@ -176,11 +179,11 @@ describe('BCSession.reconcileModalStack', () => {
 
   it('closes a nested dialog the close spawned, then the original', async () => {
     const s = new ReconcileProbe();
-    s.feed([{ type: 'DialogOpened', formId: 'M1', controlTree: {} }]);
+    s.feed([{ type: 'DialogOpened', formId: 'M1', controlTree: CONFIRM }]);
     let n = 0;
     (s as any).invokeUnqueued = vi.fn(async (interaction: any) => {
       n += 1;
-      s.feed(n === 1 ? [{ type: 'DialogOpened', formId: 'M2', controlTree: {} }] : [closed(interaction.formId)]);
+      s.feed(n === 1 ? [{ type: 'DialogOpened', formId: 'M2', controlTree: CONFIRM }] : [closed(interaction.formId)]);
       return ok([]);
     });
     const result = await s.reconcile();
@@ -191,7 +194,7 @@ describe('BCSession.reconcileModalStack', () => {
 
   it('returns error if CloseForm itself fails', async () => {
     const s = new ReconcileProbe();
-    s.feed([{ type: 'DialogOpened', formId: 'M1', controlTree: {} }]);
+    s.feed([{ type: 'DialogOpened', formId: 'M1', controlTree: CONFIRM }]);
     (s as any).invokeUnqueued = vi.fn(async () => ({ ok: false, error: { message: 'BOOM' } }));
     const result = await s.reconcile();
     expect(result.ok).toBe(false);
@@ -201,7 +204,7 @@ describe('BCSession.reconcileModalStack', () => {
     const s = new ReconcileProbe();
     const reported: BCEvent[] = [];
     s.onReconciledClose = (ev: BCEvent[]) => reported.push(...ev);
-    s.feed([{ type: 'DialogOpened', formId: 'M1', controlTree: {} }]);
+    s.feed([{ type: 'DialogOpened', formId: 'M1', controlTree: CONFIRM }]);
     (s as any).invokeUnqueued = vi.fn(async () => ({
       ok: false, error: { message: '{"errorType":"Microsoft.Dynamics.Framework.UI.FormNotFoundException"}' },
     }));
@@ -213,12 +216,44 @@ describe('BCSession.reconcileModalStack', () => {
 
   it('errors (no force-pop) if BC does not report the dialog closed', async () => {
     const s = new ReconcileProbe();
-    s.feed([{ type: 'DialogOpened', formId: 'M1', controlTree: {} }]);
+    s.feed([{ type: 'DialogOpened', formId: 'M1', controlTree: CONFIRM }]);
     (s as any).invokeUnqueued = vi.fn(async () => ok([])); // InvokeCompleted only, dialog still open
     const result = await s.reconcile();
     expect(result.ok).toBe(false);
     expect(s.stack()).toEqual(['M1']);
     expect((s as any).invokeUnqueued).toHaveBeenCalledTimes(1);
+  });
+
+  // Review #35: closing a Page.RunModal page or lookup fills DialogResult from
+  // its exit actions (OK / LookupOK), so the suspended AL would continue as if
+  // accepted. Such a modal must fail the reconcile (-> session reset), unclosed.
+  it.each([
+    ['a RunModal page (no MappingHint)', {}],
+    ['a StrMenu', { MappingHint: 'SelectionMenuDialog' }],
+  ])('refuses to close %s and sends nothing', async (_label, tree) => {
+    const s = new ReconcileProbe();
+    s.feed([
+      { type: 'DialogOpened', formId: 'M1', controlTree: CONFIRM },
+      { type: 'DialogOpened', formId: 'P1', controlTree: tree },
+    ]);
+    (s as any).invokeUnqueued = vi.fn();
+    const result = await s.reconcile();
+    expect(result.ok).toBe(false);
+    expect((s as any).invokeUnqueued).not.toHaveBeenCalled();
+    expect(s.stack()).toEqual(['M1', 'P1']);
+  });
+
+  it('closes request pages and message dialogs', async () => {
+    const s = new ReconcileProbe();
+    s.feed(['RequestPage', 'ConfirmDialog', 'InfoDialog', 'ErrorDialog'].map((h, i) =>
+      ({ type: 'DialogOpened', formId: `D${i}`, controlTree: { MappingHint: h } })));
+    (s as any).invokeUnqueued = vi.fn(async (interaction: any) => {
+      s.feed([closed(interaction.formId)]);
+      return ok([]);
+    });
+    const result = await s.reconcile();
+    expect(result.ok).toBe(true);
+    expect(s.stack()).toEqual([]);
   });
 
   it('returns ok with empty stack', async () => {
@@ -233,7 +268,7 @@ describe('BCSession.reconcileModalStack', () => {
 describe('BCSession invoke with auto-recovery', () => {
   it('retries once after reconcileModalStack on LogicalModalityViolation', async () => {
     const s = new ReconcileProbe();
-    s.feed([{ type: 'DialogOpened', formId: 'M1', controlTree: {} }]);
+    s.feed([{ type: 'DialogOpened', formId: 'M1', controlTree: CONFIRM }]);
 
     let callCount = 0;
     (s as any).ws.sendRpc = vi.fn(async () => {
@@ -260,7 +295,7 @@ describe('BCSession invoke with auto-recovery', () => {
 
   it('marks session dead and returns ModalReconcileError when retry fails again', async () => {
     const s = new ReconcileProbe();
-    s.feed([{ type: 'DialogOpened', formId: 'M1', controlTree: {} }]);
+    s.feed([{ type: 'DialogOpened', formId: 'M1', controlTree: CONFIRM }]);
 
     (s as any).ws.sendRpc = vi.fn(async () => ({
       ok: false, error: { message: 'LogicalModalityViolationException: persistent' },
@@ -280,7 +315,7 @@ describe('BCSession invoke with auto-recovery', () => {
 
   it('marks session dead with ModalReconcileError when reconciliation itself fails', async () => {
     const s = new ReconcileProbe();
-    s.feed([{ type: 'DialogOpened', formId: 'M1', controlTree: {} }]);
+    s.feed([{ type: 'DialogOpened', formId: 'M1', controlTree: CONFIRM }]);
 
     (s as any).ws.sendRpc = vi.fn(async () => ({
       ok: false, error: { message: 'LogicalModalityViolationException: stuck' },
@@ -317,7 +352,7 @@ describe('BCSession invoke with auto-recovery', () => {
 describe('BCSession invoke + reconcile end-to-end (no stubs)', () => {
   it('completes recovery without deadlocking when reconcileModalStack runs for real', async () => {
     const s = new ReconcileProbe();
-    s.feed([{ type: 'DialogOpened', formId: 'M1', controlTree: {} }]);
+    s.feed([{ type: 'DialogOpened', formId: 'M1', controlTree: CONFIRM }]);
 
     let sendCount = 0;
     (s as any).ws.sendRpc = vi.fn(async (_method: string, _params: unknown[]) => {
@@ -375,7 +410,7 @@ describe('BCSession invoke + reconcile end-to-end (no stubs)', () => {
     repo.create('pc1', 'F1');
     const opened: BCEvent[] = [
       { type: 'FormCreated', formId: 'F1', controlTree: {} } as BCEvent,
-      { type: 'DialogOpened', formId: 'M1', ownerFormId: 'F1', controlTree: {} } as BCEvent,
+      { type: 'DialogOpened', formId: 'M1', ownerFormId: 'F1', controlTree: CONFIRM } as BCEvent,
     ];
     s.feed(opened);
     repo.applyEvents(opened);

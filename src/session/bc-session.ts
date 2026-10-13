@@ -24,6 +24,12 @@ const WEDGE_CONFIRM_MS = 2000;
 // sendRpc's own deadline sits past the ceiling so the RPC layer never races
 // the watchdog's verdict.
 const RPC_GRACE_MS = 5000;
+// Dialogs reconcileModalStack may CloseForm: their close reads as a refusal.
+// MessageForm dialogs (Confirm/Info/Error) preset DialogResult=Ok, which
+// MessageHelper.ShowMessageForm reads as "not Yes" (decompiled MessageForm.
+// CreateMessageDialogCore). NavRequestPage closes with CancelClose and turns a
+// null result into Cancel (NavRequestPage.OnFormClosing).
+const SAFE_RECONCILE_HINTS: ReadonlySet<string> = new Set(['ConfirmDialog', 'InfoDialog', 'ErrorDialog', 'RequestPage']);
 
 export interface InvokeLiveness {
   /** Silence tolerated before probing IsExecuting (BC_ISEXECUTING_POLL_INTERVAL). */
@@ -515,7 +521,9 @@ export class BCSession {
       }
       if (event.type === 'DialogOpened' && event.formId) {
         this._openFormIds.add(event.formId);
-        this.modalStack.push(event.formId);
+        const tree = event.controlTree as Record<string, unknown> | undefined;
+        const hint = tree?.['MappingHint'] ?? tree?.['mappingHint'];
+        this.modalStack.push(event.formId, typeof hint === 'string' ? hint : undefined);
       }
       if (isFormClosedChange(event) && this._openFormIds.has(event.formId)) {
         this.removeOpenForm(event.formId);
@@ -564,6 +572,15 @@ export class BCSession {
    * and is dropped locally; a close that reports nothing is an error (the
    * dialog is still open, retrying the original interaction cannot succeed).
    *
+   * Only dialogs whose close is proven to read as a refusal are closed
+   * (`SAFE_RECONCILE_HINTS`). Any other modal (an AL `Page.RunModal` page, a
+   * lookup, a StrMenu) fails the reconcile, so the caller resets the session
+   * and BC rolls the pending work back. Closing one would resume the suspended
+   * AL with an accept-style result: `NavFormCloseHandler.ExecuteCloseCore` sets
+   * `DialogResult ??= FindExitActionFormResult(form)`, which is OK with no
+   * action bar or a single OK exit action (LookupOK on a lookup), even for
+   * `FormCloseBehavior.ForceClose`, and `ExecuteCloseForm` saves a dirty form.
+   *
    * Used to clear stale modal state that produced a
    * `LogicalModalityViolationException`. Calls `invokeUnqueued` directly
    * (queue-bypassing) so it works when triggered from inside the modal-violation
@@ -581,6 +598,10 @@ export class BCSession {
     const MAX_ATTEMPTS = 10;
     for (let i = 0; i < MAX_ATTEMPTS && this.modalStack.size > 0; i++) {
       const top = this.modalStack.peek()!;
+      const hint = this.modalStack.mappingHintOf(top);
+      if (!hint || !SAFE_RECONCILE_HINTS.has(hint)) {
+        return err(new ProtocolError(`reconcileModalStack: formId=${top} (MappingHint=${hint ?? 'none'}) is not a dialog whose close is a refusal; closing it could accept it`));
+      }
       const result = await this.invokeUnqueued(
         { type: 'CloseForm', formId: top },
         (event) => event.type === 'InvokeCompleted',
