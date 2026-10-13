@@ -46,6 +46,9 @@ export interface ActionResult {
   events: BCEvent[];
   dialog?: { formId: string; controlTree: unknown };
   updatedState?: PageContext;
+  /** The form the action was invoked on, and the SystemAction sent (0 = custom AL action). */
+  formId: string;
+  systemAction: number;
 }
 
 /**
@@ -365,6 +368,8 @@ export class ActionService {
       events,
       dialog,
       updatedState: this.repo.get(pageContextId) ?? undefined,
+      formId: form.formId,
+      systemAction,
     });
   }
 }

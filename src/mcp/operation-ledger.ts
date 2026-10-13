@@ -25,6 +25,12 @@ export interface OperationEntry {
   status: OperationStatus;
   result?: unknown;
   error?: { code?: string; message: string };
+  /**
+   * Set when settled: true only when the tool proved from BC's response that
+   * re-running the same call cannot double-apply (see src/protocol/replay-safety.ts).
+   * Always false for `unknown`.
+   */
+  replaySafe?: boolean;
   /** What the call targeted, captured before it ran (survives session loss). */
   target?: TargetDescriptor;
   createdAt: string;
@@ -85,7 +91,7 @@ export class OperationLedger {
     }
   }
 
-  async settle(operationId: string, update: Pick<OperationEntry, 'status' | 'result' | 'error'>): Promise<void> {
+  async settle(operationId: string, update: Pick<OperationEntry, 'status' | 'result' | 'error' | 'replaySafe'>): Promise<void> {
     const current = await this.get(operationId);
     if (!current) throw new Error(`Operation ledger has no entry for ${operationId}`);
     const next: OperationEntry = { ...current, ...update, updatedAt: new Date().toISOString() };

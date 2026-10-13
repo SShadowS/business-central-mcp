@@ -12,6 +12,11 @@ export interface SwitchCompanyOutput {
   previousCompany: string;
   newCompany: string;
   invalidatedPageContextIds: string[];
+  /**
+   * True when BC echoed the requested company from OpenSession: re-binding to
+   * the company the session is already on changes nothing.
+   */
+  replaySafe: boolean;
 }
 
 export class SwitchCompanyOperation {
@@ -51,6 +56,7 @@ export class SwitchCompanyOperation {
       previousCompany,
       newCompany,
       invalidatedPageContextIds: invalidatedIds,
+      replaySafe: this.session.companyName === input.companyName,
     });
   }
 }

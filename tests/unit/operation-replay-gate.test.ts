@@ -42,6 +42,23 @@ describe('operationId replay gate', () => {
     expect(second).toEqual(first);
   });
 
+  it('records the tool\'s replaySafe verdict on the ledger entry; unknown outcomes are never replay-safe', async () => {
+    const ledger = new OperationLedger(dir);
+    const ok = vi.fn().mockResolvedValue({ ok: true, value: { replaySafe: true } });
+    await call(new MCPHandler([mutatingTool(ok)], logger(), [], { ledger }), { value: 'x', operationId: 'rs-1' });
+    expect((await ledger.get('rs-1'))?.replaySafe).toBe(true);
+
+    const noVerdict = vi.fn().mockResolvedValue({ ok: true, value: {} });
+    await call(new MCPHandler([mutatingTool(noVerdict)], logger(), [], { ledger }), { value: 'x', operationId: 'rs-2' });
+    expect((await ledger.get('rs-2'))?.replaySafe).toBe(false);
+
+    const timeout = vi.fn().mockResolvedValue({ ok: false, error: new TimeoutError('watchdog') });
+    const h = new MCPHandler([mutatingTool(timeout)], logger(), [], { ledger });
+    await call(h, { value: 'x', operationId: 'rs-3' });
+    expect((await ledger.get('rs-3'))?.replaySafe).toBe(false);
+    expect((await call(h, { value: 'x', operationId: 'rs-3' })).structuredContent).toMatchObject({ code: 'OPERATION_IN_DOUBT', replaySafe: false });
+  });
+
   it('rejects a reused id with different input', async () => {
     const execute = vi.fn().mockResolvedValue({ ok: true, value: {} });
     const h = new MCPHandler([mutatingTool(execute)], logger(), [], { ledger: new OperationLedger(dir) });

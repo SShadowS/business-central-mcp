@@ -5,6 +5,7 @@ import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import { SystemAction } from '../protocol/types.js';
 import { detectChangedSections, detectDialogs } from '../protocol/mutation-result.js';
 import { classifyBusinessError } from '../protocol/error-classifier.js';
+import { formClosed } from '../protocol/replay-safety.js';
 import type { Download, DownloadService } from '../services/download-service.js';
 
 export interface RespondDialogInput {
@@ -23,6 +24,8 @@ export interface RespondDialogOutput {
   downloads: Download[];
   /** Links BC would open externally (not fetched by the server); empty when none. */
   externalUris: Array<{ uri: string; style: string }>;
+  /** True when BC closed the dialog form: a re-run against that dialogFormId is rejected (FormNotFoundException). */
+  replaySafe: boolean;
 }
 
 const RESPONSE_MAP: Record<string, number> = {
@@ -69,6 +72,7 @@ export class RespondDialogOperation {
         openedPages: [],
         downloads: closeCaptured.downloads,
         externalUris: closeCaptured.externalUris,
+        replaySafe: formClosed(closeResult.value, input.dialogFormId),
       });
     }
 
@@ -119,6 +123,7 @@ export class RespondDialogOperation {
       openedPages,
       downloads: captured.downloads,
       externalUris: captured.externalUris,
+      replaySafe: formClosed(events, input.dialogFormId),
     });
   }
 }

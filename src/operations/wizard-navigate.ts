@@ -9,6 +9,7 @@ import { isEffectivelyVisible } from '../protocol/visibility.js';
 import type { ControlField } from '../protocol/types.js';
 import { fields as treeFields, actions as treeActions, groupVisibility as treeGroupVisibility } from '../protocol/form-views.js';
 import { classifyWizardNav, type WizardNav } from '../protocol/wizard-classify.js';
+import { actionReplaySafe } from '../protocol/replay-safety.js';
 import type { Download, DownloadService } from '../services/download-service.js';
 
 export type { WizardNav };
@@ -34,6 +35,8 @@ export interface WizardNavigateOutput {
   downloads: Download[];
   /** Links BC would open externally (not fetched by the server); empty when none. */
   externalUris: Array<{ uri: string; style: string }>;
+  /** True only when BC closed the wizard form (finish/cancel): a re-run is rejected. Next/back are never replay-safe. */
+  replaySafe: boolean;
 }
 
 export class WizardNavigateOperation {
@@ -98,6 +101,7 @@ export class WizardNavigateOperation {
       dialogsOpened,
       downloads: captured.downloads,
       externalUris: captured.externalUris,
+      replaySafe: actionReplaySafe(ar),
     });
   }
 }

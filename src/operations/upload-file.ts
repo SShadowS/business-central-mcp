@@ -22,6 +22,8 @@ export interface UploadFileOutput {
   formId: string;
   /** Dialogs/messages the AL OnUpload trigger surfaced (e.g. validation errors). */
   dialogsOpened: Array<{ formId: string; message?: string }>;
+  /** Always false: re-running uploads again and re-fires the AL OnUpload import. */
+  replaySafe: false;
 }
 
 const CONTENT_TYPE_BY_EXT: Record<string, string> = {
@@ -82,6 +84,7 @@ export class UploadFileOperation {
       sizeBytes: result.value.sizeBytes,
       formId: result.value.formId,
       dialogsOpened,
+      replaySafe: false,
     });
   }
 }

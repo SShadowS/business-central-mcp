@@ -11,6 +11,7 @@ import { detectChangedSections, detectDialogs } from '../protocol/mutation-resul
 import { isEffectivelyVisible } from '../protocol/visibility.js';
 import { fields as treeFields, groupVisibility as treeGroupVisibility } from '../protocol/form-views.js';
 import { isInvalidBookmarkError } from '../session/rpc-error-classifier.js';
+import { actionReplaySafe } from '../protocol/replay-safety.js';
 
 export interface ExecuteActionInput {
   pageContextId: string;
@@ -49,6 +50,8 @@ export interface ExecuteActionOutput {
   downloads: Download[];
   /** Links BC would open externally (not fetched by the server); empty when none. */
   externalUris: Array<{ uri: string; style: string }>;
+  /** True only for Refresh, or when BC closed the form the action ran on (a re-run is rejected). */
+  replaySafe: boolean;
 }
 
 export class ExecuteActionOperation {
@@ -226,6 +229,7 @@ export class ExecuteActionOperation {
       openedPages,
       dialogsOpened,
       requiresDialogResponse: dialogsOpened.length > 0,
+      replaySafe: actionReplaySafe(ar),
     };
   }
 }

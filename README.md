@@ -317,6 +317,20 @@ Every tool carries MCP annotations (`readOnlyHint`, `destructiveHint`, `idempote
 
 The eight tools that change state accept an optional `operationId` (an idempotency key you generate). A retry with the same id and arguments returns the first call's stored result instead of running the change again, so retrying after a timeout or dropped connection cannot double-post. The same id with different arguments returns `OPERATION_ID_REUSED`. If the first call's outcome is unknown (timeout, session loss), the retry returns `OPERATION_IN_DOUBT`: check the record before acting under a new id. That response carries a `target` snapshot taken before the first call ran (company, page id and caption, section, the targeted rows' cell values, dialog), so you can find the record again even though the original `pageContextId` died with the session. Calls are recorded in `STATE_DIR/operations/`, so this survives a server restart.
 
+Every result from those eight tools (and its ledger entry) carries `replaySafe`. `true` means BC's response proved that re-running the same call, even under a new `operationId` after an unknown outcome, cannot apply the change twice. `false` means a re-run may double-apply, or nothing in the response proved otherwise: read the record back first. The server only says `true` when it can prove it:
+
+| Tool | `replaySafe: true` when |
+|------|-------------------------|
+| `bc_write_data` | BC echoed every written value (it echoes only a value that changed, and a write to a read-only field is silently dropped), and no dialog is pending |
+| `bc_execute_action` | the action was Refresh, or BC closed the form the action ran on (a re-run on a closed form is rejected with `FormNotFoundException`) |
+| `bc_respond_dialog` | BC closed the dialog form |
+| `bc_wizard_navigate` | BC closed the wizard form (finish/cancel); next/back never |
+| `bc_close_page` | no save/discard dialog blocked the close (closing a closed form is a no-op) |
+| `bc_switch_company` | BC echoed the requested company |
+| `bc_run_report`, `bc_upload_file` | never: a re-run reruns the report or the import |
+
+An `OPERATION_IN_DOUBT` response is always `replaySafe: false`.
+
 ## How it works
 
 This server speaks BC's internal WebSocket protocol directly -- the same protocol the browser-based web client uses. It was reverse-engineered from decompiled BC server assemblies. No OData endpoints, no SOAP services, no Selenium.

@@ -226,7 +226,7 @@ export class MCPHandler {
         this.logger.info(`Replayed ${tool.name} result for operationId ${operationId}`);
         return { jsonrpc: '2.0', id, result: ex.result };
       }
-      const state = { code: 'OPERATION_IN_DOUBT', operationId, status: ex.status, createdAt: ex.createdAt, ...(ex.error ? { error: ex.error } : {}), ...(ex.target ? { target: ex.target } : {}) };
+      const state = { code: 'OPERATION_IN_DOUBT', operationId, status: ex.status, replaySafe: false, createdAt: ex.createdAt, ...(ex.error ? { error: ex.error } : {}), ...(ex.target ? { target: ex.target } : {}) };
       return {
         jsonrpc: '2.0',
         id,
@@ -243,18 +243,18 @@ export class MCPHandler {
       };
     }
 
-    let outcome: { response: JsonRpcResponse; failure?: { code?: string; message: string } };
+    let outcome: Awaited<ReturnType<MCPHandler['runTool']>>;
     try {
       outcome = await this.runTool(tool, input, id);
     } catch (e) {
-      await ledger.settle(operationId, { status: 'unknown', error: { message: e instanceof Error ? e.message : String(e) } });
+      await ledger.settle(operationId, { status: 'unknown', replaySafe: false, error: { message: e instanceof Error ? e.message : String(e) } });
       throw e;
     }
     const { response, failure } = outcome;
     if (!failure) {
-      await ledger.settle(operationId, { status: 'completed', result: response.result });
+      await ledger.settle(operationId, { status: 'completed', replaySafe: outcome.replaySafe === true, result: response.result });
     } else if (failure.code === undefined || AMBIGUOUS_FAILURE_CODES.has(failure.code)) {
-      await ledger.settle(operationId, { status: 'unknown', error: failure });
+      await ledger.settle(operationId, { status: 'unknown', replaySafe: false, error: failure });
     } else {
       // BC gave a definite answer (validation, business rule, sign-in...): nothing
       // committed, so free the id for a corrected retry.
@@ -263,13 +263,17 @@ export class MCPHandler {
     return response;
   }
 
-  private async runTool(tool: ToolDefinition, input: unknown, id: unknown): Promise<{ response: JsonRpcResponse; failure?: { code?: string; message: string } }> {
+  private async runTool(tool: ToolDefinition, input: unknown, id: unknown): Promise<{ response: JsonRpcResponse; failure?: { code?: string; message: string }; replaySafe?: boolean }> {
     try {
       const result = await tool.execute(input);
       // Result is a Result<T, BCError>
       const r = result as { ok: boolean; value?: unknown; error?: { message: string } };
       if (r.ok) {
-        return { response: { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(r.value, null, 2) }] } } };
+        const replaySafe = (r.value as { replaySafe?: unknown } | undefined)?.replaySafe;
+        return {
+          response: { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(r.value, null, 2) }] } },
+          ...(typeof replaySafe === 'boolean' ? { replaySafe } : {}),
+        };
       }
       const errObj = r.error as { code?: string; message?: string } | undefined;
       const failure = { code: errObj?.code, message: errObj?.message ?? 'Unknown error' };
@@ -327,7 +331,11 @@ const OPERATION_ID_SCHEMA = {
     + 'arguments returns the first call\'s stored result instead of running the change again, so a retry after a '
     + 'dropped connection or timeout cannot double-post. Reusing it with different arguments is rejected '
     + '(OPERATION_ID_REUSED). If the first call\'s outcome is unknown, the retry returns OPERATION_IN_DOUBT: '
-    + 'check the record\'s state before acting again under a new operationId.',
+    + 'check the record\'s state before acting again under a new operationId. Every result of this tool carries '
+    + 'replaySafe: true means BC\'s response proved that re-running the same call (even under a new operationId, '
+    + 'after an unknown outcome) cannot apply the change twice -- the write was echoed as an absolute value, or '
+    + 'the form it acted on is closed so BC rejects a re-run; false means a re-run may double-apply or nothing '
+    + 'proved otherwise, so read the record back before retrying.',
 };
 
 function withOperationId(schema: Record<string, unknown>): Record<string, unknown> {

@@ -10,12 +10,15 @@ import { findByControlPath } from '../protocol/form-tree-walk.js';
 import { isFieldNode, type FieldNode, type FormNode, type RepeaterNode } from '../protocol/form-node.js';
 import { fieldNodeToControlField } from '../protocol/mcp-adapters.js';
 import { mapRowCellKeys } from '../protocol/row-mapping.js';
+import { valueEchoed } from '../protocol/replay-safety.js';
 
 export interface FieldWriteResult {
   fieldName: string;
   controlPath: string;
   success: boolean;
   newValue?: string;
+  /** BC echoed the stored value (PropertyChanged on the written control): the write provably landed. */
+  echoed?: boolean;
   error?: string;
   events?: BCEvent[];
 }
@@ -176,6 +179,7 @@ export class DataService {
       controlPath: fieldNode.controlPath,
       success: true,
       newValue,
+      echoed: valueEchoed(events, [form.formId, ctx.rootFormId], fieldNode.controlPath),
       events,
     });
   }
@@ -255,7 +259,7 @@ export class DataService {
     const updatedNode = updatedForm ? findByControlPath(updatedForm.root, cellPath) : undefined;
     const newValue = updatedNode && isFieldNode(updatedNode) ? (updatedNode.properties.stringValue ?? value) : value;
 
-    return ok({ fieldName, controlPath: cellPath, success: true, newValue, events: allEvents });
+    return ok({ fieldName, controlPath: cellPath, success: true, newValue, echoed: valueEchoed(saveResult.value, [formId, updatedCtx?.rootFormId ?? formId], cellPath), events: allEvents });
   }
 
   private resolveFieldNode(root: FormNode, fieldName: string): FieldNode | undefined {

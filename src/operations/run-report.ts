@@ -28,6 +28,8 @@ export interface RunReportOutput {
   /** Captured report output(s) when format was specified; empty otherwise. */
   downloads: Download[];
   externalUris: Array<{ uri: string; style: string }>;
+  /** Always false: re-running runs the report (and any processing/posting it does) again. */
+  replaySafe: false;
 }
 
 export class RunReportOperation {
@@ -84,6 +86,7 @@ export class RunReportOperation {
       requiresDialogResponse: dialogsOpened.length > 0,
       downloads: [],
       externalUris: [],
+      replaySafe: false,
     });
   }
 
@@ -105,6 +108,7 @@ export class RunReportOperation {
       requiresDialogResponse: false,
       downloads: captured.downloads,
       externalUris: captured.externalUris,
+      replaySafe: false,
     });
   }
 }

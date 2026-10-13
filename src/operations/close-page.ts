@@ -11,6 +11,12 @@ export interface ClosePageOutput {
   success: boolean;
   dialogsOpened: Array<{ formId: string; message?: string; fields?: import('../protocol/types.js').ControlField[] }>;
   requiresDialogResponse: boolean;
+  /**
+   * True when no dialog blocked the close: CloseForm on an already-closed form
+   * is a server-side no-op (verified live, cronus29). False while a
+   * save/discard dialog is pending.
+   */
+  replaySafe: boolean;
 }
 
 export class ClosePageOperation {
@@ -24,6 +30,7 @@ export class ClosePageOperation {
         success: true,
         dialogsOpened,
         requiresDialogResponse: dialogsOpened.length > 0,
+        replaySafe: dialogsOpened.length === 0,
       };
     });
   }

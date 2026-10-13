@@ -4,6 +4,7 @@ import type { DataService, FieldWriteResult } from '../services/data-service.js'
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import { detectChangedSections, detectDialogs, extractValidationErrors } from '../protocol/mutation-result.js';
 import { classifyBusinessError } from '../protocol/error-classifier.js';
+import { writeDataReplaySafe } from '../protocol/replay-safety.js';
 import type { ValidationResultItem } from '../protocol/types.js';
 
 export interface WriteDataInput {
@@ -37,6 +38,8 @@ export interface WriteDataOutput {
    * of appearing here.
    */
   validationWarnings: ValidationResultItem[];
+  /** True when BC echoed every written value and no dialog is pending: re-running cannot double-apply. */
+  replaySafe: boolean;
 }
 
 export class WriteDataOperation {
@@ -78,6 +81,7 @@ export class WriteDataOperation {
       dialogsOpened,
       requiresDialogResponse: dialogsOpened.length > 0,
       validationWarnings,
+      replaySafe: writeDataReplaySafe(results, dialogsOpened.length),
     });
   }
 }
