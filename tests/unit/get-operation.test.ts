@@ -74,14 +74,15 @@ describe('GetOperationOperation', () => {
   }
 
   // Live cronus29: Sales Order 42 Metadata.primaryKeyIds = [1, 3]; "No." (field 3) is a hidden control,
-  // "Document Type" (field 1) has none.
-  function keyedRepo(no: string, noCaption = 'No.'): PageContextRepository {
+  // "Document Type" (field 1) has none, so it comes from the record bookmark (live: Order 101009).
+  const SO_101009 = '1D_JAAAAACLAQAAAAJ7BjEAMAAxADAAMAA5';
+  function keyedRepo(no: string, noCaption = 'No.', bookmark = SO_101009): PageContextRepository {
     const repo = new PageContextRepository();
     repo.create(CARD, 'C1', { isModal: false, wizardState: null });
     repo.applyToPage(CARD, [{
       type: 'FormCreated', formId: 'C1', isReload: false,
       controlTree: {
-        t: 'lf', ServerId: 'C1', PageType: 0, Caption: 'Sales Order', Bookmark: 'BMK',
+        t: 'lf', ServerId: 'C1', PageType: 0, Caption: 'Sales Order', Bookmark: bookmark,
         Metadata: { id: 21, sourceTableId: 36, primaryKeyIds: [1, 3] },
         Children: [
           { t: 'sc', Caption: 'Address 2', StringValue: 'X', TableFieldNo: 6 },
@@ -94,14 +95,14 @@ describe('GetOperationOperation', () => {
 
   it('reads the primary key back by table field number, whatever its caption is now', async () => {
     const target = createTargetDescriber(keyedRepo('101009'), () => 'CRONUS')({ pageContextId: CARD, fields: { 'Address 2': 'X' } });
-    expect(target.keyFields).toEqual([{ fieldNo: 3, caption: 'No.', value: '101009' }]);
+    expect(target.keyFields).toEqual([{ fieldNo: 1, caption: '', value: '1', source: 'bookmark' }, { fieldNo: 3, caption: 'No.', value: '101009' }]);
     expect(target.fields).toBeUndefined();
     await ledger.claim('pk', 'bc_write_data', 'digest', target);
     await ledger.settle('pk', { status: 'unknown', replaySafe: false });
     const r = await opWith(keyedRepo('101009', 'Order No.'), 'CRONUS', false, CARD).op.execute({ operationId: 'pk' });
     if (!r.ok) throw r.error;
     expect(r.value.readBackError).toBeUndefined();
-    expect(r.value.readBack?.keyFields).toEqual([{ fieldNo: 3, caption: 'No.', value: '101009' }]);
+    expect(r.value.readBack?.keyFields).toEqual([{ fieldNo: 1, caption: '', value: '1', source: 'bookmark' }, { fieldNo: 3, caption: 'No.', value: '101009' }]);
     expect(r.value.readBack?.fields).toEqual({ 'Address 2': 'X' });
     expect(r.value.evidenceHash).toBeDefined();
   });
@@ -114,7 +115,7 @@ describe('GetOperationOperation', () => {
     if (!r.ok) throw r.error;
     expect(r.value.readBackError?.code).toBe('KEY_MISMATCH');
     expect(r.value.readBackError?.message).toContain("'101009' -> '101010'");
-    expect(r.value.readBack?.keyFields).toEqual([{ fieldNo: 3, caption: 'No.', value: '101010' }]);
+    expect(r.value.readBack?.keyFields).toEqual([{ fieldNo: 1, caption: '', value: '1', source: 'bookmark' }, { fieldNo: 3, caption: 'No.', value: '101010' }]);
     expect(r.value.readBack?.fields).toBeUndefined();
     expect(r.value.evidenceHash).toBeUndefined();
   });

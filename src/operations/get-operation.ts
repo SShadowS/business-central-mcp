@@ -18,8 +18,12 @@ export interface ReadBack {
   /** Record the page was re-opened on (a list's targeted row, else the root form bookmark). */
   bookmark: string;
   sectionId: string;
-  /** Card-shape: the recorded primary-key fields re-read by table field number (value null = no control on the page now). */
-  keyFields?: Array<{ fieldNo: number; caption: string; value: string | null }>;
+  /**
+   * Card-shape: the recorded primary-key fields re-read by table field number
+   * (value null = not readable now). `source: 'bookmark'` fields come from the
+   * landed record bookmark, not a control.
+   */
+  keyFields?: Array<{ fieldNo: number; caption: string; value: string | null; source?: 'bookmark' }>;
   /** Card-shape: the written fields (plus the leading-field fallback identity on unbound forms), caption -> value (null = not on the page). */
   fields?: Record<string, string | null>;
   /** List-shape: the targeted row's current cells; null when the row is gone (e.g. deleted). */
@@ -112,7 +116,10 @@ export class GetOperationOperation {
         if (target.keyFields) {
           // Read the key back by table field number, not caption (captions can repeat or be personalized).
           const now = root ? readKeyFields(root) : [];
-          readBack.keyFields = target.keyFields.map(k => ({ fieldNo: k.fieldNo, caption: k.caption, value: now.find(n => n.fieldNo === k.fieldNo)?.value ?? null }));
+          readBack.keyFields = target.keyFields.map(k => {
+            const n = now.find(f => f.fieldNo === k.fieldNo);
+            return { fieldNo: k.fieldNo, caption: k.caption, value: n?.value ?? null, ...(n?.source ? { source: n.source } : {}) };
+          });
           const diff = readBack.keyFields.filter((k, i) => k.value !== null && k.value !== target.keyFields![i]!.value);
           if (diff.length > 0) {
             return ok({ entry, readBack, readBackError: { code: 'KEY_MISMATCH', message: `Page ${pageId} opened a record whose primary key differs from the recorded one (${diff.map((k) => `${k.caption || `field ${k.fieldNo}`}: '${target.keyFields!.find(t => t.fieldNo === k.fieldNo)!.value}' -> '${k.value}'`).join(', ')}).` } });

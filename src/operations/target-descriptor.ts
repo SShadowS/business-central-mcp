@@ -3,6 +3,7 @@ import type { FormNode, LogicalFormNode } from '../protocol/form-node.js';
 import { primaryKeyFields } from '../protocol/form-views.js';
 import { buildSection } from '../protocol/section-dto.js';
 import { resolveSection } from '../protocol/section-resolver.js';
+import { decodeBookmark } from '../protocol/record-bookmark.js';
 
 /**
  * What a mutating tool call was aimed at, snapshotted from the live page
@@ -24,8 +25,8 @@ export interface TargetDescriptor {
   rows?: Array<{ bookmark: string; cells: Record<string, unknown> }>;
   /**
    * Card-shape sections: the record's primary key, from the form's
-   * `Metadata.primaryKeyIds` joined to the controls' `TableFieldNo` (key order;
-   * key fields without a control on the page are absent).
+   * `Metadata.primaryKeyIds` joined to the controls' `TableFieldNo` (key order);
+   * key fields without a control come from the record bookmark (`source: 'bookmark'`).
    */
   keyFields?: KeyField[];
   /** Card-shape fallback when the form is unbound or no key field has a control: leading non-empty field values. */
@@ -33,11 +34,27 @@ export interface TargetDescriptor {
   dialog?: { formId: string; message?: string };
 }
 
-export interface KeyField { fieldNo: number; caption: string; value: string }
+/** `source: 'bookmark'`: no control on the page; value decoded from the record bookmark (Option = ordinal, caption ''). */
+export interface KeyField { fieldNo: number; caption: string; value: string; source?: 'bookmark' }
 
-/** A form's primary-key controls with their current values; [] for an unbound form. */
+/**
+ * A form's primary key in key order; [] for an unbound form. Fields with a
+ * control read its value; the rest come from the form's record bookmark, which
+ * is the serialized RecordId (see record-bookmark.ts), when it decodes to the
+ * form's source table with exactly one value per key field.
+ */
 export function readKeyFields(root: FormNode): KeyField[] {
-  return primaryKeyFields(root).map(({ fieldNo, node }) => ({ fieldNo, caption: node.properties.caption ?? '', value: node.properties.stringValue ?? '' }));
+  const controls = primaryKeyFields(root);
+  const meta = root.type === 'lf' ? (root as LogicalFormNode).metadata : undefined;
+  const ids = meta?.primaryKeyIds ?? [];
+  const bm = root.properties.bookmark;
+  const decoded = bm && controls.length < ids.length ? decodeBookmark(bm) : undefined;
+  const fromBookmark = decoded && decoded.tableNo === meta?.sourceTableId && decoded.values.length === ids.length ? decoded.values : undefined;
+  return ids.flatMap((fieldNo, i): KeyField[] => {
+    const node = controls.find(c => c.fieldNo === fieldNo)?.node;
+    if (node) return [{ fieldNo, caption: node.properties.caption ?? '', value: node.properties.stringValue ?? '' }];
+    return fromBookmark ? [{ fieldNo, caption: '', value: fromBookmark[i]!, source: 'bookmark' }] : [];
+  });
 }
 
 const OMIT_ARGS = new Set(['base64', 'expectedStateVersion']);
