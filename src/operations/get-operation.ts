@@ -88,6 +88,12 @@ export class GetOperationOperation {
       if (ctx.isModal) {
         return ok({ entry, readBackError: { code: 'RECORD_NOT_OPENED', message: `Page ${pageId} did not open on the recorded record (bookmark ${bookmark}); it may have been deleted.` } });
       }
+      // A deleted record does not error: BC opens the nearest record instead (live,
+      // cronus29: a fully posted Sales Order's bookmark landed on the next order).
+      const landed = ctx.forms.get(ctx.rootFormId)?.root.properties.bookmark;
+      if (bookmark === target.page!.bookmark && landed !== undefined && landed !== bookmark) {
+        return ok({ entry, readBackError: { code: 'RECORD_NOT_OPENED', message: `Page ${pageId} opened a different record (bookmark ${landed}) than the recorded one (${bookmark}); the recorded record no longer exists. A posting that fully ships and invoices a document deletes it.` } });
+      }
       const section = buildSection(ctx, sectionId);
       if (!section) {
         return ok({ entry, readBackError: { code: 'SECTION_NOT_FOUND', message: `Section '${sectionId}' is not on page ${pageId}.` } });

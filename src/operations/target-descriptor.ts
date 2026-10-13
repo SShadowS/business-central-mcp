@@ -1,4 +1,5 @@
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
+import type { LogicalFormNode } from '../protocol/form-node.js';
 import { buildSection } from '../protocol/section-dto.js';
 import { resolveSection } from '../protocol/section-resolver.js';
 
@@ -43,8 +44,12 @@ export function createTargetDescriber(repo: Pick<PageContextRepository, 'get'>, 
     const ctx = pcId ? repo.get(pcId) : undefined;
     if (!pcId || !ctx) return out;
 
-    const pageId = /^session:page:(\d+):/.exec(pcId)?.[1];
-    const bookmark = ctx.forms.get(ctx.rootFormId)?.root.properties.bookmark;
+    // The page object id from the root form's wire Metadata, so pages opened by
+    // drill-down / action / cue (session:page:action:...) are identified too.
+    const root = ctx.forms.get(ctx.rootFormId)?.root;
+    const metaId = root?.type === 'lf' ? (root as LogicalFormNode).metadata?.id : undefined;
+    const pageId = metaId ? String(metaId) : /^session:page:(\d+):/.exec(pcId)?.[1];
+    const bookmark = root?.properties.bookmark;
     out.page = { pageContextId: pcId, ...(pageId ? { pageId } : {}), ...(bookmark ? { bookmark } : {}), caption: ctx.caption, pageType: String(ctx.pageType), isModal: ctx.isModal };
 
     const section = buildSection(ctx, typeof raw['section'] === 'string' ? raw['section'] : 'header');

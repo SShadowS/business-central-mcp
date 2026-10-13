@@ -45,6 +45,17 @@ describe('createTargetDescriber', () => {
     expect(d.args).toEqual({ pageContextId: PC, action: 'Delete', bookmark: 'BM2' }); // staleness guard dropped
   });
 
+  it('takes pageId from the form Metadata, so an action-opened page is identified', () => {
+    const repo = new PageContextRepository();
+    const pc = 'session:page:action:ab12cd34';
+    repo.create(pc, 'F9', { isModal: false, wizardState: null });
+    repo.applyToPage(pc, [{
+      type: 'FormCreated', formId: 'F9', isReload: false,
+      controlTree: { t: 'lf', ServerId: 'F9', PageType: 0, Caption: 'Sales Order', Metadata: { id: 42, sourceTableId: 36 }, Children: [] },
+    } as BCEvent]);
+    expect(createTargetDescriber(repo, () => 'CRONUS')({ pageContextId: pc }).page).toMatchObject({ pageId: '42' });
+  });
+
   it('resolves rowIndex and bookmarks[]', () => {
     const describe = createTargetDescriber(listRepo(), () => undefined);
     expect(describe({ pageContextId: PC, rowIndex: 0, fields: { Name: 'X' } }).rows?.map(r => r.bookmark)).toEqual(['BM1']);

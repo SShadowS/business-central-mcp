@@ -98,6 +98,16 @@ describe('GetOperationOperation', () => {
     expect(r.value.readBack?.fields).toMatchObject({ 'address 2': 'X', 'server:c[0]': 'X' });
   });
 
+  it('reports a deleted card record instead of reading back the record BC landed on', async () => {
+    // Live cronus29: a fully posted order's bookmark opened the NEXT order, no error.
+    await recordCard('deleted', 'BMC', { 'Address 2': 'X' });
+    const { op, pageService } = opWith(cardRepo('BMNEXT', 'other'), 'CRONUS', false, CARD);
+    const r = await op.execute({ operationId: 'deleted' });
+    expect(r.ok && r.value.readBackError?.code).toBe('RECORD_NOT_OPENED');
+    expect(r.ok && r.value.readBack).toBeUndefined();
+    expect(pageService.closePage).toHaveBeenCalled();
+  });
+
   it('reads a document target back with its lines, so a posting shows in the evidence', async () => {
     const DOC = 'session:page:42:doc00001';
     const docRepo = (shipped: string): PageContextRepository => {
