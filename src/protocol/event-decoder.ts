@@ -1,7 +1,7 @@
 import { HANDLER_TYPES } from './handler-types.js';
 import { resolveChangeType, SESSION_EVENTS } from './wire-types.js';
 import type {
-  BCEvent, FormCreatedEvent, FormClosedEvent, DialogOpenedEvent, MessageToShowEvent,
+  BCEvent, FormCreatedEvent, DialogOpenedEvent, MessageToShowEvent,
   DataLoadedEvent, RowDeltaEvent, PropertyChangedEvent, BookmarkChangedEvent, InvokeCompletedEvent,
   SessionInfoEvent, FileDownloadReadyEvent,
 } from './types.js';
@@ -133,9 +133,6 @@ export class EventDecoder {
         break;
       case SESSION_EVENTS.DialogToShow:
         events.push({ type: 'DialogOpened', formId: (eventData.ServerId ?? eventData.formId ?? eventData.FormId ?? '') as string, ownerFormId: (eventData.OwnerForm ?? eventData.ownerForm) as string | undefined, controlTree: eventData } satisfies DialogOpenedEvent);
-        break;
-      case SESSION_EVENTS.ClosePendingForm:
-        events.push({ type: 'FormClosed', formId: (eventData.ServerId ?? eventData.formId ?? eventData.FormId ?? '') as string } satisfies FormClosedEvent);
         break;
       case SESSION_EVENTS.LookupFormReady: {
         // LookupFormReady: params[1] is the raw lf JSON of the lookup form.

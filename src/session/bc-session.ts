@@ -13,6 +13,8 @@ import { findLicenseDialog } from './license-dialog.js';
 import { resolveFormatLabel } from './report-format-resolver.js';
 import { buildFormTree } from '../protocol/form-tree-builder.js';
 import { walkTree } from '../protocol/form-tree-walk.js';
+import { formIdentityOf, isHostedPartChange, type FormIdentity } from '../protocol/form-state.js';
+import { isFormClosedChange } from '../protocol/replay-safety.js';
 import { watchLiveness, parseIsExecutingAnswer, type LivenessVerdict, type ProbeAnswer } from './isexecuting-poller.js';
 
 const DEFAULT_TIMEOUT_MS = 30000;
@@ -46,6 +48,8 @@ export class BCSession {
   private queue: Promise<void> = Promise.resolve();
   private readonly _openFormIds = new Set<string>();
   private readonly modalStack = new ModalStack();
+  /** Hosted-part guard input per open form (from its FormToShow / DialogToShow tree). */
+  private readonly formIdentities = new Map<string, FormIdentity>();
   private dead = false;
   private wsClosed = false;
 
@@ -142,10 +146,7 @@ export class BCSession {
   async initialize(tenantId: string): Promise<Result<BCEvent[], ProtocolError>> {
     const openResult = await this.sendOpenSession(tenantId);
     if (isErr(openResult)) return openResult;
-    const events = openResult.value;
-
-    // Update form tracking
-    this.updateFormTracking(events);
+    const events = this.updateFormTracking(openResult.value);
 
     this._initialized = true;
 
@@ -197,9 +198,9 @@ export class BCSession {
     // Every form from the previous company is gone; drop stale tracking before
     // recording the forms the OpenSession response opened (e.g. the Role Center).
     this._openFormIds.clear();
+    this.formIdentities.clear();
     this.modalStack.clear();
-    this.updateFormTracking(openResult.value);
-    return ok(openResult.value);
+    return ok(this.updateFormTracking(openResult.value));
   }
 
   /** Auto-dismiss a license/evaluation notification dialog if the response has one. */
@@ -462,11 +463,9 @@ export class BCSession {
       // Quiescence window — wait for trailing async Messages
       await new Promise<void>(resolve => setTimeout(resolve, QUIESCENCE_MS));
 
-      // Collect async events
+      // Collect async events, then derive FormClosed and update form tracking
       allEvents.push(...asyncEvents);
-
-      // Update form tracking
-      this.updateFormTracking(allEvents);
+      allEvents.splice(0, allEvents.length, ...this.updateFormTracking(allEvents));
 
       // Check completion gates for logging
       let invokeCompletedSeen = false;
@@ -496,21 +495,35 @@ export class BCSession {
     }
   }
 
-  private updateFormTracking(events: BCEvent[]): void {
+  /**
+   * Track open forms and the modal stack, and return `events` with a
+   * `FormClosed` inserted after each real close. BC has no close event: it
+   * reports `State` = 0 on the form's `server:` path (`isFormClosedChange`).
+   * A hosted part's own properties arrive on its host's formId + `server:`
+   * (`isHostedPartChange`), so those never close the host. Consumers
+   * (PageContextRepository.markFormClosed) see the derived `FormClosed`.
+   */
+  private updateFormTracking(events: readonly BCEvent[]): BCEvent[] {
+    const out: BCEvent[] = [];
     for (const event of events) {
+      out.push(event);
       if (event.type === 'FormCreated' && event.formId) {
         this._openFormIds.add(event.formId);
+        this.formIdentities.set(event.formId, formIdentityOf(event.controlTree));
         // Non-modal -- do not push onto modalStack
       }
       if (event.type === 'DialogOpened' && event.formId) {
         this._openFormIds.add(event.formId);
+        this.formIdentities.set(event.formId, formIdentityOf(event.controlTree));
         this.modalStack.push(event.formId);
       }
-      if (event.type === 'FormClosed' && event.formId) {
-        this._openFormIds.delete(event.formId);
-        this.modalStack.remove(event.formId);
+      if (isFormClosedChange(event) && this._openFormIds.has(event.formId)
+        && !isHostedPartChange(this.formIdentities.get(event.formId) ?? {}, event)) {
+        this.removeOpenForm(event.formId);
+        out.push({ type: 'FormClosed', formId: event.formId });
       }
     }
+    return out;
   }
 
   addOpenForm(formId: string): void {
@@ -519,6 +532,7 @@ export class BCSession {
 
   removeOpenForm(formId: string): void {
     this._openFormIds.delete(formId);
+    this.formIdentities.delete(formId);
     this.modalStack.remove(formId);
   }
 
@@ -534,8 +548,8 @@ export class BCSession {
   /**
    * Walk the modal stack from top to bottom, sending Abort (SystemAction=320)
    * to each modal until the stack is empty or an Abort fails. After each
-   * successful Abort, BC's FormClosed event normally pops the stack via
-   * updateFormTracking. If FormClosed does not arrive, the loop force-pops
+   * successful Abort, BC reports the dialog closed (State=0) and
+   * updateFormTracking pops it. If that does not arrive, the loop force-pops
    * to make progress.
    *
    * Used to clear stale modal state that produced a
@@ -563,16 +577,13 @@ export class BCSession {
       if (isErr(result)) {
         return err(new ProtocolError(`reconcileModalStack: Abort on formId=${top} failed: ${result.error.message}`));
       }
-      // If BC didn't emit FormClosed for this formId, force-pop to make progress.
-      // Live observation (BC28): confirm dialogs do NOT emit FormClosed on
-      // Abort=320 against controlPath:'server:'. The local stack is force-popped
-      // here for client-state consistency, but BC may still consider the
-      // dialog open server-side -- in that case the next invoke triggers
-      // another LogicalModalityViolation and falls back to session reset.
+      // A successful Abort reports State=0 for the dialog, which updateFormTracking
+      // turns into FormClosed and pops. If the response did not report the
+      // dialog closed, force-pop so the loop makes progress; if BC still holds
+      // it open, the retry hits LogicalModalityViolation again and the session resets.
       if (this.modalStack.peek() === top) {
-        this.logger.warn(`reconcileModalStack: BC did not emit FormClosed for formId=${top} after Abort -- force-popping local stack (server-side dialog may still be open)`);
-        this.modalStack.pop();
-        this._openFormIds.delete(top);
+        this.logger.warn(`reconcileModalStack: Abort on formId=${top} completed but BC did not report the dialog closed (no State=0) -- force-popping local stack (server-side dialog may still be open)`);
+        this.removeOpenForm(top);
       }
     }
     if (this.modalStack.size > 0) {

@@ -274,4 +274,19 @@ describe('PageContextRepository FormClosed handling', () => {
     const subpageSection = Array.from(ctx.sections.values()).find(s => s.formId === 'child2');
     expect(subpageSection!.valid).toBe(true);
   });
+
+  it('applyToPage routes a FormClosed to the page that owns the form, not the target', () => {
+    const repo = new PageContextRepository();
+    repo.create('ctx:a', 'rootA');
+    repo.create('ctx:b', 'rootB');
+    repo.applyEvents([{
+      type: 'FormCreated', formId: 'childB', parentFormId: 'rootB',
+      controlTree: { t: 'lf', ServerId: 'childB', PageType: 0, Caption: 'Lines', Children: [{ t: 'rc', Columns: [{ t: 'rcc', Caption: 'A' }] }] },
+    } as BCEvent]);
+
+    repo.applyToPage('ctx:a', [{ type: 'FormClosed', formId: 'childB' }]);
+
+    expect(repo.get('ctx:b')!.forms.has('childB')).toBe(false);
+    expect(repo.get('ctx:a')!.forms.has('rootA')).toBe(true);
+  });
 });

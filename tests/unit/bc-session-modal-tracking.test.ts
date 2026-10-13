@@ -23,8 +23,8 @@ class TrackingProbe extends (BCSession as any) {
       30000,
     );
   }
-  feed(events: BCEvent[]): void {
-    (this as any).updateFormTracking(events);
+  feed(events: BCEvent[]): BCEvent[] {
+    return (this as any).updateFormTracking(events);
   }
   stack(): string[] {
     return this.modalStackSnapshot();
@@ -34,6 +34,10 @@ class TrackingProbe extends (BCSession as any) {
   }
 }
 
+/** How BC reports a closed form: State=0 on its server: path (LogicalFormObserver). */
+const closed = (formId: string, extra: Record<string, unknown> = {}): BCEvent =>
+  ({ type: 'PropertyChanged', formId, controlPath: 'server:', changes: { State: 0, ...extra } });
+
 describe('BCSession modal-stack tracking', () => {
   it('DialogOpened pushes to stack and openFormIds', () => {
     const s = new TrackingProbe();
@@ -42,14 +46,45 @@ describe('BCSession modal-stack tracking', () => {
     expect(s.open()).toContain('M1');
   });
 
-  it('FormClosed pops stack and removes from openFormIds', () => {
+  it('State=0 on server: pops stack, removes from openFormIds and emits FormClosed after it', () => {
     const s = new TrackingProbe();
-    s.feed([
+    const out = s.feed([
       { type: 'DialogOpened', formId: 'M1', controlTree: {} },
       { type: 'DialogOpened', formId: 'M2', controlTree: {} },
-      { type: 'FormClosed', formId: 'M2' },
+      closed('M2'),
     ]);
     expect(s.stack()).toEqual(['M1']);
+    expect(s.open()).not.toContain('M2');
+    expect(out.map(e => e.type)).toEqual(['DialogOpened', 'DialogOpened', 'PropertyChanged', 'FormClosed']);
+    expect(out[3]).toEqual({ type: 'FormClosed', formId: 'M2' });
+  });
+
+  it('State other than 0, or not on server:, is not a close', () => {
+    const s = new TrackingProbe();
+    const out = s.feed([
+      { type: 'FormCreated', formId: 'F1', controlTree: {} },
+      { type: 'PropertyChanged', formId: 'F1', controlPath: 'server:', changes: { State: 2 } },
+      { type: 'PropertyChanged', formId: 'F1', controlPath: 'server:c[1]', changes: { State: 0 } },
+    ]);
+    expect(s.open()).toContain('F1');
+    expect(out.some(e => e.type === 'FormClosed')).toBe(false);
+  });
+
+  it("a hosted part's State=0 on the host's server: path does not close the host", () => {
+    const s = new TrackingProbe();
+    s.feed([{ type: 'FormCreated', formId: 'H', controlTree: { t: 'lf', ServerFormHandle: 'host-handle', Metadata: { sourceTableId: 18 } } }]);
+    const out = s.feed([closed('H', { ServerFormHandle: 'part-handle' })]);
+    expect(s.open()).toContain('H');
+    expect(out.some(e => e.type === 'FormClosed')).toBe(false);
+    s.feed([closed('H', { ServerFormHandle: 'host-handle' })]);
+    expect(s.open()).not.toContain('H');
+  });
+
+  it('a close of an untracked or already-closed form emits no FormClosed', () => {
+    const s = new TrackingProbe();
+    s.feed([{ type: 'FormCreated', formId: 'F1', controlTree: {} }]);
+    const out = s.feed([closed('F1'), closed('F1'), closed('GHOST')]);
+    expect(out.filter(e => e.type === 'FormClosed')).toEqual([{ type: 'FormClosed', formId: 'F1' }]);
   });
 
   it('FormCreated does not affect modal stack', () => {
@@ -123,7 +158,7 @@ describe('BCSession.reconcileModalStack', () => {
     // reconcileModalStack uses invokeUnqueued (queue-bypassing) because it
     // runs inside an already-enqueued task.
     (s as any).invokeUnqueued = vi.fn(async (interaction: any) => {
-      s.feed([{ type: 'FormClosed', formId: interaction.formId }]);
+      s.feed([closed(interaction.formId)]);
       return ok([]);
     });
 
@@ -177,7 +212,7 @@ describe('BCSession invoke with auto-recovery', () => {
     });
 
     (s as any).reconcileModalStack = vi.fn(async () => {
-      s.feed([{ type: 'FormClosed', formId: 'M1' }]);
+      s.feed([closed('M1')]);
       return ok(undefined);
     });
 
@@ -260,20 +295,20 @@ describe('BCSession invoke + reconcile end-to-end (no stubs)', () => {
       }
       if (sendCount === 2) {
         // Second send: the Abort from reconcileModalStack succeeds and BC
-        // echoes a FormClosed for M1 (decoder injects it -- see below).
+        // reports M1 closed (decoder injects State=0 -- see below).
         return { ok: true, value: [] };
       }
       // Third send: the retry of the original interaction.
       return { ok: true, value: [] };
     });
 
-    // Decoder fakes a FormClosed event ONLY on the second sendRpc (the Abort
+    // Decoder fakes M1's State=0 ONLY on the second sendRpc (the Abort
     // response) so reconcileModalStack pops M1. The first call doesn't reach
     // decode (sendRpc errored), and the third call doesn't need any events.
     (s as any).decoder.decode = vi.fn((_data: unknown) => {
       const decoded: any[] = [];
       if (sendCount === 2) {
-        decoded.push({ type: 'FormClosed', formId: 'M1' });
+        decoded.push(closed('M1'));
       }
       return decoded;
     });

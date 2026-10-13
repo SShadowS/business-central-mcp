@@ -161,7 +161,9 @@ export class PageEventRouter {
     // FormClosed
     // -----------------------------------------------------------------------
     if (event.type === 'FormClosed') {
-      const pcId = targetPcId ?? store.lookupPcId(formId);
+      // Route by the closed form's own index, never the caller's hint: a batch
+      // replayed onto page A can carry the close of a form owned by page B.
+      const pcId = store.lookupPcId(formId);
       if (!pcId) return { kind: 'Unmatched' };
       return { kind: 'FormClosed', pcId, formId };
     }

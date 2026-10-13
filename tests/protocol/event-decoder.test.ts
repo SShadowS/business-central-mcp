@@ -220,17 +220,14 @@ describe('EventDecoder', () => {
     if (prop?.type === 'PropertyChanged') expect(prop.changes['Visible']).toBe(false);
   });
 
-  it('decodes ClosePendingForm as FormClosed event', () => {
+  it('does not decode ClosePendingForm (ghost-form cache key) as a form close', () => {
+    // CallbackHandler sends ClosePendingForm { FormCacheKey } for an unshown
+    // pending ghost form; a real close is PropertyChanged State=0 (BCSession).
     const handlers = [{
       handlerType: HANDLER_TYPES.LogicalClientEventRaising,
-      parameters: ['ClosePendingForm', { ServerId: 'closedForm123' }, {}],
+      parameters: ['ClosePendingForm', { FormCacheKey: 'cacheKey123' }, {}],
     }];
-    const events = decoder.decode(handlers);
-    const closed = events.find(e => e.type === 'FormClosed');
-    expect(closed).toBeDefined();
-    if (closed?.type === 'FormClosed') {
-      expect(closed.formId).toBe('closedForm123');
-    }
+    expect(decoder.decode(handlers).some(e => e.type === 'FormClosed')).toBe(false);
   });
 
   it('decodes MessageToShow with full payload', () => {

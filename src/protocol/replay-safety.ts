@@ -1,4 +1,4 @@
-import type { BCEvent } from './types.js';
+import type { BCEvent, PropertyChangedEvent } from './types.js';
 import { SystemAction } from './types.js';
 
 /**
@@ -35,8 +35,16 @@ export function valueEchoed(events: readonly BCEvent[], formIds: readonly string
  * live (cronus29) for CloseForm on a card and Cancel on a report request page.
  */
 export function formClosed(events: readonly BCEvent[], formId: string | undefined): boolean {
-  return formId !== undefined && events.some(e => e.type === 'PropertyChanged' && e.formId === formId
-    && e.controlPath === 'server:' && e.changes['State'] === 0);
+  return formId !== undefined && events.some(e => isFormClosedChange(e) && e.formId === formId);
+}
+
+/**
+ * The PropertyChanged that reports a form closing (`server:`, `State` = 0).
+ * BC never sends a dedicated close event: `ClosePendingForm` is the ghost-form
+ * cache key (decompiled `CallbackHandler`), not a close.
+ */
+export function isFormClosedChange(e: BCEvent): e is PropertyChangedEvent {
+  return e.type === 'PropertyChanged' && e.controlPath === 'server:' && e.changes['State'] === 0;
 }
 
 /** write_data: every field written and echoed, and no dialog left pending. */

@@ -119,24 +119,12 @@ export class FormProjection {
   private applyPropertyChanged(form: FormState, event: PropertyChangedEvent): FormState {
     const changes = event.changes as Record<string, unknown>;
 
-    // Loading a hosted part (factbox, subpage) emits that part's form-level
-    // properties on the HOST's `server:` path: ControlReference.formId is the
-    // control's ParentForm (decompiled ClientLogicalControlReferenceSerializer),
-    // so a part LogicalForm resolves to the host. Its ServerFormHandle tells it
-    // apart. Verified live (cronus29, Customer Card 21): the Dimensions factbox
-    // load set the card's Bookmark to a Default Dimension record.
-    const ownHandle = 'serverFormHandle' in form.root ? form.root.serverFormHandle : undefined;
-    if (event.controlPath === 'server:' && ownHandle && typeof changes.ServerFormHandle === 'string' && changes.ServerFormHandle !== ownHandle) {
+    const root = form.root;
+    if (isHostedPartChange({
+      serverFormHandle: 'serverFormHandle' in root ? root.serverFormHandle : undefined,
+      sourceTableId: 'metadata' in root ? root.metadata?.sourceTableId : undefined,
+    }, event)) {
       return form;
-    }
-    // ServerFormHandle is only sent when it changes (LogicalFormObserver.BeforeGetChanges),
-    // so a part's LATER Bookmark change (a lines subpage or factbox moving row)
-    // arrives without it. A record bookmark starts with its table id
-    // (RecordBookmark.TableId), so one from another table is not the host's.
-    const sourceTableId = 'metadata' in form.root ? form.root.metadata?.sourceTableId : undefined;
-    if (event.controlPath === 'server:' && sourceTableId && typeof changes.Bookmark === 'string') {
-      const tableId = bookmarkTableId(changes.Bookmark);
-      if (tableId !== undefined && tableId !== sourceTableId) return form;
     }
 
     // Translate BC's wire property names (PascalCase) → NodeProperties (camelCase)
@@ -200,6 +188,44 @@ export class FormProjection {
     }
     return rows;
   }
+}
+
+/** What identifies a form's own `server:` changes: its NST form handle and source table. */
+export interface FormIdentity {
+  readonly serverFormHandle?: string;
+  readonly sourceTableId?: number;
+}
+
+/** FormIdentity read from a raw `lf` control tree (FormToShow / DialogToShow payload). */
+export function formIdentityOf(controlTree: unknown): FormIdentity {
+  const lf = (controlTree ?? {}) as { ServerFormHandle?: unknown; Metadata?: { sourceTableId?: unknown } };
+  return {
+    serverFormHandle: typeof lf.ServerFormHandle === 'string' ? lf.ServerFormHandle : undefined,
+    sourceTableId: typeof lf.Metadata?.sourceTableId === 'number' ? lf.Metadata.sourceTableId : undefined,
+  };
+}
+
+/**
+ * A `server:` PropertyChanged that belongs to a hosted part (factbox, subpage),
+ * not to the form it is reported on. ControlReference.formId is the control's
+ * ParentForm (decompiled ClientLogicalControlReferenceSerializer), so a part
+ * LogicalForm's own properties arrive on the HOST's formId + `server:`. Verified
+ * live (cronus29, Customer Card 21): the Dimensions factbox load set the card's
+ * Bookmark to a Default Dimension record.
+ * - A ServerFormHandle that differs from the form's own is the part's.
+ * - ServerFormHandle is only sent when it changes (LogicalFormObserver.BeforeGetChanges),
+ *   so a part's LATER Bookmark change arrives without it. A record bookmark
+ *   starts with its table id (RecordBookmark.TableId): another table's is not the host's.
+ */
+export function isHostedPartChange(own: FormIdentity, event: PropertyChangedEvent): boolean {
+  if (event.controlPath !== 'server:') return false;
+  const changes = event.changes as Record<string, unknown>;
+  if (own.serverFormHandle && typeof changes.ServerFormHandle === 'string' && changes.ServerFormHandle !== own.serverFormHandle) return true;
+  if (own.sourceTableId && typeof changes.Bookmark === 'string') {
+    const tableId = bookmarkTableId(changes.Bookmark);
+    if (tableId !== undefined && tableId !== own.sourceTableId) return true;
+  }
+  return false;
 }
 
 /**
