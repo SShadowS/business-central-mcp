@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { MCPHandler } from '../../src/mcp/handler.js';
 import { OperationLedger, digestInput } from '../../src/mcp/operation-ledger.js';
 import type { ToolDefinition } from '../../src/mcp/tool-registry.js';
-import { BusinessValidationError, TimeoutError } from '../../src/core/errors.js';
+import { BusinessValidationError, SessionLostError, TimeoutError } from '../../src/core/errors.js';
 
 const logger = () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() });
 
@@ -57,6 +57,24 @@ describe('operationId replay gate', () => {
     await call(h, { value: 'x', operationId: 'rs-3' });
     expect((await ledger.get('rs-3'))?.replaySafe).toBe(false);
     expect((await call(h, { value: 'x', operationId: 'rs-3' })).structuredContent).toMatchObject({ code: 'OPERATION_IN_DOUBT', replaySafe: false });
+  });
+
+  it('puts replaySafe:false on the first response to an ambiguous failure, with or without operationId', async () => {
+    const timeout = vi.fn().mockResolvedValue({ ok: false, error: new TimeoutError('watchdog') });
+    const gated = await call(new MCPHandler([mutatingTool(timeout)], logger(), [], { ledger: new OperationLedger(dir) }), { value: 'x', operationId: 'af-1' });
+    expect(gated.isError).toBe(true);
+    expect(gated.structuredContent).toEqual({ code: 'TIMEOUT_ERROR', replaySafe: false });
+    expect(JSON.parse(gated.content[1]!.text)).toEqual({ code: 'TIMEOUT_ERROR', replaySafe: false });
+
+    const lost = vi.fn().mockRejectedValue(new SessionLostError('dropped', ['pc:1']));
+    const plain = await call(new MCPHandler([mutatingTool(lost)], logger(), []), { value: 'x' });
+    expect(plain.structuredContent).toMatchObject({ code: 'SESSION_LOST', impactedPageContextIds: ['pc:1'], replaySafe: false });
+
+    // Definite failures and read-only tools carry no verdict.
+    const invalid = vi.fn().mockResolvedValue({ ok: false, error: new BusinessValidationError([{ description: 'bad' }]) });
+    expect((await call(new MCPHandler([mutatingTool(invalid)], logger(), []), { value: 'x' })).structuredContent).toBeUndefined();
+    const readTimeout = await call(new MCPHandler([mutatingTool(timeout, true)], logger(), []), { value: 'x' }, 'bc_read');
+    expect(readTimeout.structuredContent).toBeUndefined();
   });
 
   it('rejects a reused id with different input', async () => {

@@ -13,8 +13,9 @@ export interface SwitchCompanyOutput {
   newCompany: string;
   invalidatedPageContextIds: string[];
   /**
-   * True when BC echoed the requested company from OpenSession: re-binding to
-   * the company the session is already on changes nothing.
+   * True when the session ends up on the requested company (BC echoed it, or
+   * it was already there): a re-run then hits the already-on-company
+   * short-circuit and changes nothing.
    */
   replaySafe: boolean;
 }
@@ -28,6 +29,11 @@ export class SwitchCompanyOperation {
 
   async execute(input: SwitchCompanyInput): Promise<Result<SwitchCompanyOutput, BCError>> {
     const previousCompany = this.session.companyName;
+    // Already there: re-opening would still drop every form, dialog and draft
+    // row, so do nothing. This is what makes a successful switch replay-safe.
+    if (previousCompany === input.companyName) {
+      return ok({ previousCompany, newCompany: previousCompany, invalidatedPageContextIds: [], replaySafe: true });
+    }
     const invalidatedIds = this.repo.listPageContextIds();
 
     // A company switch is a re-OpenSession bound to the target company. BC binds

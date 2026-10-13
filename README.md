@@ -326,10 +326,10 @@ Every result from those eight tools (and its ledger entry) carries `replaySafe`.
 | `bc_respond_dialog` | BC closed the dialog form |
 | `bc_wizard_navigate` | BC closed the wizard form (finish/cancel); next/back never |
 | `bc_close_page` | no save/discard dialog blocked the close (closing a closed form is a no-op) |
-| `bc_switch_company` | BC echoed the requested company |
+| `bc_switch_company` | the session ends on the requested company (a switch to the current company is a no-op that keeps open pages) |
 | `bc_run_report`, `bc_upload_file` | never: a re-run reruns the report or the import |
 
-An `OPERATION_IN_DOUBT` response is always `replaySafe: false`.
+An `OPERATION_IN_DOUBT` response is always `replaySafe: false`, and so is the first error response to an ambiguous failure (`TIMEOUT_ERROR`, `SESSION_LOST`, `CONNECTION_ERROR`, `PROTOCOL_ERROR`, `ABORTED_ERROR`, or an unclassified error), with or without an `operationId`: it is in `structuredContent` next to the error code. Definite failures (validation, business errors) carry no verdict, because nothing was applied.
 
 ## How it works
 

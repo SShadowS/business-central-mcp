@@ -40,6 +40,24 @@ function makeRepo(...pageContextIds: string[]) {
   return repo;
 }
 
+describe('SwitchCompanyOperation — replay', () => {
+  it('re-running a completed switch is a no-op: no re-open, page contexts kept, replaySafe true', async () => {
+    const session = makeSession();
+    const repo = makeRepo();
+    const op = new SwitchCompanyOperation(session, repo, noopLogger);
+
+    const first = await op.execute({ companyName: 'Fabrikam Inc.' });
+    expect(first.ok && first.value.replaySafe).toBe(true);
+
+    repo.create('pc:draft', 'form-draft'); // e.g. a Sales Order with an uninserted draft line
+    const second = await op.execute({ companyName: 'Fabrikam Inc.' });
+
+    expect(session.changeCompany).toHaveBeenCalledOnce();
+    expect(repo.get('pc:draft')).toBeDefined();
+    expect(second).toEqual({ ok: true, value: { previousCompany: 'Fabrikam Inc.', newCompany: 'Fabrikam Inc.', invalidatedPageContextIds: [], replaySafe: true } });
+  });
+});
+
 describe('SwitchCompanyOperation — session interaction', () => {
   it('delegates to session.changeCompany with the target company name', async () => {
     const session = makeSession();

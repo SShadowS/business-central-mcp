@@ -253,7 +253,7 @@ export class MCPHandler {
     const { response, failure } = outcome;
     if (!failure) {
       await ledger.settle(operationId, { status: 'completed', replaySafe: outcome.replaySafe === true, result: response.result });
-    } else if (failure.code === undefined || AMBIGUOUS_FAILURE_CODES.has(failure.code)) {
+    } else if (isAmbiguousFailure(failure.code)) {
       await ledger.settle(operationId, { status: 'unknown', replaySafe: false, error: failure });
     } else {
       // BC gave a definite answer (validation, business rule, sign-in...): nothing
@@ -264,6 +264,19 @@ export class MCPHandler {
   }
 
   private async runTool(tool: ToolDefinition, input: unknown, id: unknown): Promise<{ response: JsonRpcResponse; failure?: { code?: string; message: string }; replaySafe?: boolean }> {
+    const outcome = await this.executeTool(tool, input, id);
+    const { failure } = outcome;
+    const result = outcome.response.result as { content: Array<{ type: string; text: string }>; structuredContent?: Record<string, unknown> } | undefined;
+    // An ambiguous failure of a mutating tool is exactly when the caller most
+    // needs the verdict: the change may have committed, so a re-run is unsafe.
+    if (failure && result && !tool.annotations.readOnlyHint && isAmbiguousFailure(failure.code)) {
+      const state = { ...(result.structuredContent ?? (failure.code ? { code: failure.code } : {})), replaySafe: false };
+      outcome.response.result = { ...result, content: [result.content[0]!, { type: 'text', text: JSON.stringify(state) }], structuredContent: state };
+    }
+    return outcome;
+  }
+
+  private async executeTool(tool: ToolDefinition, input: unknown, id: unknown): Promise<{ response: JsonRpcResponse; failure?: { code?: string; message: string }; replaySafe?: boolean }> {
     try {
       const result = await tool.execute(input);
       // Result is a Result<T, BCError>
@@ -322,6 +335,7 @@ export class MCPHandler {
 
 /** Failures after which the mutation may or may not have reached BC. */
 const AMBIGUOUS_FAILURE_CODES = new Set(['TIMEOUT_ERROR', 'SESSION_LOST', 'CONNECTION_ERROR', 'PROTOCOL_ERROR', 'ABORTED_ERROR']);
+const isAmbiguousFailure = (code: string | undefined): boolean => code === undefined || AMBIGUOUS_FAILURE_CODES.has(code);
 
 const OPERATION_ID_SCHEMA = {
   type: 'string',
