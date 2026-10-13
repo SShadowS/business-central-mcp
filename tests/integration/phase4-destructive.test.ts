@@ -103,6 +103,39 @@ function createTestHarness() {
     return dismissed;
   }
 
+  function headerValue(pageContextId: string, caption: string): string {
+    return unwrap(dataService.getFields(pageContextId, 'header')).find(f => f.caption === caption)?.stringValue ?? '';
+  }
+
+  /**
+   * A NEW Sales Order for customer 10000. openPage('42') alone lands on an EXISTING
+   * order in view mode, where every SaveValue is a silent no-op (an earlier version
+   * of the twin test posted demo orders). Only the New action gives a fresh record,
+   * opened as its own ownerless form and page context. Throws rather than continue
+   * on anything but a blank order and an echoed customer write.
+   */
+  async function createNewOrder(tag: string): Promise<{ pageContextId: string; orderNo: string }> {
+    const listPc = unwrap(await pageService.openPage('42')).pageContextId;
+    openedPages.push(listPc);
+    const created = unwrap(await actionService.executeAction(listPc, 'New')).events
+      .find(e => e.type === 'FormCreated' && !e.parentFormId && e.formId !== repo.get(listPc)!.rootFormId);
+    const pcId = created ? repo.getByFormId(created.formId)?.pageContextId : undefined;
+    if (!pcId) throw new Error('New opened no new order form; refusing to continue');
+    openedPages.push(pcId);
+    await closeAndUntrack(listPc);
+    if (headerValue(pcId, 'Customer No.') !== '') {
+      throw new Error(`New did not give a blank order (No. ${headerValue(pcId, 'No.')}, customer ${headerValue(pcId, 'Customer No.')}); refusing to continue`);
+    }
+
+    const cust = await dataService.writeField(pcId, 'Customer No.', '10000');
+    if (!isOk(cust) || !cust.value.echoed) throw new Error(`Customer No. write did not take: ${isOk(cust) ? 'no echo' : cust.error.message}`);
+    if (cust.value.events) await dismissDialogs(pcId, cust.value.events, 'ok');
+    const orderNo = headerValue(pcId, 'No.');
+    if (orderNo === '') throw new Error('order got no number after the customer was entered');
+    console.error(`[${tag}] New order No.: "${orderNo}" (${pcId})`);
+    return { pageContextId: pcId, orderNo };
+  }
+
   return {
     get session() { return session; },
     get pageService() { return pageService; },
@@ -117,6 +150,8 @@ function createTestHarness() {
     openAndTrack,
     closeAndUntrack,
     dismissDialogs,
+    createNewOrder,
+    headerValue,
   };
 }
 
@@ -132,100 +167,52 @@ describe.sequential('Destructive: Post Sales Order end-to-end', () => {
 
   let orderPageContextId: string;
   let orderNo: string | undefined;
+  // Set only when the NEW order is fully built; the Post step refuses to run otherwise.
+  let orderReady = false;
 
   it('creates a new Sales Order with customer and line item', async () => {
-    // Step 1: Open a fresh Sales Order card (page 42)
-    console.error('[Post] Opening blank Sales Order (page 42)...');
-    const cardResult = await h.openAndTrack('42');
-    expect(isOk(cardResult)).toBe(true);
-    const ctx = unwrap(cardResult);
-    orderPageContextId = ctx.pageContextId;
-
-    console.error(`[Post] Page opened: ${orderPageContextId}`);
+    // Steps 1-2: New blank Sales Order (page 42) with Sell-to Customer No. = "10000"
+    console.error('[Post] Creating a new Sales Order (page 42)...');
+    const order = await h.createNewOrder('Post');
+    orderPageContextId = order.pageContextId;
+    orderNo = order.orderNo;
+    const ctx = h.repo.get(orderPageContextId)!;
     console.error(`[Post] Sections: ${Array.from(ctx.sections.keys()).join(', ')}`);
-
-    // Step 2: Set Sell-to Customer No. = "10000"
-    console.error('[Post] Writing Sell-to Customer No. = "10000"...');
-    const custResult = await h.dataService.writeField(
-      orderPageContextId, 'Customer No.', '10000',
-    );
-    expect(isOk(custResult)).toBe(true);
-    if (isOk(custResult)) {
-      console.error(`[Post] Customer set: newValue="${custResult.value.newValue}"`);
-
-      // Handle any cascading dialogs from customer change (e.g., "Update lines?")
-      if (custResult.value.events) {
-        const dialogCount = await h.dismissDialogs(orderPageContextId, custResult.value.events, 'ok');
-        if (dialogCount > 0) {
-          console.error(`[Post] Dismissed ${dialogCount} cascading dialog(s) from customer change`);
-        }
-      }
-    }
-
-    // Read the auto-assigned order number
-    const fieldsResult = h.dataService.getFields(orderPageContextId, 'header');
-    if (isOk(fieldsResult)) {
-      const noField = fieldsResult.value.find(f => f.caption === 'No.');
-      orderNo = noField?.stringValue;
-      console.error(`[Post] Order No.: "${orderNo}"`);
-    }
 
     // Step 3: Add a line item
     const linesSectionId = Array.from(ctx.sections.entries())
       .find(([, s]) => s.kind === 'lines')?.[0];
     expect(linesSectionId).toBeDefined();
+    if (!linesSectionId) return;
 
-    if (linesSectionId) {
-      // Create a new line
-      console.error('[Post] Adding new line...');
-      const newLineResult = await h.actionService.executeAction(orderPageContextId, 'New', linesSectionId);
-      expect(isOk(newLineResult)).toBe(true);
+    console.error('[Post] Adding new line...');
+    const newLineResult = await h.actionService.executeAction(orderPageContextId, 'New', linesSectionId);
+    expect(isOk(newLineResult)).toBe(true);
 
-      // Write Type = Item (enum value 2)
-      console.error('[Post] Setting line Type = Item...');
-      const typeResult = await h.dataService.writeField(
-        orderPageContextId, 'Type', '2',
+    // Type = Item (enum value 2), No. = "1996-S" (ATHENS Desk), Quantity = 1.
+    // Type may already default to Item (unchanged value = no echo), so only it is unchecked.
+    for (const [field, value, mustEcho] of [['Type', '2', false], ['No.', '1996-S', true], ['Quantity', '1', true]] as const) {
+      console.error(`[Post] Setting line ${field} = "${value}"...`);
+      const w = await h.dataService.writeField(
+        orderPageContextId, field, value,
         { sectionId: linesSectionId, rowIndex: 0 },
       );
-      if (isOk(typeResult)) {
-        console.error(`[Post] Type set: "${typeResult.value.newValue}"`);
-      } else {
-        console.error(`[Post] Type write failed: ${typeResult.error.message}`);
-      }
-
-      // Write No. = "1996-S" (ATHENS Desk)
-      console.error('[Post] Setting line No. = "1996-S"...');
-      const itemResult = await h.dataService.writeField(
-        orderPageContextId, 'No.', '1996-S',
-        { sectionId: linesSectionId, rowIndex: 0 },
-      );
-      if (isOk(itemResult)) {
-        console.error(`[Post] Item set: "${itemResult.value.newValue}"`);
-
-        // Handle any dialogs from item assignment (e.g., location confirmation)
-        if (itemResult.value.events) {
-          await h.dismissDialogs(orderPageContextId, itemResult.value.events, 'ok');
-        }
-      } else {
-        console.error(`[Post] Item write failed: ${itemResult.error.message}`);
-      }
-
-      // Write Quantity = 1
-      console.error('[Post] Setting line Quantity = "1"...');
-      const qtyResult = await h.dataService.writeField(
-        orderPageContextId, 'Quantity', '1',
-        { sectionId: linesSectionId, rowIndex: 0 },
-      );
-      if (isOk(qtyResult)) {
-        console.error(`[Post] Quantity set: "${qtyResult.value.newValue}"`);
-      } else {
-        console.error(`[Post] Quantity write failed: ${qtyResult.error.message}`);
-      }
+      if (!isOk(w)) throw new Error(`write ${field}=${value} failed: ${w.error.message}`);
+      if (mustEcho && !w.value.echoed) throw new Error(`write ${field}=${value} was not echoed (silent no-op?)`);
+      console.error(`[Post] ${field} set: "${w.value.newValue}"`);
+      if (w.value.events) await h.dismissDialogs(orderPageContextId, w.value.events, 'ok');
     }
+
+    if (h.headerValue(orderPageContextId, 'No.') !== orderNo) {
+      throw new Error(`order No. changed from ${orderNo} to ${h.headerValue(orderPageContextId, 'No.')}`);
+    }
+    orderReady = true;
   }, 60_000);
 
   it('executes Post action and handles dialog chain', async () => {
-    expect(orderPageContextId).toBeDefined();
+    // Never post anything but the order created above (an existing one would be real damage).
+    if (!orderReady) throw new Error('new order was not created; refusing to post');
+    expect(h.headerValue(orderPageContextId, 'No.')).toBe(orderNo);
 
     // Step 4: Find and execute the Post action
     const ctx = h.repo.get(orderPageContextId);
@@ -375,37 +362,23 @@ describe.sequential('Destructive: Copy Document dialog', () => {
   let orderPageContextId: string;
   let orderNo: string | undefined;
 
+  /** Copy Document writes into the target order: refuse anything but the order created here. */
+  function assertOwnOrder() {
+    if (!orderPageContextId || !orderNo) throw new Error('new order was not created; refusing to continue');
+    expect(h.headerValue(orderPageContextId, 'No.')).toBe(orderNo);
+  }
+
   it('opens a Sales Order and reads the order number', async () => {
-    // Open a fresh Sales Order to be the target of Copy Document
-    console.error('[CopyDoc] Opening Sales Order (page 42)...');
-    const cardResult = await h.openAndTrack('42');
-    expect(isOk(cardResult)).toBe(true);
-    const ctx = unwrap(cardResult);
-    orderPageContextId = ctx.pageContextId;
-
-    // Set a customer so the order is valid for copying into
-    console.error('[CopyDoc] Setting customer 10000...');
-    const custResult = await h.dataService.writeField(
-      orderPageContextId, 'Customer No.', '10000',
-    );
-    expect(isOk(custResult)).toBe(true);
-
-    // Handle cascading dialogs
-    if (isOk(custResult) && custResult.value.events) {
-      await h.dismissDialogs(orderPageContextId, custResult.value.events, 'ok');
-    }
-
-    // Read the order number
-    const fieldsResult = h.dataService.getFields(orderPageContextId, 'header');
-    if (isOk(fieldsResult)) {
-      const noField = fieldsResult.value.find(f => f.caption === 'No.');
-      orderNo = noField?.stringValue;
-      console.error(`[CopyDoc] Target order No.: "${orderNo}"`);
-    }
+    // A NEW Sales Order with customer 10000, so it is valid for copying into
+    console.error('[CopyDoc] Creating a new Sales Order (page 42)...');
+    const order = await h.createNewOrder('CopyDoc');
+    orderPageContextId = order.pageContextId;
+    orderNo = order.orderNo;
+    console.error(`[CopyDoc] Target order No.: "${orderNo}"`);
   }, 60_000);
 
   it('executes Copy Document action and verifies dialog fields', async () => {
-    expect(orderPageContextId).toBeDefined();
+    assertOwnOrder();
 
     // Execute Copy Document action using ActionService (resolves across all sections)
     console.error('[CopyDoc] Executing: "Copy Document..."...');
@@ -488,11 +461,7 @@ describe.sequential('Destructive: Copy Document dialog', () => {
   }, 60_000);
 
   it('fills Copy Document dialog fields and executes copy', async () => {
-    expect(orderPageContextId).toBeDefined();
-    if (!orderNo) {
-      console.error('[CopyDoc-Fill] SKIP: No order number available');
-      return;
-    }
+    assertOwnOrder();
 
     // Re-open the Copy Document dialog
     const ctx = h.repo.get(orderPageContextId);
