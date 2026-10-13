@@ -4,6 +4,11 @@
  *
  * These tests run against real BC28 (Cronus28) via the shared integration session pool.
  * They exercise document page workflows that go beyond basic CRUD.
+ *
+ * DESTRUCTIVE: they invoke Post / Request Approval on an existing Sales Order (and
+ * cancel), change its Sell-to Customer No. and External Document No. (restored in
+ * finally, restore asserted), and may add a line. Run with permission via
+ *   npx vitest run --config vitest.destructive.config.ts tests/integration/phase3-workflows-destructive.test.ts
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createNullLogger } from '../../src/core/logger.js';
@@ -18,6 +23,8 @@ import { actions as treeActions, repeaters as treeRepeaters } from '../../src/pr
 import { isOk, isErr, unwrap } from '../../src/core/result.js';
 import { integrationPool, type PooledLease } from './helpers/session-pool.js';
 import { stubDownloadService } from './helpers/download-service.js';
+import { restoreField } from './helpers/restore.js';
+import { SystemAction } from '../../src/protocol/types.js';
 
 // =============================================================================
 // Helper: session + service bootstrap (shared pattern across integration tests)
@@ -506,54 +513,55 @@ describe.sequential('Test 4.3: Cascading Refresh', () => {
       pageContextId, custNoField.caption, testValue,
     );
 
-    if (isOk(writeResult)) {
-      const wr = unwrap(writeResult);
-      console.error(`[4.3] Write success: newValue="${wr.newValue}"`);
+    try {
+      if (isOk(writeResult)) {
+        const wr = unwrap(writeResult);
+        console.error(`[4.3] Write success: newValue="${wr.newValue}"`);
 
-      // Check for cascading changes by examining events across sections
-      const events = wr.events ?? [];
-      console.error(`[4.3] Total events from write: ${events.length}`);
+        // Check for cascading changes by examining events across sections
+        const events = wr.events ?? [];
+        console.error(`[4.3] Total events from write: ${events.length}`);
 
-      // Detect which sections were affected
-      const updatedCtx = h.pageService.getPageContext(pageContextId);
-      if (updatedCtx) {
-        const changedSections = detectChangedSections(updatedCtx, events);
-        console.error(`[4.3] Changed sections: ${changedSections.join(', ') || 'NONE'}`);
+        // Detect which sections were affected
+        const updatedCtx = h.pageService.getPageContext(pageContextId);
+        if (updatedCtx) {
+          const changedSections = detectChangedSections(updatedCtx, events);
+          console.error(`[4.3] Changed sections: ${changedSections.join(', ') || 'NONE'}`);
 
-        // Changing the customer should cascade to both header and potentially lines
-        expect(changedSections.length).toBeGreaterThan(0);
-        console.error(`[4.3] Header changed: ${changedSections.includes('header')}`);
-        console.error(`[4.3] Lines changed: ${changedSections.includes('lines')}`);
+          // Changing the customer should cascade to both header and potentially lines
+          expect(changedSections.length).toBeGreaterThan(0);
+          console.error(`[4.3] Header changed: ${changedSections.includes('header')}`);
+          console.error(`[4.3] Lines changed: ${changedSections.includes('lines')}`);
 
-        // Check for dialogs (BC might ask "Do you want to update lines?")
-        const dialogs = detectDialogs(events);
-        console.error(`[4.3] Dialogs triggered: ${dialogs.length}`);
-        for (const d of dialogs) {
-          console.error(`[4.3]   Dialog: "${d.message ?? 'no message'}"`);
-          // Accept the cascading update
-          const dialogResp = await h.respondDialog.execute({
-            pageContextId,
-            dialogFormId: d.formId,
-            response: 'yes',
-          });
-          if (isOk(dialogResp)) {
-            console.error(`[4.3]   Dialog response: changedSections=${dialogResp.value.changedSections.join(', ')}`);
+          // Check for dialogs (BC might ask "Do you want to update lines?")
+          const dialogs = detectDialogs(events);
+          console.error(`[4.3] Dialogs triggered: ${dialogs.length}`);
+          for (const d of dialogs) {
+            console.error(`[4.3]   Dialog: "${d.message ?? 'no message'}"`);
+            // Accept the cascading update
+            const dialogResp = await h.respondDialog.execute({
+              pageContextId,
+              dialogFormId: d.formId,
+              response: 'yes',
+            });
+            if (isOk(dialogResp)) {
+              console.error(`[4.3]   Dialog response: changedSections=${dialogResp.value.changedSections.join(', ')}`);
+            }
           }
         }
+      } else {
+        console.error(`[4.3] Write failed: ${writeResult.error.message}`);
       }
-    } else {
-      console.error(`[4.3] Write failed: ${writeResult.error.message}`);
-      // This might produce a dialog that we need to handle
-    }
-
-    // Restore the original value
-    if (originalValue) {
-      console.error(`[4.3] Restoring original value: "${originalValue}"...`);
-      const restoreResult = await h.dataService.writeField(
-        pageContextId, custNoField.caption, originalValue,
-      );
-      if (isOk(restoreResult)) {
-        // Handle restore dialogs too
+    } finally {
+      // Restore in finally: a failed assertion above must not skip it.
+      if (originalValue) {
+        console.error(`[4.3] Restoring original value: "${originalValue}"...`);
+        const restoreResult = await h.dataService.writeField(
+          pageContextId, custNoField.caption, originalValue,
+        );
+        if (isErr(restoreResult)) throw new Error(`[4.3] restore failed: ${restoreResult.error.message}`);
+        // A "change customer?" confirm holds the value until answered, so the echo can
+        // arrive with the dialog response: check the field after the dialogs, not the write.
         const dialogs = detectDialogs(restoreResult.value.events ?? []);
         for (const d of dialogs) {
           await h.respondDialog.execute({
@@ -562,8 +570,10 @@ describe.sequential('Test 4.3: Cascading Refresh', () => {
             response: 'yes',
           });
         }
+        const restored = unwrap(h.dataService.readField(pageContextId, custNoField.caption))?.stringValue ?? '';
+        expect(restored, `[4.3] Sell-to Customer No. not restored to "${originalValue}"`).toBe(originalValue);
+        console.error('[4.3] Value restored');
       }
-      console.error('[4.3] Value restored');
     }
 
     await h.closeAndUntrack(pageContextId);
@@ -588,6 +598,13 @@ describe.sequential('Test 4.4: Close Page with Unsaved Changes', () => {
     const ctx = unwrap(result);
     const pageContextId = ctx.pageContextId;
 
+    // The close below saves the dirty record (no restore was ever run here before), so
+    // remember which record this is and what the field held, and put it back afterwards.
+    const page = h.repo.get(pageContextId)!;
+    const recordBookmark = page.forms.get(page.rootFormId)!.root.properties.bookmark;
+    expect(recordBookmark, '[4.4a] no record bookmark: refusing to write a record it cannot re-open').toBeTruthy();
+    const original = unwrap(h.dataService.readField(pageContextId, 'External Document No.'))?.stringValue ?? '';
+
     // Write a header field value to create unsaved changes
     console.error('[4.4a] Writing "External Document No." to create unsaved state...');
     const writeResult = await h.dataService.writeField(
@@ -600,6 +617,8 @@ describe.sequential('Test 4.4: Close Page with Unsaved Changes', () => {
       return;
     }
     console.error(`[4.4a] Write success: newValue="${writeResult.value.newValue}"`);
+
+    try {
 
     // Close the page -- BC may trigger a save dialog
     // Note: BC auto-saves on card pages, so a dialog may not appear.
@@ -640,6 +659,21 @@ describe.sequential('Test 4.4: Close Page with Unsaved Changes', () => {
       if (idx >= 0) h.openedPages.splice(idx, 1);
     } else {
       console.error(`[4.4a] Close failed: ${closeResult.error.message}`);
+    }
+    } finally {
+      // If the close above failed, the dirty page would save its probe on teardown's
+      // CloseForm and overwrite the restore below: close it first.
+      if (h.openedPages.includes(pageContextId)) {
+        try { await h.closeAndUntrack(pageContextId); } catch { /* restore below still runs */ }
+      }
+      // Re-open the same order and put the original value back (must echo, or already hold it).
+      const reopened = unwrap(await h.pageService.openPage('42', { bookmark: recordBookmark! }));
+      h.openedPages.push(reopened.pageContextId);
+      // A page opened on a bookmark lands in view mode, where SaveValue is a silent no-op.
+      unwrap(await h.actionService.executeSystemAction(reopened.pageContextId, SystemAction.Edit));
+      await restoreField(h.dataService, reopened.pageContextId, 'External Document No.', original);
+      await h.closeAndUntrack(reopened.pageContextId);
+      console.error(`[4.4a] Restored "External Document No." = "${original}"`);
     }
 
     console.error('[4.4a] DONE');

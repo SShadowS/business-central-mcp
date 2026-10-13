@@ -5,13 +5,23 @@ import type { BCSession } from '../../src/session/bc-session.js';
 import { PageService } from '../../src/services/page-service.js';
 import { DataService } from '../../src/services/data-service.js';
 import { ActionService } from '../../src/services/action-service.js';
-import { isOk } from '../../src/core/result.js';
+import { isOk, unwrap } from '../../src/core/result.js';
 import { RespondDialogOperation } from '../../src/operations/respond-dialog.js';
 import { repeaters as treeRepeaters } from '../../src/protocol/form-views.js';
 import { bookmarkTableId } from '../../src/protocol/form-state.js';
 import type { PageContext } from '../../src/protocol/page-context.js';
 import { integrationPool, type PooledLease } from './helpers/session-pool.js';
 import { stubDownloadService } from './helpers/download-service.js';
+import { restoreField } from './helpers/restore.js';
+
+/*
+ * DESTRUCTIVE: writes line cells and a header field on the first Sales Order, and
+ * adds then deletes lines on it. Each value write is restored to its original in
+ * finally and the restore must echo (helpers/restore.ts). Run with permission via
+ *   npx vitest run --config vitest.destructive.config.ts tests/integration/multi-section-destructive.test.ts
+ * Read-only multi-section coverage lives in drilldown-lines.test.ts and
+ * advanced-workflows A1 / document-and-bc28 D2.
+ */
 
 describe.sequential('Multi-Section: Sales Order (page 42)', () => {
   let lease: PooledLease;
@@ -165,22 +175,20 @@ describe.sequential('Multi-Section: Sales Order (page 42)', () => {
       pageContextId, 'Line Discount %', '5',
       { sectionId: linesSectionId, rowIndex: 0 },
     );
-    console.error('Write result:', isOk(writeResult) ? writeResult.value : writeResult.error);
-    expect(isOk(writeResult)).toBe(true);
-
-    // The write succeeded -- verify the FieldWriteResult
-    if (isOk(writeResult)) {
-      expect(writeResult.value.success).toBe(true);
-      expect(writeResult.value.fieldName).toBe('Line Discount %');
-    }
-
-    // Restore original value
     const restoreValue = String(originalDiscount ?? '0');
-    await dataService.writeField(
-      pageContextId, 'Line Discount %', restoreValue,
-      { sectionId: linesSectionId, rowIndex: 0 },
-    );
-    console.error(`Line Discount % restored to: ${restoreValue}`);
+    try {
+      console.error('Write result:', isOk(writeResult) ? writeResult.value : writeResult.error);
+      expect(isOk(writeResult)).toBe(true);
+
+      // The write succeeded -- verify the FieldWriteResult
+      if (isOk(writeResult)) {
+        expect(writeResult.value.success).toBe(true);
+        expect(writeResult.value.fieldName).toBe('Line Discount %');
+      }
+    } finally {
+      await restoreField(dataService, pageContextId, 'Line Discount %', restoreValue, { sectionId: linesSectionId, rowIndex: 0 });
+      console.error(`Line Discount % restored to: ${restoreValue}`);
+    }
 
     // Moving the lines subpage's current row emits the PART's Bookmark on the
     // host's server: path without ServerFormHandle; it must not become the
@@ -304,19 +312,22 @@ describe.sequential('Multi-Section: Sales Order (page 42)', () => {
   it('writes to a header field (External Document No.)', async () => {
     if (!ctx) { console.error('Skipping: no page context'); return; }
 
-    // Write a header field
-    const writeResult = await dataService.writeField(pageContextId, 'External Document No.', 'GATE4-TEST');
-    console.error('Header write result:', isOk(writeResult) ? writeResult.value : writeResult.error);
-    expect(isOk(writeResult)).toBe(true);
+    // Write a header field; restore the ORIGINAL value (the old restore blanked it).
+    const original = unwrap(dataService.readField(pageContextId, 'External Document No.'))?.stringValue ?? '';
+    const probe = original === 'GATE4-TEST' ? 'GATE4-TEST2' : 'GATE4-TEST';
+    const writeResult = await dataService.writeField(pageContextId, 'External Document No.', probe);
+    try {
+      console.error('Header write result:', isOk(writeResult) ? writeResult.value : writeResult.error);
+      expect(isOk(writeResult)).toBe(true);
 
-    if (isOk(writeResult)) {
-      expect(writeResult.value.success).toBe(true);
-      expect(writeResult.value.fieldName).toBe('External Document No.');
+      if (isOk(writeResult)) {
+        expect(writeResult.value.success).toBe(true);
+        expect(writeResult.value.fieldName).toBe('External Document No.');
+      }
+    } finally {
+      await restoreField(dataService, pageContextId, 'External Document No.', original);
+      console.error(`Restored External Document No. to "${original}"`);
     }
-
-    // Restore
-    await dataService.writeField(pageContextId, 'External Document No.', '');
-    console.error('Restored External Document No. to empty');
   });
 
   it('verifies multi-section architecture: section count and form count are consistent', async () => {
@@ -418,18 +429,19 @@ describe.sequential('Multi-Section: Sales Order on BC28', () => {
     const rowsResult = dataService.readRows(pageContextId, linesSectionId);
     if (!isOk(rowsResult) || rowsResult.value.length === 0) { console.error('BC28 - No rows'); return; }
 
+    // Restore the ORIGINAL discount (the old restore wrote '0' regardless).
+    const original = String(rowsResult.value[0]!.cells['Line Discount %'] ?? '0');
+    const probe = original === '3' ? '4' : '3';
     const writeResult = await dataService.writeField(
-      pageContextId, 'Line Discount %', '3',
+      pageContextId, 'Line Discount %', probe,
       { sectionId: linesSectionId, rowIndex: 0 },
     );
-    console.error('BC28 - Line write result:', isOk(writeResult) ? 'SUCCESS' : writeResult.error.message);
-    expect(isOk(writeResult)).toBe(true);
-
-    // Restore
-    await dataService.writeField(
-      pageContextId, 'Line Discount %', '0',
-      { sectionId: linesSectionId, rowIndex: 0 },
-    );
-    console.error('BC28 - Restored');
+    try {
+      console.error('BC28 - Line write result:', isOk(writeResult) ? 'SUCCESS' : writeResult.error.message);
+      expect(isOk(writeResult)).toBe(true);
+    } finally {
+      await restoreField(dataService, pageContextId, 'Line Discount %', original, { sectionId: linesSectionId, rowIndex: 0 });
+      console.error(`BC28 - Restored to ${original}`);
+    }
   });
 });

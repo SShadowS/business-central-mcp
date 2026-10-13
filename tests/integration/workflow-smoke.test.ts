@@ -344,83 +344,8 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
     logSessionHealth('W4');
   }, 30_000);
 
-  // ===========================================================================
-  // Workflow 5: Write Field (write + restore)
-  // ===========================================================================
-  it('Workflow 5: Write Field — write then restore on Customer Card', async () => {
-    console.error('\n--- Workflow 5: Write Field ---');
-    if (sessionDead) { console.error('[W5] SKIPPED -- session dead'); return; }
-
-    // Step 1: Open Customer Card
-    console.error('[W5] Opening Customer Card (page 21)...');
-    const openResult = await openAndTrack('21');
-    if (isErr(openResult)) { console.error(`[W5] Open FAILED: ${openResult.error.message}`); return; }
-    const state = derivePageState(unwrap(openResult));
-
-    // Step 2: Read current value of "Phone No."
-    const fieldsResult = dataService.getFields(state.pageContextId);
-    if (isErr(fieldsResult)) { console.error(`[W5] getFields FAILED: ${fieldsResult.error.message}`); return; }
-    const fields = unwrap(fieldsResult);
-
-    // Find an editable field — try Phone No., E-Mail, Fax No.
-    const candidateNames = ['Phone No.', 'E-Mail', 'Fax No.', 'Home Page'];
-    let targetField: { caption: string; stringValue?: string; controlPath: string } | undefined;
-    for (const name of candidateNames) {
-      const f = fields.find(f => f.caption.toLowerCase() === name.toLowerCase() && f.editable);
-      if (f) {
-        targetField = f;
-        break;
-      }
-    }
-
-    if (!targetField) {
-      console.error(`[W5] No editable field found among candidates. Available editable fields:`);
-      for (const f of fields.filter(f => f.editable).slice(0, 15)) {
-        console.error(`[W5]   "${f.caption}": "${f.stringValue ?? ''}" [${f.controlPath}]`);
-      }
-      console.error('[W5] SKIPPED — no suitable editable field');
-      await closeAndUntrack(state.pageContextId);
-      return;
-    }
-
-    const originalValue = targetField.stringValue ?? '';
-    const testValue = originalValue === 'SMOKE-TEST' ? 'SMOKE-TEST-2' : 'SMOKE-TEST';
-    console.error(`[W5] Target field: "${targetField.caption}" = "${originalValue}"`);
-    console.error(`[W5] Writing new value: "${testValue}"...`);
-
-    // Step 3: Write new value
-    try {
-      const writeResult = await dataService.writeField(state.pageContextId, targetField.caption, testValue);
-      if (isOk(writeResult)) {
-        const wr = unwrap(writeResult);
-        console.error(`[W5] Write success: field="${wr.fieldName}", newValue="${wr.newValue}", success=${wr.success}`);
-      } else {
-        console.error(`[W5] Write FAILED: ${writeResult.error.message}`);
-        console.error(`[W5] Details: ${JSON.stringify(writeResult.error.context)}`);
-      }
-    } catch (e: unknown) {
-      console.error(`[W5] Write THREW: ${e instanceof Error ? e.message : String(e)}`);
-    }
-
-    // Step 4: Restore original value
-    console.error(`[W5] Restoring original value: "${originalValue}"...`);
-    try {
-      const restoreResult = await dataService.writeField(state.pageContextId, targetField.caption, originalValue);
-      if (isOk(restoreResult)) {
-        console.error(`[W5] Restore success: newValue="${restoreResult.value.newValue}"`);
-      } else {
-        console.error(`[W5] Restore FAILED: ${restoreResult.error.message}`);
-      }
-    } catch (e: unknown) {
-      console.error(`[W5] Restore THREW: ${e instanceof Error ? e.message : String(e)}`);
-    }
-
-    // Close
-    console.error('[W5] Closing page...');
-    await closeAndUntrack(state.pageContextId);
-    console.error('[W5] DONE');
-    logSessionHealth('W5');
-  }, 30_000);
+  // Workflow 5 (write + restore on a real Customer Card) lives in
+  // card-writes-destructive.test.ts (destructive tier).
 
   // ===========================================================================
   // Workflow 6: Filter List Data
