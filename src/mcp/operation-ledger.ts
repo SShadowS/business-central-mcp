@@ -25,7 +25,8 @@ export type OperationStatus = 'sent' | 'completed' | 'unknown';
 
 /**
  * Entry format version (#37). 2 = `result` is the raw output value (#30).
- * Unversioned entries were written before #30 and store the MCP envelope.
+ * Unversioned entries hold either the pre-#30 MCP envelope or (#30 until #37)
+ * the raw value; `upgradeEntry` tells them apart.
  */
 export const LEDGER_FORMAT_VERSION = 2;
 
@@ -97,10 +98,14 @@ function stripDownloadBytes(result: unknown): unknown {
  * BC, so it is surfaced as `unknown` (OPERATION_IN_DOUBT on retry, then
  * bc_get_operation reads the record back).
  *
- * Unversioned (pre-#30) `completed` entries stored the MCP envelope the
- * handler built for a successful call, always exactly
- * `{content:[{type:'text', text: JSON.stringify(value, null, 2)}]}`, so the
- * raw value is recovered losslessly by parsing that text.
+ * Unversioned `completed` entries come from two eras. Before #30 the result was
+ * the MCP envelope the handler built for a successful call, always exactly
+ * `{content:[{type:'text', text: JSON.stringify(value, null, 2)}]}`, so the raw
+ * value is recovered losslessly by parsing that text. From #30 until `v` was
+ * added the result was already the raw value; it can never take that
+ * single-key envelope shape, because every mutating tool output carries
+ * `replaySafe`. Download bytes are stripped again (entries written before #29
+ * kept them; stripping is idempotent).
  */
 function upgradeEntry(raw: Omit<OperationEntry, 'v'> & { v?: unknown }): OperationEntry {
   if (raw.v === LEDGER_FORMAT_VERSION) return raw as OperationEntry;
@@ -112,12 +117,14 @@ function upgradeEntry(raw: Omit<OperationEntry, 'v'> & { v?: unknown }): Operati
   if (raw.status !== 'completed') return { ...raw, v: LEDGER_FORMAT_VERSION };
   const content = (raw.result as { content?: unknown } | null | undefined)?.content;
   const only = Array.isArray(content) && content.length === 1 ? content[0] as { type?: unknown; text?: unknown } : undefined;
-  if (Object.keys(raw.result ?? {}).length === 1 && only?.type === 'text' && typeof only.text === 'string') {
-    try {
-      return { ...raw, v: LEDGER_FORMAT_VERSION, result: stripDownloadBytes(JSON.parse(only.text)) };
-    } catch { /* not JSON: fall through */ }
+  if (Object.keys(raw.result ?? {}).length !== 1 || only?.type !== 'text' || typeof only.text !== 'string') {
+    return { ...raw, v: LEDGER_FORMAT_VERSION, result: stripDownloadBytes(raw.result) };
   }
-  return inDoubt('has an unrecognised pre-version result');
+  try {
+    return { ...raw, v: LEDGER_FORMAT_VERSION, result: stripDownloadBytes(JSON.parse(only.text)) };
+  } catch {
+    return inDoubt('has a pre-#30 envelope whose text is not JSON');
+  }
 }
 
 export class OperationLedger {

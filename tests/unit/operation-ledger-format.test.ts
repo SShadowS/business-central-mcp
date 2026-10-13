@@ -44,8 +44,20 @@ describe('OperationLedger entry format version (#37)', () => {
     expect((replayed.downloads[0] as unknown as { error: { code: string } }).error.code).toBe('NOT_REPLAYED');
   });
 
+  it('replays an unversioned #30-era raw result as-is instead of marking it in doubt', async () => {
+    const value = { fields: [{ name: 'Name', value: 'A' }], replaySafe: true, downloads: [{ fileName: 'a.xlsx', sizeBytes: 3, bytes: 'QUJD' }] };
+    writeRaw('raw-ok', { status: 'completed', replaySafe: true, result: value });
+    const { o, exec } = await runGate('raw-ok');
+    expect(exec).not.toHaveBeenCalled();
+    expect(o.kind).toBe('replayed');
+    const replayed = (o as { value: typeof value }).value;
+    expect(replayed.fields).toEqual(value.fields);
+    expect(replayed.downloads[0]).not.toHaveProperty('bytes');
+    // completed TTL, not the in-doubt one
+    expect(await new OperationLedger(dir, { completedTtlMs: 24 * HOUR, inDoubtTtlMs: 30 * 24 * HOUR }).prune(Date.now() + 25 * HOUR)).toBe(1);
+  });
+
   it.each([
-    ['an envelope with extra keys', { status: 'completed', result: { content: [{ type: 'text', text: '{}' }], structuredContent: {} } }],
     ['non-JSON envelope text', { status: 'completed', result: { content: [{ type: 'text', text: 'Posted.' }] } }],
     ['a newer format version', { v: LEDGER_FORMAT_VERSION + 1, status: 'completed', result: { posted: 'SO-1' } }],
   ])('treats %s as in doubt, never re-running or releasing it', async (_label, fields) => {
@@ -65,7 +77,7 @@ describe('OperationLedger entry format version (#37)', () => {
   });
 
   it('prunes an unconvertible old completed entry on the long in-doubt retention, not the completed TTL', async () => {
-    writeRaw('odd', { status: 'completed', result: { content: [] } });
+    writeRaw('odd', { status: 'completed', result: { content: [{ type: 'text', text: 'Posted.' }] } });
     const ledger = new OperationLedger(dir, { completedTtlMs: 24 * HOUR, inDoubtTtlMs: 30 * 24 * HOUR });
     expect(await ledger.prune(Date.now() + 25 * HOUR)).toBe(0);
     expect(await ledger.prune(Date.now() + 31 * 24 * HOUR)).toBe(1);
