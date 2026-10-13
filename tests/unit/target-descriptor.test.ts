@@ -51,6 +51,15 @@ describe('createTargetDescriber', () => {
     expect(describe({ pageContextId: PC, bookmarks: ['BM1', 'BM2'] }).rows?.map(r => r.bookmark)).toEqual(['BM1', 'BM2']);
   });
 
+  it('falls back to BC\'s current row when the call names no row', () => {
+    const repo = listRepo();
+    const describe = createTargetDescriber(repo, () => undefined);
+    expect(describe({ pageContextId: PC, action: 'Post' }).rows).toBeUndefined(); // no cursor yet
+    repo.applyToPage(PC, [{ type: 'BookmarkChanged', formId: 'F1', controlPath: 'server:c[0]', bookmark: 'BM2' } as BCEvent]);
+    expect(describe({ pageContextId: PC, action: 'Post' }).rows).toEqual([{ bookmark: 'BM2', cells: { 'No.': '20000', Name: 'Trey' } }]);
+    expect(describe({ pageContextId: PC, action: 'Post', bookmark: 'BM1' }).rows?.map(r => r.bookmark)).toEqual(['BM1']);
+  });
+
   it('keeps args only when there is no page context (report, company switch, dead context) and drops file payloads', () => {
     const describe = createTargetDescriber(listRepo(), () => 'CRONUS');
     expect(describe({ reportId: '6' })).toMatchObject({ company: 'CRONUS', args: { reportId: '6' } });

@@ -1,5 +1,6 @@
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import { buildSection } from '../protocol/section-dto.js';
+import { resolveSection } from '../protocol/section-resolver.js';
 
 /**
  * What a mutating tool call was aimed at, snapshotted from the live page
@@ -16,7 +17,7 @@ export interface TargetDescriptor {
   args: Record<string, unknown>;
   page?: { pageContextId: string; pageId?: string; caption: string; pageType: string; isModal: boolean };
   section?: { sectionId: string; kind: string; caption: string };
-  /** Targeted rows (bookmark/bookmarks/rowIndex) with captioned cell values. */
+  /** Targeted rows (bookmark/bookmarks/rowIndex, else BC's current row) with captioned cell values. */
   rows?: Array<{ bookmark: string; cells: Record<string, unknown> }>;
   /** Card-shape sections: leading non-empty field values (usually the record key). */
   fields?: Record<string, string>;
@@ -50,8 +51,13 @@ export function createTargetDescriber(repo: Pick<PageContextRepository, 'get'>, 
       const rows = section.rows ?? [];
       const wanted = Array.isArray(raw['bookmarks']) ? raw['bookmarks'] as string[]
         : typeof raw['bookmark'] === 'string' ? [raw['bookmark']] : undefined;
+      // No explicit row: a row-scoped call runs against BC's current row
+      // ({repeater}/cr), tracked from BookmarkChanged on the repeater node.
+      const resolved = resolveSection(ctx, section.sectionId);
+      const current = 'error' in resolved ? undefined : resolved.repeater?.properties.bookmark;
       const picked = wanted ? rows.filter(r => wanted.includes(r.bookmark))
-        : typeof raw['rowIndex'] === 'number' && rows[raw['rowIndex']] ? [rows[raw['rowIndex']]!] : [];
+        : typeof raw['rowIndex'] === 'number' ? (rows[raw['rowIndex']] ? [rows[raw['rowIndex']]!] : [])
+          : rows.filter(r => r.bookmark === current);
       if (picked.length > 0) out.rows = picked.map(r => ({ bookmark: r.bookmark, cells: { ...r.cells } }));
       const keyFields = (section.fields ?? []).filter(f => f.value).slice(0, CARD_KEY_FIELDS);
       if (keyFields.length > 0) out.fields = Object.fromEntries(keyFields.map(f => [f.name, f.value!]));

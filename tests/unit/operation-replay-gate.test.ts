@@ -72,18 +72,35 @@ describe('operationId replay gate', () => {
     expect(execute).toHaveBeenCalledTimes(2);
   });
 
-  it('lets only one of two concurrent calls with one id execute', async () => {
-    let release!: () => void;
-    const execute = vi.fn().mockImplementation(() => new Promise(res => { release = () => res({ ok: true, value: {} }); }));
+  it('lets only one of two truly concurrent calls with one id execute', async () => {
+    const releases: Array<() => void> = [];
+    const execute = vi.fn().mockImplementation(() => new Promise(res => { releases.push(() => res({ ok: true, value: {} })); }));
     const h = new MCPHandler([mutatingTool(execute)], logger(), [], { ledger: new OperationLedger(dir) });
+    // Fire both before either claim settles: the loser must see the winner's complete entry.
     const a = call(h, { value: 'x', operationId: 'op-5' });
-    // Let `a` win the claim first; otherwise `b` may claim, execute and hang on the never-released promise.
-    await vi.waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
-    const b = await call(h, { value: 'x', operationId: 'op-5' });
-    expect(b.structuredContent).toMatchObject({ code: 'OPERATION_IN_DOUBT', status: 'sent' });
-    release();
-    expect((await a).isError).toBeUndefined();
+    const b = call(h, { value: 'x', operationId: 'op-5' });
+    const loser = await Promise.race([a, b]);
+    expect(loser.structuredContent).toMatchObject({ code: 'OPERATION_IN_DOUBT', status: 'sent' });
+    releases.forEach(r => r());
+    await Promise.all([a, b]);
     expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('never exposes a partially written entry while a claim is in flight', async () => {
+    // Regression: claim() used writeFile(wx) = open then write, so a concurrent
+    // claimer (or a restart after a mid-write crash) read '' and threw SyntaxError.
+    const ledger = new OperationLedger(dir);
+    const big = { args: { blob: 'x'.repeat(3_000_000) }, capturedAt: '' };
+    for (let i = 0; i < 20; i++) {
+      let done = false;
+      const claim = ledger.claim(`op-race-${i}`, 't', 'd', big).finally(() => { done = true; });
+      while (!done) {
+        const seen = await ledger.get(`op-race-${i}`); // throws on a partial file
+        if (seen) expect(seen.status).toBe('sent');
+      }
+      expect((await claim).claimed).toBe(true);
+      expect((await ledger.claim(`op-race-${i}`, 't', 'd')).claimed).toBe(false);
+    }
   });
 
   it('advertises operationId only on mutating tools and leaves read-only input untouched', async () => {

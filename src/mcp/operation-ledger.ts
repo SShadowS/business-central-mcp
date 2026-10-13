@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { link, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { TargetDescriptor } from '../operations/target-descriptor.js';
 
@@ -66,14 +66,22 @@ export class OperationLedger {
     await mkdir(this.dir, { recursive: true });
     const now = new Date().toISOString();
     const entry: OperationEntry = { operationId, tool, inputDigest, status: 'sent', ...(target ? { target } : {}), createdAt: now, updatedAt: now };
+    // Write the full entry to a private temp file, then publish it with link():
+    // atomic create-if-absent (EEXIST when taken), so a concurrent claimer or a
+    // restart after a crash never reads an empty/truncated entry.
+    const path = this.pathFor(operationId);
+    const tmp = `${path}.${randomUUID()}.tmp`;
+    await writeFile(tmp, JSON.stringify(entry));
     try {
-      await writeFile(this.pathFor(operationId), JSON.stringify(entry), { flag: 'wx' });
+      await link(tmp, path);
       return { claimed: true };
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
       const existing = await this.get(operationId);
       if (!existing) throw new Error(`Operation ledger entry ${operationId} vanished during claim`);
       return { claimed: false, existing };
+    } finally {
+      await rm(tmp, { force: true });
     }
   }
 
