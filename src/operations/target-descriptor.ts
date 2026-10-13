@@ -29,7 +29,7 @@ export interface TargetDescriptor {
    * key fields without a control come from the record bookmark (`source: 'bookmark'`).
    */
   keyFields?: KeyField[];
-  /** Card-shape fallback when the form is unbound or no key field has a control: leading non-empty field values. */
+  /** Card-shape fallback when the form is unbound or no key field has a control (key only from the bookmark): leading non-empty field values. */
   fields?: Record<string, string>;
   dialog?: { formId: string; message?: string };
 }
@@ -101,7 +101,9 @@ export function createTargetDescriber(repo: Pick<PageContextRepository, 'get'>, 
         // Whole form tree: a key field can sit outside the first group or be hidden (Sales Order "No.").
         const keyFields = 'error' in resolved ? [] : readKeyFields(resolved.form.root);
         if (keyFields.length > 0) out.keyFields = keyFields;
-        else {
+        // A key decoded only from the bookmark is no evidence: bc_get_operation already
+        // checks the landed bookmark, so keep the leading fields as the record's state.
+        if (!keyFields.some(k => !k.source)) {
           const leading = (section.fields ?? []).filter(f => f.value).slice(0, CARD_KEY_FIELDS);
           if (leading.length > 0) out.fields = Object.fromEntries(leading.map(f => [f.name, f.value!]));
         }

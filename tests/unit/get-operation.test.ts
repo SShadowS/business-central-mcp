@@ -107,6 +107,27 @@ describe('GetOperationOperation', () => {
     expect(r.value.evidenceHash).toBeDefined();
   });
 
+  it('keeps the leading-field fallback when the key comes only from the bookmark (no key control)', async () => {
+    const repo = new PageContextRepository();
+    repo.create(CARD, 'C1', { isModal: false, wizardState: null });
+    repo.applyToPage(CARD, [{
+      type: 'FormCreated', formId: 'C1', isReload: false,
+      controlTree: {
+        t: 'lf', ServerId: 'C1', PageType: 0, Caption: 'Sales Order', Bookmark: SO_101009,
+        Metadata: { id: 42, sourceTableId: 36, primaryKeyIds: [1, 3] },
+        Children: [{ t: 'sc', Caption: 'Address 2', StringValue: 'X', TableFieldNo: 6 }],
+      },
+    } as BCEvent]);
+    const target = createTargetDescriber(repo, () => 'CRONUS')({ pageContextId: CARD, action: 'Release' });
+    expect(target.keyFields).toEqual([{ fieldNo: 1, caption: '', value: '1', source: 'bookmark' }, { fieldNo: 3, caption: '', value: '101009', source: 'bookmark' }]);
+    expect(target.fields).toEqual({ 'Address 2': 'X' });
+    await ledger.claim('pkb', 'bc_execute_action', 'digest', target);
+    await ledger.settle('pkb', { status: 'unknown', replaySafe: false });
+    const r = await opWith(repo, 'CRONUS', false, CARD).op.execute({ operationId: 'pkb' });
+    if (!r.ok) throw r.error;
+    expect(r.value.readBack?.fields).toEqual({ 'Address 2': 'X' });
+  });
+
   it('reports a primary-key mismatch distinctly, without an evidence hash', async () => {
     const target = createTargetDescriber(keyedRepo('101009'), () => 'CRONUS')({ pageContextId: CARD, action: 'Release' });
     await ledger.claim('pkx', 'bc_execute_action', 'digest', target);

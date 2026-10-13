@@ -155,10 +155,13 @@ describe('bc_get_operation (integration)', () => {
     expect(g.readBack).toMatchObject({ pageId: '42', sectionId: 'header', bookmark: target.page!.bookmark });
     expect(g.readBack!.lines!.length).toBeGreaterThan(0);
     expect(Object.keys(g.readBack!.lines![0]!.cells)).toContain('Quantity Shipped');
-    // #33: Sales Header key is (Document Type=1, No.=3). Live: field 1 has no control on
-    // page 42 and "No." is a hidden control, so the key is read by TableFieldNo, not caption.
-    expect(target.keyFields?.map(k => k.fieldNo)).toEqual([3]);
-    expect(target.keyFields![0]!.value).toBeTruthy();
+    // #33/#34: Sales Header key is (Document Type=1, No.=3). Live: field 1 has no control on
+    // page 42, so it is decoded from the record bookmark (Order = ordinal 1); "No." is a
+    // hidden control, read by TableFieldNo, not caption.
+    expect(target.keyFields?.map(k => k.fieldNo)).toEqual([1, 3]);
+    expect(target.keyFields![0]).toEqual({ fieldNo: 1, caption: '', value: '1', source: 'bookmark' });
+    expect(target.keyFields![1]!.source).toBeUndefined();
+    expect(target.keyFields![1]!.value).toBeTruthy();
     expect(target.fields).toBeUndefined();
     expect(g.readBack!.keyFields).toEqual(target.keyFields);
   }, 120_000);

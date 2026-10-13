@@ -134,7 +134,7 @@ export class GetOperationOperation {
         // hidden in a fresh (view-mode, collapsed) page and so be absent from section.fields.
         // Same name resolution as bc_write_data: caption case-insensitively, or controlPath.
         if (names.size > 0) readBack.fields = Object.fromEntries([...names].map(n => [n, (root && findField(root, n)?.properties.stringValue) ?? null]));
-        else if (!target.keyFields) readBack.fields = Object.fromEntries((section.fields ?? []).map(f => [f.name, f.value ?? null]));
+        else if (!target.keyFields?.some(k => !k.source)) readBack.fields = Object.fromEntries((section.fields ?? []).map(f => [f.name, f.value ?? null]));
         if (sectionId === 'header') {
           const linesId = [...ctx.sections.values()].find(s => s.kind === 'lines')?.sectionId;
           const rows = linesId ? buildSection(ctx, linesId)?.rows : undefined;
