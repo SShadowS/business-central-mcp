@@ -43,9 +43,10 @@ export class BCWebSocket {
     this.requestHandler = handler;
   }
 
-  /** Test seam: inject a pre-built WebSocket (e.g. a spy object). */
+  /** Test seam: inject a pre-built WebSocket (e.g. a spy object), wired like connect() does. */
   _setWsForTesting(ws: WebSocket): void {
     this.ws = ws;
+    this.setupHandlers(ws);
   }
 
   get nextSequenceNo(): string {

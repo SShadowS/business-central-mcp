@@ -275,6 +275,7 @@ Verify against real BC first. Codify verified behavior as unit tests second. Nev
 
 ### Test Tiers
 1. **Unit tests** (`tests/unit/`, `tests/protocol/`): Pure logic, no BC needed. Run with `npx vitest run`.
+   - `tests/helpers/fake-bc-socket.ts` fakes the raw socket behind a REAL `BCWebSocket`: a script per request can `reply`, push async `message` handlers (e.g. `invokeCompleted(callbackId)`), or `drop` the socket. Use it for transport-level paths such as commit-then-drop (`tests/unit/commit-then-drop.test.ts`: InvokeCompleted then close -> ledger `unknown`, retry not re-sent).
 2. **Integration tests** (`tests/integration/`): Against real BC28 (Cronus28). Run with `npx vitest run --config vitest.integration.config.ts`.
 3. **Workflow smoke tests**: Exercises the MCP tools in realistic multi-step workflows.
 4. **Edge case tests**: Protocol edge cases, error handling, cross-version compatibility.
