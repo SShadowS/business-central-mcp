@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FormProjection } from '../../src/protocol/form-state.js';
+import { FormProjection, bookmarkTableId } from '../../src/protocol/form-state.js';
 import type { FormState } from '../../src/protocol/form-state.js';
 import type { BCEvent } from '../../src/protocol/types.js';
 import { buildFormTree } from '../../src/protocol/form-tree-builder.js';
@@ -230,5 +230,23 @@ describe('FormProjection', () => {
     expect(form.root.properties.bookmark).toBe('CARD2');
     change({ Bookmark: 'CARD3' }); // the host's own changes carry no handle unless it changed
     expect(form.root.properties.bookmark).toBe('CARD3');
+  });
+
+  it('ignores a part\'s later handle-less Bookmark change from another table', () => {
+    // Sales Header (36) host; '4_JQ' = table 37 (Sales Line), '4_JA' = table 36.
+    const root = buildFormTree({ t: 'lf', ServerId: 'f1', PageType: 0, Bookmark: '4_JAB', ServerFormHandle: 'H', Metadata: { id: 42, sourceTableId: 36 }, Children: [] });
+    let form: FormState = { ...makeForm(), root };
+    const change = (changes: Record<string, unknown>) =>
+      (form = projection.apply(form, { type: 'PropertyChanged', formId: 'f1', controlPath: 'server:', changes } as BCEvent));
+    change({ Bookmark: '4_JQ', SystemId: 'line' });
+    expect(form.root.properties.bookmark).toBe('4_JAB');
+    change({ Bookmark: '4_JA' });
+    expect(form.root.properties.bookmark).toBe('4_JA');
+  });
+
+  it('bookmarkTableId reads the table id from a record bookmark', () => {
+    expect(bookmarkTableId('B_IQUAAAJ7')).toBe(1313); // live capture, page 1310 sourceTableId 1313
+    expect(bookmarkTableId('2C_wCMAAAJ7_1MAUwBIAEEARABPAFcAUwAAAAJ7_zEAOAA5ADYALQBT')).toBe(9152);
+    expect(bookmarkTableId('6e50f179-7956-4aef-b5cf-a425c1bd1c68')).toBeUndefined();
   });
 });

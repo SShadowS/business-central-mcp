@@ -65,7 +65,7 @@ describe('bc_get_operation (integration)', () => {
     const ledger = new OperationLedger(stateDir);
     const ops = {
       writeData: writeDataOp,
-      getOperation: new GetOperationOperation(ledger, pageService, () => session.companyName),
+      getOperation: new GetOperationOperation(ledger, pageService, () => session.companyName, () => session.modalStackSnapshot().length > 0),
     } as unknown as Operations;
     handler = new MCPHandler([writeDataTool(ops), getOperationTool(ops)], logger, [], {
       ledger, describeTarget: createTargetDescriber(repo, () => session.companyName),

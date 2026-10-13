@@ -9,7 +9,7 @@ export function createToolDefinition(ops: Operations): ToolDefinition {
 
 When the outcome is unknown or replaySafe is false, this tool also re-reads the target in the current session: it re-opens the page by page id and record bookmark, reads the identified fields (the record's key fields and any written fields) or the targeted row, closes the page again, and returns them as readBack plus evidenceHash, a SHA-256 of the canonical JSON of readBack. Use it after OPERATION_IN_DOUBT, a timeout, or SESSION_LOST to decide whether the change landed before acting again under a new operationId.
 
-This tool changes nothing in BC. A completed, replay-safe operation is returned without a read-back. If the operation ran in another company, readBackError COMPANY_MISMATCH tells you to bc_switch_company first. Do NOT use it to read arbitrary records -- use bc_open_page and bc_read_data for that.`,
+This tool changes nothing in BC. A completed, replay-safe operation is returned without a read-back. If the operation ran in another company, readBackError COMPANY_MISMATCH tells you to bc_switch_company first. If a dialog is open in the session, readBackError MODAL_OPEN: answer it with bc_respond_dialog first (opening a page would cancel it). Do NOT use it to read arbitrary records -- use bc_open_page and bc_read_data for that.`,
     inputSchema: toMcpJsonSchema(GetOperationSchema),
     zodSchema: GetOperationSchema,
     annotations: { readOnlyHint: true, openWorldHint: false },

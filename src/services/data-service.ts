@@ -5,9 +5,9 @@ import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { BCEvent, RepeaterRow, ControlField, TabGroup, SaveValueInteraction, SetCurrentRowInteraction, ScrollRepeaterInteraction } from '../protocol/types.js';
 import type { Logger } from '../core/logger.js';
 import { resolveSection } from '../protocol/section-resolver.js';
-import { fields as treeFields, tabs as treeTabs } from '../protocol/form-views.js';
+import { fields as treeFields, tabs as treeTabs, findField } from '../protocol/form-views.js';
 import { findByControlPath } from '../protocol/form-tree-walk.js';
-import { isFieldNode, type FieldNode, type FormNode, type RepeaterNode } from '../protocol/form-node.js';
+import { isFieldNode, type RepeaterNode } from '../protocol/form-node.js';
 import { fieldNodeToControlField } from '../protocol/mcp-adapters.js';
 import { mapRowCellKeys } from '../protocol/row-mapping.js';
 import { valueEchoed } from '../protocol/replay-safety.js';
@@ -108,7 +108,7 @@ export class DataService {
     if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
     const resolved = resolveSection(ctx, sectionId, 'header');
     if ('error' in resolved) return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
-    const node = this.resolveFieldNode(resolved.form.root, fieldName);
+    const node = findField(resolved.form.root, fieldName);
     return ok(node ? fieldNodeToControlField(resolved.form.root, node) : undefined);
   }
 
@@ -143,7 +143,7 @@ export class DataService {
     }
 
     // Header/card field write
-    const fieldNode = this.resolveFieldNode(form.root, fieldName);
+    const fieldNode = findField(form.root, fieldName);
     if (!fieldNode) {
       return err(new ProtocolError(`Field not found: ${fieldName}`, {
         pageContextId,
@@ -260,15 +260,6 @@ export class DataService {
     const newValue = updatedNode && isFieldNode(updatedNode) ? (updatedNode.properties.stringValue ?? value) : value;
 
     return ok({ fieldName, controlPath: cellPath, success: true, newValue, echoed: valueEchoed(saveResult.value, [formId, updatedCtx?.rootFormId ?? formId], cellPath), events: allEvents });
-  }
-
-  private resolveFieldNode(root: FormNode, fieldName: string): FieldNode | undefined {
-    const lower = fieldName.toLowerCase();
-    for (const f of treeFields(root)) {
-      if ((f.properties.caption ?? '').toLowerCase() === lower) return f;
-      if (f.controlPath === fieldName) return f;
-    }
-    return undefined;
   }
 }
 

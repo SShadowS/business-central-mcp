@@ -34,6 +34,12 @@ export function fields(root: FormNode): readonly FieldNode[] {
   return result;
 }
 
+/** The field a tool's field name addresses: caption (case-insensitive) or exact controlPath. */
+export function findField(root: FormNode, fieldName: string): FieldNode | undefined {
+  const lower = fieldName.toLowerCase();
+  return fields(root).find(f => (f.properties.caption ?? '').toLowerCase() === lower || f.controlPath === fieldName);
+}
+
 export function actions(root: FormNode): readonly ActionNode[] {
   const cached = actionsCache.get(root);
   if (cached) return cached;

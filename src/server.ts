@@ -141,7 +141,7 @@ async function main() {
       lookup: new LookupOperation(lookupService),
       query: queryOperation,
       uploadFile: new UploadFileOperation(uploadService),
-      getOperation: new GetOperationOperation(ledger, pageService, () => s.companyName),
+      getOperation: new GetOperationOperation(ledger, pageService, () => s.companyName, () => s.modalStackSnapshot().length > 0),
     };
 
     return { operations, tools: buildToolRegistry(operations) };

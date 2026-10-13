@@ -129,6 +129,15 @@ export class FormProjection {
     if (event.controlPath === 'server:' && ownHandle && typeof changes.ServerFormHandle === 'string' && changes.ServerFormHandle !== ownHandle) {
       return form;
     }
+    // ServerFormHandle is only sent when it changes (LogicalFormObserver.BeforeGetChanges),
+    // so a part's LATER Bookmark change (a lines subpage or factbox moving row)
+    // arrives without it. A record bookmark starts with its table id
+    // (RecordBookmark.TableId), so one from another table is not the host's.
+    const sourceTableId = 'metadata' in form.root ? form.root.metadata?.sourceTableId : undefined;
+    if (event.controlPath === 'server:' && sourceTableId && typeof changes.Bookmark === 'string') {
+      const tableId = bookmarkTableId(changes.Bookmark);
+      if (tableId !== undefined && tableId !== sourceTableId) return form;
+    }
 
     // Translate BC's wire property names (PascalCase) → NodeProperties (camelCase)
     const nodeChanges: NodeProperties = {};
@@ -191,4 +200,18 @@ export class FormProjection {
     }
     return rows;
   }
+}
+
+/**
+ * Table id of a BC record bookmark, or undefined when it is not one (e.g. a
+ * draft-row GUID). Wire format `<len hex>_<base64url>` or `<len>;<base64>`
+ * with trailing zero bytes trimmed (decompiled NavBookmarkHelper.Parse); the
+ * first 4 bytes are the table id, little-endian (RecordBookmark.TableId).
+ */
+export function bookmarkTableId(bookmark: string): number | undefined {
+  const m = /^[0-9A-Fa-f]+[_;](.+)$/.exec(bookmark);
+  if (!m) return undefined;
+  const bytes = Buffer.alloc(4);
+  Buffer.from(m[1]!, 'base64').copy(bytes, 0, 0, 4);
+  return bytes.readInt32LE(0);
 }

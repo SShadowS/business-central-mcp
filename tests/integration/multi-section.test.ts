@@ -8,6 +8,7 @@ import { ActionService } from '../../src/services/action-service.js';
 import { isOk, unwrap } from '../../src/core/result.js';
 import { RespondDialogOperation } from '../../src/operations/respond-dialog.js';
 import { repeaters as treeRepeaters } from '../../src/protocol/form-views.js';
+import { bookmarkTableId } from '../../src/protocol/form-state.js';
 import type { PageContext } from '../../src/protocol/page-context.js';
 import { integrationPool, type PooledLease } from './helpers/session-pool.js';
 import { stubDownloadService } from './helpers/download-service.js';
@@ -180,6 +181,18 @@ describe.sequential('Multi-Section: Sales Order (page 42)', () => {
       { sectionId: linesSectionId, rowIndex: 0 },
     );
     console.error(`Line Discount % restored to: ${restoreValue}`);
+
+    // Moving the lines subpage's current row emits the PART's Bookmark on the
+    // host's server: path without ServerFormHandle; it must not become the
+    // header's record bookmark (bc_get_operation re-opens page 42 on it).
+    const last = rowsResult.value.length - 1;
+    if (last > 0) {
+      const moved = await dataService.writeField(pageContextId, 'Line Discount %', String(rowsResult.value[last]!.cells['Line Discount %'] ?? '0'),
+        { sectionId: linesSectionId, rowIndex: last });
+      expect(isOk(moved)).toBe(true);
+    }
+    const rootBookmark = repo.get(pageContextId)!.forms.get(repo.get(pageContextId)!.rootFormId)!.root.properties.bookmark;
+    if (rootBookmark) expect(bookmarkTableId(rootBookmark)).toBe(36);
   });
 
   it('drills down from a line cell (No. field)', async () => {

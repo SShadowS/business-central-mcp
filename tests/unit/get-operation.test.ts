@@ -45,13 +45,58 @@ describe('GetOperationOperation', () => {
     await ledger.settle(id, { status, replaySafe });
   }
 
-  function opWith(current: PageContextRepository, company = 'CRONUS') {
+  function opWith(current: PageContextRepository, company = 'CRONUS', modalOpen = false, pc = PC) {
     const pageService = {
-      openPage: vi.fn(async () => ok(current.get(PC)!)),
+      openPage: vi.fn(async () => ok(current.get(pc)!)),
       closePage: vi.fn(async () => ok({ events: [] })),
     };
-    return { op: new GetOperationOperation(ledger, pageService as unknown as PageService, () => company), pageService };
+    return { op: new GetOperationOperation(ledger, pageService as unknown as PageService, () => company, () => modalOpen), pageService };
   }
+
+  const CARD = 'session:page:21:card0001';
+  function cardRepo(bookmark: string | undefined, name: string): PageContextRepository {
+    const repo = new PageContextRepository();
+    repo.create(CARD, 'C1', { isModal: false, wizardState: null });
+    repo.applyToPage(CARD, [{
+      type: 'FormCreated', formId: 'C1', isReload: false,
+      controlTree: {
+        t: 'lf', ServerId: 'C1', PageType: 0, Caption: 'Customer Card', ...(bookmark ? { Bookmark: bookmark } : {}),
+        Children: [{ t: 'sc', Caption: 'Address 2', StringValue: name }],
+      },
+    } as BCEvent]);
+    return repo;
+  }
+
+  async function recordCard(id: string, bookmark: string | undefined, fields: Record<string, string>) {
+    const target = createTargetDescriber(cardRepo(bookmark, 'old'), () => 'CRONUS')({ pageContextId: CARD, fields });
+    await ledger.claim(id, 'bc_write_data', 'digest', target);
+    await ledger.settle(id, { status: 'unknown', replaySafe: false });
+  }
+
+  it('does not open a page while a dialog is open (OpenForm would abort it)', async () => {
+    await record('modal', 'unknown', false);
+    const { op, pageService } = opWith(listRepo([]), 'CRONUS', true);
+    const r = await op.execute({ operationId: 'modal' });
+    expect(r.ok && r.value.readBackError?.code).toBe('MODAL_OPEN');
+    expect(pageService.openPage).not.toHaveBeenCalled();
+  });
+
+  it('refuses an unkeyed open when the card target has no record bookmark', async () => {
+    await recordCard('nobm', undefined, { Name: 'X' });
+    const { op, pageService } = opWith(cardRepo('BMC', 'X'), 'CRONUS', false, CARD);
+    const r = await op.execute({ operationId: 'nobm' });
+    expect(r.ok && r.value.readBackError?.code).toBe('NO_TARGET');
+    expect(pageService.openPage).not.toHaveBeenCalled();
+  });
+
+  it('reads written fields back by the same case-insensitive caption / controlPath rules as bc_write_data', async () => {
+    await recordCard('ci', 'BMC', { 'address 2': 'X', 'server:c[0]': 'X' });
+    const { op, pageService } = opWith(cardRepo('BMC', 'X'), 'CRONUS', false, CARD);
+    const r = await op.execute({ operationId: 'ci' });
+    if (!r.ok) throw r.error;
+    expect(pageService.openPage).toHaveBeenCalledWith('21', { bookmark: 'BMC' });
+    expect(r.value.readBack?.fields).toMatchObject({ 'address 2': 'X', 'server:c[0]': 'X' });
+  });
 
   it('rejects an unknown operationId', async () => {
     const r = await opWith(listRepo([])).op.execute({ operationId: 'nope' });
