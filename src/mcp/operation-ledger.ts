@@ -23,7 +23,14 @@ import type { TargetDescriptor } from '../operations/target-descriptor.js';
  */
 export type OperationStatus = 'sent' | 'completed' | 'unknown';
 
+/**
+ * Entry format version (#37). 2 = `result` is the raw output value (#30).
+ * Unversioned entries were written before #30 and store the MCP envelope.
+ */
+export const LEDGER_FORMAT_VERSION = 2;
+
 export interface OperationEntry {
+  v: number;
   operationId: string;
   tool: string;
   inputDigest: string;
@@ -84,6 +91,35 @@ function stripDownloadBytes(result: unknown): unknown {
   };
 }
 
+/**
+ * Bring a stored entry to the current format. Never releases or re-runs
+ * anything: an entry that cannot be converted exactly may still have reached
+ * BC, so it is surfaced as `unknown` (OPERATION_IN_DOUBT on retry, then
+ * bc_get_operation reads the record back).
+ *
+ * Unversioned (pre-#30) `completed` entries stored the MCP envelope the
+ * handler built for a successful call, always exactly
+ * `{content:[{type:'text', text: JSON.stringify(value, null, 2)}]}`, so the
+ * raw value is recovered losslessly by parsing that text.
+ */
+function upgradeEntry(raw: Omit<OperationEntry, 'v'> & { v?: unknown }): OperationEntry {
+  if (raw.v === LEDGER_FORMAT_VERSION) return raw as OperationEntry;
+  const inDoubt = (why: string): OperationEntry => ({
+    ...raw, v: LEDGER_FORMAT_VERSION, status: 'unknown', replaySafe: false, result: undefined,
+    error: { code: 'LEDGER_FORMAT', message: `Operation ledger entry ${why}; it is treated as in doubt.` },
+  });
+  if (raw.v !== undefined) return inDoubt(`has unsupported format version ${String(raw.v)}`);
+  if (raw.status !== 'completed') return { ...raw, v: LEDGER_FORMAT_VERSION };
+  const content = (raw.result as { content?: unknown } | null | undefined)?.content;
+  const only = Array.isArray(content) && content.length === 1 ? content[0] as { type?: unknown; text?: unknown } : undefined;
+  if (Object.keys(raw.result ?? {}).length === 1 && only?.type === 'text' && typeof only.text === 'string') {
+    try {
+      return { ...raw, v: LEDGER_FORMAT_VERSION, result: stripDownloadBytes(JSON.parse(only.text)) };
+    } catch { /* not JSON: fall through */ }
+  }
+  return inDoubt('has an unrecognised pre-version result');
+}
+
 export class OperationLedger {
   private readonly dir: string;
 
@@ -113,7 +149,7 @@ export class OperationLedger {
         if (name.endsWith('.tmp')) {
           expired = now - (await stat(path)).mtimeMs > ORPHAN_TMP_MS;
         } else if (name.endsWith('.json')) {
-          const entry = JSON.parse(await readFile(path, 'utf8')) as OperationEntry;
+          const entry = upgradeEntry(JSON.parse(await readFile(path, 'utf8')));
           const ttl = entry.status === 'completed' ? this.retention.completedTtlMs : this.retention.inDoubtTtlMs;
           expired = now - Date.parse(entry.updatedAt) > ttl;
         }
@@ -143,7 +179,7 @@ export class OperationLedger {
 
   async get(operationId: string): Promise<OperationEntry | undefined> {
     try {
-      return JSON.parse(await readFile(this.pathFor(operationId), 'utf8')) as OperationEntry;
+      return upgradeEntry(JSON.parse(await readFile(this.pathFor(operationId), 'utf8')));
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
       throw e;
@@ -158,7 +194,7 @@ export class OperationLedger {
   async claim(operationId: string, tool: string, inputDigest: string, target?: TargetDescriptor): Promise<{ claimed: true } | { claimed: false; existing: OperationEntry }> {
     await mkdir(this.dir, { recursive: true });
     const now = new Date().toISOString();
-    const entry: OperationEntry = { operationId, tool, inputDigest, status: 'sent', ...(target ? { target } : {}), createdAt: now, updatedAt: now };
+    const entry: OperationEntry = { v: LEDGER_FORMAT_VERSION, operationId, tool, inputDigest, status: 'sent', ...(target ? { target } : {}), createdAt: now, updatedAt: now };
     // Write the full entry to a private temp file, then publish it with link():
     // atomic create-if-absent (EEXIST when taken), so a concurrent claimer or a
     // restart after a crash never reads an empty/truncated entry.
