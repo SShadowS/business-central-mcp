@@ -341,6 +341,8 @@ replaySafe (#24): every output of the eight mutating operations carries `replayS
 
 Tests: `tests/unit/replay-safety.test.ts`, `tests/integration/replay-safety.test.ts`.
 
+End-to-end on a real posting (#27, destructive tier only, `vitest.destructive.config.ts`): `tests/integration/replay-post-destructive.test.ts` posts half of a 2-unit Sales Order line (so the order survives and "Quantity Shipped" counts commits) twice with one operationId (second call replays with zero invokes, shipped once), then kills the socket when the committing respond_dialog's response frame arrives and checks `unknown` -> `OPERATION_IN_DOUBT` -> `bc_get_operation` from a new session and ledger instance returns a read-back + evidence hash, shipped once. A fully posted document cannot be the read-back target: its record is deleted and any page opened on a missing bookmark closes with `InvalidBookmark` (decompiled `NavRunPagePropertyBagInvokedAction.ShouldShowForm`), i.e. `RECORD_NOT_OPENED`.
+
 ### File Download Capture — IMPLEMENTED
 
 Downloads are captured generically on `bc_execute_action`, `bc_respond_dialog`, `bc_wizard_navigate`, and `bc_run_report` via a shared `DownloadService` (`src/services/download-service.ts`), which uses the same-origin `collectDownloads` guard (`src/protocol/download-collector.ts`) and the streaming `BCHttpClient` (`src/connection/bc-http.ts`). All four tools return a `downloads: Download[]` field (always present, may be empty) where `Download = { fileName, contentType, sizeBytes, style, bytes? (base64), savedPath?, error? {code, message} }`, plus `externalUris: Array<{uri, style}>`. `bc_run_report`'s old singular `download` field is replaced by `downloads[]`.
