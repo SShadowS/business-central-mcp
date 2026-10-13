@@ -62,8 +62,9 @@ export class EventDecoder {
       const c = change as Record<string, unknown>;
       const wireType = c.t as string;
       const resolved = resolveChangeType(wireType);
-      const controlRef = c.ControlReference as { controlPath?: string } | undefined;
+      const controlRef = c.ControlReference as { controlPath?: string; formId?: string | null } | undefined;
       const controlPath = controlRef?.controlPath ?? '';
+      const refFormId = controlRef?.formId ? { refFormId: controlRef.formId } : {};
 
       switch (resolved) {
         case 'DataRefreshChange':
@@ -105,12 +106,12 @@ export class EventDecoder {
           // apply — decoding it as a cell would corrupt cells with a bogus key.
           break;
         case 'PropertyChanges':
-          events.push({ type: 'PropertyChanged', formId, controlPath, changes: (c.Changes as Record<string, unknown>) ?? {} } satisfies PropertyChangedEvent);
+          events.push({ type: 'PropertyChanged', formId, controlPath, changes: (c.Changes as Record<string, unknown>) ?? {}, ...refFormId } satisfies PropertyChangedEvent);
           break;
         case 'PropertyChange': {
           const propName = c.PropertyName as string;
           if (propName) {
-            events.push({ type: 'PropertyChanged', formId, controlPath, changes: { [propName]: c.PropertyValue } } satisfies PropertyChangedEvent);
+            events.push({ type: 'PropertyChanged', formId, controlPath, changes: { [propName]: c.PropertyValue }, ...refFormId } satisfies PropertyChangedEvent);
           }
           break;
         }

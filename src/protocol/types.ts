@@ -138,6 +138,14 @@ export interface PropertyChangedEvent {
   readonly formId: string;
   readonly controlPath: string;
   readonly changes: Record<string, unknown>;
+  /**
+   * `ControlReference.formId`: the changed control's own ParentForm
+   * (decompiled `ClientLogicalControlReferenceSerializer`; a LogicalForm is its
+   * own ParentForm). `formId` is the observed root form the change set was
+   * gathered for (`ResponseManager.RegisterObservedEvents`), so a hosted part's
+   * form-level change arrives as `formId` = host, `refFormId` = part.
+   */
+  readonly refFormId?: string;
 }
 
 export interface BookmarkChangedEvent {

@@ -119,13 +119,7 @@ export class FormProjection {
   private applyPropertyChanged(form: FormState, event: PropertyChangedEvent): FormState {
     const changes = event.changes as Record<string, unknown>;
 
-    const root = form.root;
-    if (isHostedPartChange({
-      serverFormHandle: 'serverFormHandle' in root ? root.serverFormHandle : undefined,
-      sourceTableId: 'metadata' in root ? root.metadata?.sourceTableId : undefined,
-    }, event)) {
-      return form;
-    }
+    if (isHostedPartChange(event)) return form;
 
     // Translate BC's wire property names (PascalCase) → NodeProperties (camelCase)
     const nodeChanges: NodeProperties = {};
@@ -190,42 +184,17 @@ export class FormProjection {
   }
 }
 
-/** What identifies a form's own `server:` changes: its NST form handle and source table. */
-export interface FormIdentity {
-  readonly serverFormHandle?: string;
-  readonly sourceTableId?: number;
-}
-
-/** FormIdentity read from a raw `lf` control tree (FormToShow / DialogToShow payload). */
-export function formIdentityOf(controlTree: unknown): FormIdentity {
-  const lf = (controlTree ?? {}) as { ServerFormHandle?: unknown; Metadata?: { sourceTableId?: unknown } };
-  return {
-    serverFormHandle: typeof lf.ServerFormHandle === 'string' ? lf.ServerFormHandle : undefined,
-    sourceTableId: typeof lf.Metadata?.sourceTableId === 'number' ? lf.Metadata.sourceTableId : undefined,
-  };
-}
-
 /**
  * A `server:` PropertyChanged that belongs to a hosted part (factbox, subpage),
- * not to the form it is reported on. ControlReference.formId is the control's
- * ParentForm (decompiled ClientLogicalControlReferenceSerializer), so a part
- * LogicalForm's own properties arrive on the HOST's formId + `server:`. Verified
- * live (cronus29, Customer Card 21): the Dimensions factbox load set the card's
- * Bookmark to a Default Dimension record.
- * - A ServerFormHandle that differs from the form's own is the part's.
- * - ServerFormHandle is only sent when it changes (LogicalFormObserver.BeforeGetChanges),
- *   so a part's LATER Bookmark change arrives without it. A record bookmark
- *   starts with its table id (RecordBookmark.TableId): another table's is not the host's.
+ * not to the form it is reported on. BC sends one change set per observed root
+ * form (`formId`), and a part LogicalForm's own properties (Bookmark, State,
+ * ServerFormHandle, ...) arrive in its host's set on `server:`; only
+ * `ControlReference.formId` (`refFormId`) names the part. Verified live
+ * (cronus29, Customer Card 21): every factbox's form-level change carried the
+ * host's formId with the factbox's own refFormId.
  */
-export function isHostedPartChange(own: FormIdentity, event: PropertyChangedEvent): boolean {
-  if (event.controlPath !== 'server:') return false;
-  const changes = event.changes as Record<string, unknown>;
-  if (own.serverFormHandle && typeof changes.ServerFormHandle === 'string' && changes.ServerFormHandle !== own.serverFormHandle) return true;
-  if (own.sourceTableId && typeof changes.Bookmark === 'string') {
-    const tableId = bookmarkTableId(changes.Bookmark);
-    if (tableId !== undefined && tableId !== own.sourceTableId) return true;
-  }
-  return false;
+export function isHostedPartChange(event: PropertyChangedEvent): boolean {
+  return event.controlPath === 'server:' && event.refFormId !== undefined && event.refFormId !== event.formId;
 }
 
 /**

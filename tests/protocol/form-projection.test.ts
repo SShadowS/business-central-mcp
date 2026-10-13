@@ -219,29 +219,17 @@ describe('FormProjection', () => {
     expect(treeFields(form.root)[0]!.properties.caption).toBe('Field1'); // preserved from first apply
   });
 
-  it('ignores a hosted part\'s form-level PropertyChanged on the host\'s server: path (foreign ServerFormHandle)', () => {
-    const root = buildFormTree({ t: 'lf', ServerId: 'f1', PageType: 0, Bookmark: 'CARD', ServerFormHandle: 'H-CARD', Children: [] });
+  it('ignores a hosted part\'s form-level PropertyChanged on the host\'s server: path (foreign refFormId)', () => {
+    const root = buildFormTree({ t: 'lf', ServerId: 'f1', PageType: 0, Bookmark: 'CARD', Children: [] });
     let form: FormState = { ...makeForm(), root };
-    const change = (changes: Record<string, unknown>) =>
-      (form = projection.apply(form, { type: 'PropertyChanged', formId: 'f1', controlPath: 'server:', changes } as BCEvent));
-    change({ Bookmark: 'DIMENSION', ServerFormHandle: 'H-FACTBOX' });
+    const change = (changes: Record<string, unknown>, refFormId?: string) =>
+      (form = projection.apply(form, { type: 'PropertyChanged', formId: 'f1', controlPath: 'server:', changes, ...(refFormId ? { refFormId } : {}) } as BCEvent));
+    change({ Bookmark: 'DIMENSION' }, 'factbox');
     expect(form.root.properties.bookmark).toBe('CARD');
-    change({ Bookmark: 'CARD2', ServerFormHandle: 'H-CARD' });
+    change({ Bookmark: 'CARD2' }, 'f1');
     expect(form.root.properties.bookmark).toBe('CARD2');
-    change({ Bookmark: 'CARD3' }); // the host's own changes carry no handle unless it changed
+    change({ Bookmark: 'CARD3' }); // no ControlReference.formId: the form's own
     expect(form.root.properties.bookmark).toBe('CARD3');
-  });
-
-  it('ignores a part\'s later handle-less Bookmark change from another table', () => {
-    // Sales Header (36) host; '4_JQ' = table 37 (Sales Line), '4_JA' = table 36.
-    const root = buildFormTree({ t: 'lf', ServerId: 'f1', PageType: 0, Bookmark: '4_JAB', ServerFormHandle: 'H', Metadata: { id: 42, sourceTableId: 36 }, Children: [] });
-    let form: FormState = { ...makeForm(), root };
-    const change = (changes: Record<string, unknown>) =>
-      (form = projection.apply(form, { type: 'PropertyChanged', formId: 'f1', controlPath: 'server:', changes } as BCEvent));
-    change({ Bookmark: '4_JQ', SystemId: 'line' });
-    expect(form.root.properties.bookmark).toBe('4_JAB');
-    change({ Bookmark: '4_JA' });
-    expect(form.root.properties.bookmark).toBe('4_JA');
   });
 
   it('bookmarkTableId reads the table id from a record bookmark', () => {

@@ -1,5 +1,6 @@
 import type { BCEvent, PropertyChangedEvent } from './types.js';
 import { SystemAction } from './types.js';
+import { isHostedPartChange } from './form-state.js';
 
 /**
  * replaySafe verdicts (epic #17, #24). `replaySafe: true` means: re-running the
@@ -41,10 +42,12 @@ export function formClosed(events: readonly BCEvent[], formId: string | undefine
 /**
  * The PropertyChanged that reports a form closing (`server:`, `State` = 0).
  * BC never sends a dedicated close event: `ClosePendingForm` is the ghost-form
- * cache key (decompiled `CallbackHandler`), not a close.
+ * cache key (decompiled `CallbackHandler`), not a close. A hosted part's
+ * close (e.g. `FormHostControl.ReplaceHostedForm` -> `Release`) arrives on its
+ * host's formId and is excluded (`isHostedPartChange`).
  */
 export function isFormClosedChange(e: BCEvent): e is PropertyChangedEvent {
-  return e.type === 'PropertyChanged' && e.controlPath === 'server:' && e.changes['State'] === 0;
+  return e.type === 'PropertyChanged' && e.controlPath === 'server:' && e.changes['State'] === 0 && !isHostedPartChange(e);
 }
 
 /** write_data: every field written and echoed, and no dialog left pending. */

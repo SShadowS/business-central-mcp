@@ -13,7 +13,6 @@ import { findLicenseDialog } from './license-dialog.js';
 import { resolveFormatLabel } from './report-format-resolver.js';
 import { buildFormTree } from '../protocol/form-tree-builder.js';
 import { walkTree } from '../protocol/form-tree-walk.js';
-import { formIdentityOf, isHostedPartChange, type FormIdentity } from '../protocol/form-state.js';
 import { isFormClosedChange } from '../protocol/replay-safety.js';
 import { watchLiveness, parseIsExecutingAnswer, type LivenessVerdict, type ProbeAnswer } from './isexecuting-poller.js';
 
@@ -48,8 +47,6 @@ export class BCSession {
   private queue: Promise<void> = Promise.resolve();
   private readonly _openFormIds = new Set<string>();
   private readonly modalStack = new ModalStack();
-  /** Hosted-part guard input per open form (from its FormToShow / DialogToShow tree). */
-  private readonly formIdentities = new Map<string, FormIdentity>();
   private dead = false;
   private wsClosed = false;
 
@@ -198,7 +195,6 @@ export class BCSession {
     // Every form from the previous company is gone; drop stale tracking before
     // recording the forms the OpenSession response opened (e.g. the Role Center).
     this._openFormIds.clear();
-    this.formIdentities.clear();
     this.modalStack.clear();
     return ok(this.updateFormTracking(openResult.value));
   }
@@ -498,9 +494,8 @@ export class BCSession {
   /**
    * Track open forms and the modal stack, and return `events` with a
    * `FormClosed` inserted after each real close. BC has no close event: it
-   * reports `State` = 0 on the form's `server:` path (`isFormClosedChange`).
-   * A hosted part's own properties arrive on its host's formId + `server:`
-   * (`isHostedPartChange`), so those never close the host. Consumers
+   * reports `State` = 0 on the form's `server:` path (`isFormClosedChange`,
+   * which excludes a hosted part's State on its host's formId). Consumers
    * (PageContextRepository.markFormClosed) see the derived `FormClosed`.
    */
   private updateFormTracking(events: readonly BCEvent[]): BCEvent[] {
@@ -509,16 +504,13 @@ export class BCSession {
       out.push(event);
       if (event.type === 'FormCreated' && event.formId) {
         this._openFormIds.add(event.formId);
-        this.formIdentities.set(event.formId, formIdentityOf(event.controlTree));
         // Non-modal -- do not push onto modalStack
       }
       if (event.type === 'DialogOpened' && event.formId) {
         this._openFormIds.add(event.formId);
-        this.formIdentities.set(event.formId, formIdentityOf(event.controlTree));
         this.modalStack.push(event.formId);
       }
-      if (isFormClosedChange(event) && this._openFormIds.has(event.formId)
-        && !isHostedPartChange(this.formIdentities.get(event.formId) ?? {}, event)) {
+      if (isFormClosedChange(event) && this._openFormIds.has(event.formId)) {
         this.removeOpenForm(event.formId);
         out.push({ type: 'FormClosed', formId: event.formId });
       }
@@ -532,7 +524,6 @@ export class BCSession {
 
   removeOpenForm(formId: string): void {
     this._openFormIds.delete(formId);
-    this.formIdentities.delete(formId);
     this.modalStack.remove(formId);
   }
 

@@ -220,6 +220,22 @@ describe('EventDecoder', () => {
     if (prop?.type === 'PropertyChanged') expect(prop.changes['Visible']).toBe(false);
   });
 
+  it('keeps ControlReference.formId as refFormId (hosted part State on its host, live wire shape)', () => {
+    // cronus29 Customer Card 21: root change set 61A carries factbox 60F's own
+    // State as a lone lcpch on server: with ControlReference.formId = 60F.
+    const handlers = [{
+      handlerType: HANDLER_TYPES.LogicalClientChange,
+      parameters: ['61A', [
+        { t: 'lcpch', ControlReference: { controlPath: 'server:', formId: '60F' }, PropertyName: 'State', PropertyValue: 0 },
+        { t: 'lcpch', ControlReference: { controlPath: 'server:', formId: '61A' }, PropertyName: 'State', PropertyValue: 0 },
+      ]],
+    }];
+    expect(decoder.decode(handlers)).toEqual([
+      { type: 'PropertyChanged', formId: '61A', controlPath: 'server:', changes: { State: 0 }, refFormId: '60F' },
+      { type: 'PropertyChanged', formId: '61A', controlPath: 'server:', changes: { State: 0 }, refFormId: '61A' },
+    ]);
+  });
+
   it('does not decode ClosePendingForm (ghost-form cache key) as a form close', () => {
     // CallbackHandler sends ClosePendingForm { FormCacheKey } for an unshown
     // pending ghost form; a real close is PropertyChanged State=0 (BCSession).

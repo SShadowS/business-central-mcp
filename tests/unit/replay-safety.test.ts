@@ -26,6 +26,9 @@ describe('replaySafe rules', () => {
     expect(formClosed([{ type: 'PropertyChanged', formId: '44', controlPath: 'server:', changes: { State: 2 } }], '44')).toBe(false);
     expect(formClosed([{ type: 'PropertyChanged', formId: '44', controlPath: 'server:c[1]', changes: { State: 0 } }], '44')).toBe(false);
     expect(formClosed([closed('44')], undefined)).toBe(false);
+    // a hosted part's close on its host's formId is not the host's
+    expect(formClosed([{ ...closed('44'), refFormId: '45' } as BCEvent], '44')).toBe(false);
+    expect(formClosed([{ ...closed('44'), refFormId: '44' } as BCEvent], '44')).toBe(true);
   });
 
   it('write_data: every field written and echoed, no pending dialog', () => {

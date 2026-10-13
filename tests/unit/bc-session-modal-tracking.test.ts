@@ -72,11 +72,13 @@ describe('BCSession modal-stack tracking', () => {
 
   it("a hosted part's State=0 on the host's server: path does not close the host", () => {
     const s = new TrackingProbe();
-    s.feed([{ type: 'FormCreated', formId: 'H', controlTree: { t: 'lf', ServerFormHandle: 'host-handle', Metadata: { sourceTableId: 18 } } }]);
-    const out = s.feed([closed('H', { ServerFormHandle: 'part-handle' })]);
+    // BC sends State alone (LogicalFormObserver.GetChangesCore skips other
+    // properties on Closed); only ControlReference.formId names the part.
+    s.feed([{ type: 'FormCreated', formId: 'H', controlTree: { t: 'lf' } }]);
+    const out = s.feed([{ ...closed('H'), refFormId: 'P' } as BCEvent]);
     expect(s.open()).toContain('H');
     expect(out.some(e => e.type === 'FormClosed')).toBe(false);
-    s.feed([closed('H', { ServerFormHandle: 'host-handle' })]);
+    s.feed([{ ...closed('H'), refFormId: 'H' } as BCEvent]);
     expect(s.open()).not.toContain('H');
   });
 

@@ -80,13 +80,6 @@ export interface LogicalFormNode extends NodeBase<'lf'> {
    * Live cronus29: Customer Card 21 `[1]`, Sales Order 42 `[1, 3]`.
    */
   readonly metadata?: { readonly id: number; readonly sourceTableId: number; readonly primaryKeyIds?: readonly number[] };
-  /**
-   * NST form handle of this form's binding manager (wire `ServerFormHandle`,
-   * decompiled `LogicalFormSerializer.CalculateServerFormHandle`). Stable per
-   * form instance; used to reject a hosted part's form-level PropertyChanged
-   * that BC reports on the host's `server:` path.
-   */
-  readonly serverFormHandle?: string;
 }
 
 export interface GroupNode extends NodeBase<'gc'> {
