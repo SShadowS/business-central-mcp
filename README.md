@@ -155,6 +155,8 @@ Restart Claude Desktop.
 | `LOG_LEVEL` | No | `info` | `debug` / `info` / `warn` / `error`. |
 | `LOG_DIR` | No | `./logs` | Directory for log files. |
 | `STATE_DIR` | No | `{cwd}/.state` | Per-repo directory for `saas-web-cookies.json` and `oauth-tokens.json` (mode 0600), and the `operations/` replay ledger. Relative paths resolve against the MCP process working directory (the project you started the agent in). Sessions in the same repo share the file; different repos never share a login. |
+| `BC_OPERATION_TTL` | No | `86400000` (24h) | How long (ms) a completed `operationId` stays replayable. After that the entry is deleted and the same id runs the call again. |
+| `BC_OPERATION_INDOUBT_TTL` | No | `2592000000` (30 days) | How long (ms) `sent`/`unknown` ledger entries (in-flight or in-doubt calls) are kept before they are deleted. |
 | `BC_INVOKE_TIMEOUT` | No | `30000` | RPC timeout in ms for OpenSession and modal-recovery calls. |
 | `BC_ISEXECUTING_POLL_INTERVAL` | No | `10000` | While a call runs, ask BC every N ms whether it is still processing. A long post or report stays alive as long as BC says yes; a hung call is killed once BC says no. |
 | `BC_INVOKE_MAX_DURATION` | No | `600000` | Hard cap in ms for one call, even while BC is still processing. |
@@ -317,6 +319,8 @@ Known wart: when the browser sign-in fails (65002, blocked consent), Entra keeps
 Every tool carries MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`), so clients can auto-approve the read-only ones and ask before writes, actions, dialogs, reports and uploads.
 
 The eight tools that change state accept an optional `operationId` (an idempotency key you generate). A retry with the same id and arguments returns the first call's stored result instead of running the change again, so retrying after a timeout or dropped connection cannot double-post. The same id with different arguments returns `OPERATION_ID_REUSED`. If the first call's outcome is unknown (timeout, session loss), the retry returns `OPERATION_IN_DOUBT`: check the record before acting under a new id. That response carries a `target` snapshot taken before the first call ran (company, page id and caption, section, the targeted rows' cell values, dialog), so you can find the record again even though the original `pageContextId` died with the session. Calls are recorded in `STATE_DIR/operations/`, so this survives a server restart.
+
+Replay is time-limited. The server prunes the ledger at start and hourly: a completed entry is deleted after `BC_OPERATION_TTL` (default 24 hours), after which a retry with the same id runs the call again, so check with `bc_get_operation` before a late retry. `sent`/`unknown` entries are kept for `BC_OPERATION_INDOUBT_TTL` (default 30 days). Download bytes are not stored: a replayed result lists each download's `fileName`, `contentType`, `sizeBytes` and `savedPath` (set when `BC_DOWNLOAD_DIR` is configured), but not its `bytes`.
 
 Every result from those eight tools (and its ledger entry) carries `replaySafe`. `true` means BC's response proved that re-running the same call, even under a new `operationId` after an unknown outcome, cannot apply the change twice. `false` means a re-run may double-apply, or nothing in the response proved otherwise: read the record back first. The server only says `true` when it can prove it:
 

@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { link, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { link, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import type { Logger } from '../core/logger.js';
 import type { TargetDescriptor } from '../operations/target-descriptor.js';
 
 /**
@@ -15,7 +16,10 @@ import type { TargetDescriptor } from '../operations/target-descriptor.js';
  * - `unknown`: the call failed in a way that may have committed server-side
  *   (timeout, session loss, transport error).
  *
- * ponytail: no expiry; entries accumulate until STATE_DIR/operations is pruned by hand.
+ * Retention (#29): `prune()` deletes `completed` entries older than
+ * `completedTtlMs` (so replay is time-limited), `sent`/`unknown` entries older
+ * than `inDoubtTtlMs` (long: these are the ones someone must investigate, and a
+ * young `sent` entry is an in-flight call), and orphaned `*.tmp` files.
  */
 export type OperationStatus = 'sent' | 'completed' | 'unknown';
 
@@ -48,11 +52,83 @@ export function digestInput(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(canon(value))).digest('hex');
 }
 
+export interface LedgerRetention {
+  /** Age (from updatedAt) after which a `completed` entry is deleted and its id runs fresh again. */
+  completedTtlMs: number;
+  /** Age (from updatedAt) after which a `sent`/`unknown` entry is deleted. */
+  inDoubtTtlMs: number;
+}
+
+export const DEFAULT_RETENTION: LedgerRetention = { completedTtlMs: 24 * 3_600_000, inDoubtTtlMs: 30 * 24 * 3_600_000 };
+/** A temp file older than this was left by a process killed mid-write. */
+const ORPHAN_TMP_MS = 5 * 60_000;
+const PRUNE_INTERVAL_MS = 3_600_000;
+
+/**
+ * Drop inline download bytes before storing a result: a replay returns the file
+ * metadata (and savedPath when BC_DOWNLOAD_DIR is set), not megabytes of base64.
+ */
+function stripDownloadBytes(result: unknown): unknown {
+  const downloads = (result as { downloads?: unknown } | null | undefined)?.downloads;
+  if (!Array.isArray(downloads)) return result;
+  return { ...(result as object), downloads: downloads.map(d => { const { bytes: _bytes, ...meta } = d as { bytes?: unknown }; return meta; }) };
+}
+
 export class OperationLedger {
   private readonly dir: string;
 
-  constructor(stateDir: string) {
+  constructor(stateDir: string, private readonly retention: LedgerRetention = DEFAULT_RETENTION) {
     this.dir = join(stateDir, 'operations');
+  }
+
+  /**
+   * Delete expired entries and orphaned temp files; returns how many files were
+   * removed. Safe while other processes share the directory: every delete is
+   * `force`, and a deleted `completed` entry only means the next call with that
+   * id runs fresh (the TTL case).
+   */
+  async prune(now = Date.now()): Promise<number> {
+    let names: string[];
+    try {
+      names = await readdir(this.dir);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return 0;
+      throw e;
+    }
+    let removed = 0;
+    for (const name of names) {
+      const path = join(this.dir, name);
+      try {
+        let expired = false;
+        if (name.endsWith('.tmp')) {
+          expired = now - (await stat(path)).mtimeMs > ORPHAN_TMP_MS;
+        } else if (name.endsWith('.json')) {
+          const entry = JSON.parse(await readFile(path, 'utf8')) as OperationEntry;
+          const ttl = entry.status === 'completed' ? this.retention.completedTtlMs : this.retention.inDoubtTtlMs;
+          expired = now - Date.parse(entry.updatedAt) > ttl;
+        }
+        if (expired) {
+          await rm(path, { force: true });
+          removed++;
+        }
+      } catch (e) {
+        // Vanished under a concurrent prune/settle, or unreadable: leave it.
+        if ((e as NodeJS.ErrnoException).code !== 'ENOENT' && !(e instanceof SyntaxError)) throw e;
+      }
+    }
+    return removed;
+  }
+
+  /** Prune now and then hourly, on a timer that never keeps the process alive. */
+  startPruning(logger: Pick<Logger, 'info' | 'warn'>): void {
+    const run = (): void => {
+      this.prune().then(
+        n => { if (n > 0) logger.info(`Operation ledger: pruned ${n} expired file(s)`); },
+        e => logger.warn(`Operation ledger prune failed: ${e instanceof Error ? e.message : String(e)}`),
+      );
+    };
+    run();
+    setInterval(run, PRUNE_INTERVAL_MS).unref();
   }
 
   async get(operationId: string): Promise<OperationEntry | undefined> {
@@ -95,7 +171,7 @@ export class OperationLedger {
   async settle(operationId: string, update: Pick<OperationEntry, 'status' | 'result' | 'error' | 'replaySafe'>): Promise<void> {
     const current = await this.get(operationId);
     if (!current) throw new Error(`Operation ledger has no entry for ${operationId}`);
-    const next: OperationEntry = { ...current, ...update, updatedAt: new Date().toISOString() };
+    const next: OperationEntry = { ...current, ...update, result: stripDownloadBytes(update.result), updatedAt: new Date().toISOString() };
     const path = this.pathFor(operationId);
     const tmp = `${path}.${process.pid}.tmp`;
     await writeFile(tmp, JSON.stringify(next));

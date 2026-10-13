@@ -94,7 +94,8 @@ async function main() {
   });
 
   let realTools: ReturnType<typeof buildToolRegistry> | null = null;
-  const ledger = new OperationLedger(config.stateDir);
+  const ledger = new OperationLedger(config.stateDir, config.operationRetention);
+  ledger.startPruning(logger);
 
   // Services — built once after session is available
   function buildServices(s: BCSession): ReturnType<typeof buildToolRegistry> {

@@ -286,7 +286,7 @@ export class MCPHandler {
 /** One tool run: the JSON-RPC response, plus the raw output value or the failure. */
 interface ToolRun { response: JsonRpcResponse; value?: unknown; failure?: Failure }
 
-/** A successful tool result. A replay renders the stored value the same way, so it is byte-identical. */
+/** A successful tool result. A replay renders the stored value the same way (minus stripped download bytes). */
 function successResult(value: unknown): { content: Array<{ type: 'text'; text: string }> } {
   return { content: [{ type: 'text', text: JSON.stringify(value, null, 2) }] };
 }
@@ -303,7 +303,10 @@ const OPERATION_ID_SCHEMA = {
     + 'replaySafe: true means BC\'s response proved that re-running the same call (even under a new operationId, '
     + 'after an unknown outcome) cannot apply the change twice -- the write was echoed as an absolute value, or '
     + 'the form it acted on is closed so BC rejects a re-run; false means a re-run may double-apply or nothing '
-    + 'proved otherwise, so read the record back before retrying.',
+    + 'proved otherwise, so read the record back before retrying. Replay is time-limited: a completed entry is '
+    + 'kept for BC_OPERATION_TTL (default 24h), after which the same operationId runs the call again; check with '
+    + 'bc_get_operation before a late retry. A replayed result carries download metadata (fileName, contentType, '
+    + 'sizeBytes, savedPath) but not the file bytes.',
 };
 
 function withOperationId(schema: Record<string, unknown>): Record<string, unknown> {

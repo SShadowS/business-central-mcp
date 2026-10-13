@@ -2,6 +2,7 @@ import { resolve } from 'node:path';
 import { deriveODataUrl } from '../odata/odata-client.js';
 import { parseSaasUrl } from '../connection/saas-url.js';
 import { BC_API_DELEGATED_SCOPE } from '../connection/auth/oauth-defaults.js';
+import type { LedgerRetention } from '../mcp/operation-ledger.js';
 
 export type AuthMode = 'NavUserPassword' | 'OAuth' | 'SaasWeb';
 
@@ -70,6 +71,8 @@ export interface AppConfig {
   server: ServerConfig;
   port: number;
   stateDir: string;
+  /** operationId ledger retention (#29): BC_OPERATION_TTL / BC_OPERATION_INDOUBT_TTL, in ms. */
+  operationRetention: LedgerRetention;
 }
 
 function requireEnv(name: string): string {
@@ -162,6 +165,10 @@ export function loadConfig(): AppConfig {
     // Grok was started in). Relative STATE_DIR is resolved against cwd so
     // two repos never share a login. Sessions in the same repo share the file.
     stateDir: resolve(optionalEnv('STATE_DIR', '.state')),
+    operationRetention: {
+      completedTtlMs: optionalEnvInt('BC_OPERATION_TTL', 86_400_000),
+      inDoubtTtlMs: optionalEnvInt('BC_OPERATION_INDOUBT_TTL', 2_592_000_000),
+    },
   };
 }
 

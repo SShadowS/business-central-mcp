@@ -107,7 +107,8 @@ async function main() {
     baseDelayMs: config.bc.reconnectBaseDelayMs,
   });
 
-  const ledger = new OperationLedger(config.stateDir);
+  const ledger = new OperationLedger(config.stateDir, config.operationRetention);
+  ledger.startPruning(logger);
   // One gate for both transports: an operationId / Idempotency-Key means the
   // same operation over MCP and REST.
   const gate = new IdempotencyGate(ledger, logger, createTargetDescriber(pageContextRepo, () => sessionManager.currentSession?.companyName));
