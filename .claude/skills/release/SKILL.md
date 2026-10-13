@@ -32,7 +32,7 @@ git fetch origin
 git status -sb              # expect "## master...origin/master" with no behind/ahead
 
 # All tests pass?
-npm run typecheck           # tsc --noEmit, expect exit 0
+npm run typecheck           # tsc on src and on src+tests (tsconfig.test.json), expect exit 0
 npm test                    # unit + protocol, expect green
 npm run test:integration    # against live BC, expect green (skip if no BC available, but flag the skip)
 
