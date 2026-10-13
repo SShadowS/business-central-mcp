@@ -119,6 +119,17 @@ export class FormProjection {
   private applyPropertyChanged(form: FormState, event: PropertyChangedEvent): FormState {
     const changes = event.changes as Record<string, unknown>;
 
+    // Loading a hosted part (factbox, subpage) emits that part's form-level
+    // properties on the HOST's `server:` path: ControlReference.formId is the
+    // control's ParentForm (decompiled ClientLogicalControlReferenceSerializer),
+    // so a part LogicalForm resolves to the host. Its ServerFormHandle tells it
+    // apart. Verified live (cronus29, Customer Card 21): the Dimensions factbox
+    // load set the card's Bookmark to a Default Dimension record.
+    const ownHandle = 'serverFormHandle' in form.root ? form.root.serverFormHandle : undefined;
+    if (event.controlPath === 'server:' && ownHandle && typeof changes.ServerFormHandle === 'string' && changes.ServerFormHandle !== ownHandle) {
+      return form;
+    }
+
     // Translate BC's wire property names (PascalCase) → NodeProperties (camelCase)
     const nodeChanges: NodeProperties = {};
     if ('Visible' in changes && typeof changes.Visible === 'boolean') (nodeChanges as Record<string, unknown>).visible = changes.Visible;

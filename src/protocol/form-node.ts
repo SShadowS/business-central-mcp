@@ -77,6 +77,13 @@ export interface LogicalFormNode extends NodeBase<'lf'> {
    * `Metadata` object in the wire `lf` node.
    */
   readonly metadata?: { readonly id: number; readonly sourceTableId: number };
+  /**
+   * NST form handle of this form's binding manager (wire `ServerFormHandle`,
+   * decompiled `LogicalFormSerializer.CalculateServerFormHandle`). Stable per
+   * form instance; used to reject a hosted part's form-level PropertyChanged
+   * that BC reports on the host's `server:` path.
+   */
+  readonly serverFormHandle?: string;
 }
 
 export interface GroupNode extends NodeBase<'gc'> {

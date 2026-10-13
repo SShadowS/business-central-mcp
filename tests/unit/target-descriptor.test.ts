@@ -60,6 +60,12 @@ describe('createTargetDescriber', () => {
     expect(describe({ pageContextId: PC, action: 'Post', bookmark: 'BM1' }).rows?.map(r => r.bookmark)).toEqual(['BM1']);
   });
 
+  it('captures the root form\'s record bookmark (PropertyChanged Bookmark on server:)', () => {
+    const repo = listRepo();
+    repo.applyToPage(PC, [{ type: 'PropertyChanged', formId: 'F1', controlPath: 'server:', changes: { Bookmark: 'ROOT1' } } as BCEvent]);
+    expect(createTargetDescriber(repo, () => undefined)({ pageContextId: PC }).page?.bookmark).toBe('ROOT1');
+  });
+
   it('keeps args only when there is no page context (report, company switch, dead context) and drops file payloads', () => {
     const describe = createTargetDescriber(listRepo(), () => 'CRONUS');
     expect(describe({ reportId: '6' })).toMatchObject({ company: 'CRONUS', args: { reportId: '6' } });

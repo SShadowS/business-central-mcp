@@ -218,4 +218,17 @@ describe('FormProjection', () => {
     expect(treeFields(form.root)[0]!.properties.stringValue).toBe('second');
     expect(treeFields(form.root)[0]!.properties.caption).toBe('Field1'); // preserved from first apply
   });
+
+  it('ignores a hosted part\'s form-level PropertyChanged on the host\'s server: path (foreign ServerFormHandle)', () => {
+    const root = buildFormTree({ t: 'lf', ServerId: 'f1', PageType: 0, Bookmark: 'CARD', ServerFormHandle: 'H-CARD', Children: [] });
+    let form: FormState = { ...makeForm(), root };
+    const change = (changes: Record<string, unknown>) =>
+      (form = projection.apply(form, { type: 'PropertyChanged', formId: 'f1', controlPath: 'server:', changes } as BCEvent));
+    change({ Bookmark: 'DIMENSION', ServerFormHandle: 'H-FACTBOX' });
+    expect(form.root.properties.bookmark).toBe('CARD');
+    change({ Bookmark: 'CARD2', ServerFormHandle: 'H-CARD' });
+    expect(form.root.properties.bookmark).toBe('CARD2');
+    change({ Bookmark: 'CARD3' }); // the host's own changes carry no handle unless it changed
+    expect(form.root.properties.bookmark).toBe('CARD3');
+  });
 });

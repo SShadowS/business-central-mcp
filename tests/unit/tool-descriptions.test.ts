@@ -17,6 +17,7 @@ const mockOps = {
   lookup: { execute: async () => ({}) },
   query: { execute: async () => ({}) },
   uploadFile: { execute: async () => ({}) },
+  getOperation: { execute: async () => ({}) },
 } as unknown as Operations;
 
 describe('tool descriptions', () => {
@@ -57,7 +58,7 @@ describe('tool descriptions', () => {
   it('classifies read-only tools exactly', () => {
     const readOnly = tools.filter(t => t.annotations.readOnlyHint).map(t => t.name).sort();
     expect(readOnly).toEqual([
-      'bc_list_companies', 'bc_lookup', 'bc_navigate', 'bc_open_page',
+      'bc_get_operation', 'bc_list_companies', 'bc_lookup', 'bc_navigate', 'bc_open_page',
       'bc_query', 'bc_read_data', 'bc_search_pages',
     ]);
   });

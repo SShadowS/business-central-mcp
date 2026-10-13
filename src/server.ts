@@ -41,6 +41,7 @@ import { buildToolRegistry, type Operations } from './mcp/tool-registry.js';
 import { MCPHandler } from './mcp/handler.js';
 import { OperationLedger } from './mcp/operation-ledger.js';
 import { createTargetDescriber } from './operations/target-descriptor.js';
+import { GetOperationOperation } from './operations/get-operation.js';
 import { PROMPTS } from './mcp/prompts.js';
 import { createApiRoutes } from './api/routes.js';
 import { parseJsonBody, checkApiToken, bcErrorToHttp } from './api/middleware.js';
@@ -105,6 +106,8 @@ async function main() {
     baseDelayMs: config.bc.reconnectBaseDelayMs,
   });
 
+  const ledger = new OperationLedger(config.stateDir);
+
   // Services — built once after session is available
   function buildServices(s: BCSession): { operations: Operations; tools: ReturnType<typeof buildToolRegistry> } {
     const pageService = new PageService(s, pageContextRepo, logger);
@@ -138,6 +141,7 @@ async function main() {
       lookup: new LookupOperation(lookupService),
       query: queryOperation,
       uploadFile: new UploadFileOperation(uploadService),
+      getOperation: new GetOperationOperation(ledger, pageService, () => s.companyName),
     };
 
     return { operations, tools: buildToolRegistry(operations) };
@@ -185,7 +189,7 @@ async function main() {
   }));
   const mcpHandler = new MCPHandler(lazyTools, logger, PROMPTS, {
     elicitationPort,
-    ledger: new OperationLedger(config.stateDir),
+    ledger,
     describeTarget: createTargetDescriber(pageContextRepo, () => sessionManager.currentSession?.companyName),
   });
 

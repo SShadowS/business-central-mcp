@@ -15,7 +15,8 @@ export interface TargetDescriptor {
   company?: string;
   /** The tool input, minus file payloads and staleness guards. */
   args: Record<string, unknown>;
-  page?: { pageContextId: string; pageId?: string; caption: string; pageType: string; isModal: boolean };
+  /** `bookmark` is the root form's current record (card/document), from `PropertyChanged { Bookmark }` on `server:`. */
+  page?: { pageContextId: string; pageId?: string; bookmark?: string; caption: string; pageType: string; isModal: boolean };
   section?: { sectionId: string; kind: string; caption: string };
   /** Targeted rows (bookmark/bookmarks/rowIndex, else BC's current row) with captioned cell values. */
   rows?: Array<{ bookmark: string; cells: Record<string, unknown> }>;
@@ -43,7 +44,8 @@ export function createTargetDescriber(repo: Pick<PageContextRepository, 'get'>, 
     if (!pcId || !ctx) return out;
 
     const pageId = /^session:page:(\d+):/.exec(pcId)?.[1];
-    out.page = { pageContextId: pcId, ...(pageId ? { pageId } : {}), caption: ctx.caption, pageType: String(ctx.pageType), isModal: ctx.isModal };
+    const bookmark = ctx.forms.get(ctx.rootFormId)?.root.properties.bookmark;
+    out.page = { pageContextId: pcId, ...(pageId ? { pageId } : {}), ...(bookmark ? { bookmark } : {}), caption: ctx.caption, pageType: String(ctx.pageType), isModal: ctx.isModal };
 
     const section = buildSection(ctx, typeof raw['section'] === 'string' ? raw['section'] : 'header');
     if (section) {

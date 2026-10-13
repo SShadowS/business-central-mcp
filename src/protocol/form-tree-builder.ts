@@ -47,6 +47,7 @@ function buildLogicalForm(obj: Record<string, unknown>): LogicalFormNode {
     properties: props,
     children,
     ...(metadata ? { metadata } : {}),
+    ...(typeof obj.ServerFormHandle === 'string' ? { serverFormHandle: obj.ServerFormHandle } : {}),
   };
 }
 

@@ -14,6 +14,7 @@ import type { WizardNavigateOperation } from '../operations/wizard-navigate.js';
 import type { LookupOperation } from '../operations/lookup.js';
 import type { QueryOperation } from '../operations/query.js';
 import type { UploadFileOperation } from '../operations/upload-file.js';
+import type { GetOperationOperation } from '../operations/get-operation.js';
 import { createToolDefinition as openPageTool } from '../operations/open-page.tool.js';
 import { createToolDefinition as readDataTool } from '../operations/read-data.tool.js';
 import { createToolDefinition as writeDataTool } from '../operations/write-data.tool.js';
@@ -29,6 +30,7 @@ import { createToolDefinition as wizardNavigateTool } from '../operations/wizard
 import { createToolDefinition as lookupTool } from '../operations/lookup.tool.js';
 import { createToolDefinition as queryTool } from '../operations/query.tool.js';
 import { createToolDefinition as uploadFileTool } from '../operations/upload-file.tool.js';
+import { createToolDefinition as getOperationTool } from '../operations/get-operation.tool.js';
 
 export interface ToolDefinition {
   name: string;
@@ -75,6 +77,7 @@ export interface Operations {
   lookup: LookupOperation;
   query: QueryOperation;
   uploadFile: UploadFileOperation;
+  getOperation: GetOperationOperation;
 }
 
 export function buildToolRegistry(ops: Operations): ToolDefinition[] {
@@ -94,5 +97,6 @@ export function buildToolRegistry(ops: Operations): ToolDefinition[] {
     lookupTool(ops),
     queryTool(ops),
     uploadFileTool(ops),
+    getOperationTool(ops),
   ];
 }

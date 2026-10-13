@@ -24,8 +24,8 @@
 | npm package | [`business-central-mcp`](https://www.npmjs.com/package/business-central-mcp) |
 | BC versions | BC27, BC28 (wire-compatible) |
 | Auth | On-prem NavUserPassword. BC Online: ESTS cookie session for `/csh` (no password in env) + device-code for `bc_query`. |
-| Tools | 15 |
-| Tests | 1087 unit/protocol + 163 integration |
+| Tools | 16 |
+| Tests | 1117 unit/protocol + 164 integration |
 | License | MIT |
 
 ## Install
@@ -312,6 +312,7 @@ Known wart: when the browser sign-in fails (65002, blocked consent), Entra keeps
 | `bc_lookup` | List the valid values for a lookup field (e.g. Salesperson Code) |
 | `bc_query` | Bulk read-only OData queries against the BC Standard API v2.0 |
 | `bc_upload_file` | Upload a local file into a BC file-upload dialog (e.g. Import Layout) |
+| `bc_get_operation` | Look up an earlier `operationId` and, when its outcome is in doubt, read the record back |
 
 Every tool carries MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`), so clients can auto-approve the read-only ones and ask before writes, actions, dialogs, reports and uploads.
 
@@ -330,6 +331,8 @@ Every result from those eight tools (and its ledger entry) carries `replaySafe`.
 | `bc_run_report`, `bc_upload_file` | never: a re-run reruns the report or the import |
 
 An `OPERATION_IN_DOUBT` response is always `replaySafe: false`, and so is the first error response to an ambiguous failure (`TIMEOUT_ERROR`, `SESSION_LOST`, `CONNECTION_ERROR`, `PROTOCOL_ERROR`, `ABORTED_ERROR`, or an unclassified error), with or without an `operationId`: it is in `structuredContent` next to the error code. Definite failures (validation, business errors) carry no verdict, because nothing was applied.
+
+`bc_get_operation { operationId }` (read-only) returns the ledger entry: status, tool, timestamps, `replaySafe`, the stored result and the `target` snapshot. When the status is not `completed` or `replaySafe` is false, it also re-reads the target in the current session: it re-opens the page by page id on the recorded record bookmark, reads the record's key fields plus any written fields (or the targeted list row, `null` if it is gone), closes the page, and returns that as `readBack` with `evidenceHash`, the SHA-256 of its sorted-key JSON. It does not switch company for you (`readBackError: COMPANY_MISMATCH`). A card in edit mode keeps a written value until the page is closed or leaves the record, so a read-back taken while the original page is still open can show the old value.
 
 ## How it works
 
