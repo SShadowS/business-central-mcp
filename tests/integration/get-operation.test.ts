@@ -154,5 +154,30 @@ describe('bc_get_operation (integration)', () => {
     expect(g.readBack).toMatchObject({ pageId: '42', sectionId: 'header', bookmark: target.page!.bookmark });
     expect(g.readBack!.lines!.length).toBeGreaterThan(0);
     expect(Object.keys(g.readBack!.lines![0]!.cells)).toContain('Quantity Shipped');
+    // #33: Sales Header key is (Document Type=1, No.=3). Live: field 1 has no control on
+    // page 42 and "No." is a hidden control, so the key is read by TableFieldNo, not caption.
+    expect(target.keyFields?.map(k => k.fieldNo)).toEqual([3]);
+    expect(target.keyFields![0]!.value).toBeTruthy();
+    expect(target.fields).toBeUndefined();
+    expect(g.readBack!.keyFields).toEqual(target.keyFields);
+  }, 120_000);
+
+  it('identifies a card by its primary key (Customer Card 21: field 1 "No.")', async () => {
+    const list = unwrap(await openPageOp.execute({ pageId: '22' }));
+    openedPages.push(list.pageContextId);
+    const row = unwrap(dataService.readRows(list.pageContextId))[0]!;
+    const card = unwrap(await openPageOp.execute({ pageId: '21', bookmark: row.bookmark }));
+    const target = createTargetDescriber(repo, () => session.companyName)({ pageContextId: card.pageContextId, action: 'Statistics' });
+    expect(isOk(await pageService.closePage(card.pageContextId, { discardChanges: true }))).toBe(true);
+    expect(target.keyFields).toEqual([{ fieldNo: 1, caption: 'No.', value: expect.stringMatching(/\S/) }]);
+    const id = `getop-card-${randomUUID()}`;
+    await ledger.claim(id, 'bc_execute_action', 'digest', target);
+    await ledger.settle(id, { status: 'unknown', replaySafe: false });
+
+    const g = JSON.parse((await call('bc_get_operation', { operationId: id })).text) as GetOperationOutput;
+    expect(g.readBackError).toBeUndefined();
+    expect(g.readBack!.keyFields).toEqual(target.keyFields);
+    expect(g.readBack!.fields).toBeUndefined();
+    expect(g.evidenceHash).toBe(digestInput(g.readBack));
   }, 120_000);
 });

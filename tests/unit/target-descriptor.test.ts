@@ -56,6 +56,41 @@ describe('createTargetDescriber', () => {
     expect(createTargetDescriber(repo, () => 'CRONUS')({ pageContextId: pc }).page).toMatchObject({ pageId: '42' });
   });
 
+  it('identifies a card by Metadata.primaryKeyIds joined to TableFieldNo, in key order, skipping repeater templates', () => {
+    const repo = new PageContextRepository();
+    const pc = 'session:page:42:pk000001';
+    repo.create(pc, 'F7', { isModal: false, wizardState: null });
+    repo.applyToPage(pc, [{
+      type: 'FormCreated', formId: 'F7', isReload: false,
+      controlTree: {
+        t: 'lf', ServerId: 'F7', PageType: 0, Caption: 'Sales Order', Metadata: { id: 42, sourceTableId: 36, primaryKeyIds: [1, 3] },
+        Children: [
+          { t: 'rc', Columns: [], Children: [{ t: 'sc', Caption: 'Template', TableFieldNo: 3, StringValue: 'row' }] },
+          { t: 'sc', Caption: 'Customer Name', TableFieldNo: 79, StringValue: 'Adatum' },
+          { t: 'sc', Caption: 'No.', TableFieldNo: 3, StringValue: '101009', Visible: false },
+          { t: 'sec', Caption: 'Document Type', TableFieldNo: 1, StringValue: 'Order' },
+        ],
+      },
+    } as BCEvent]);
+    const d = createTargetDescriber(repo, () => undefined)({ pageContextId: pc });
+    expect(d.keyFields).toEqual([{ fieldNo: 1, caption: 'Document Type', value: 'Order' }, { fieldNo: 3, caption: 'No.', value: '101009' }]);
+    expect(d.fields).toBeUndefined();
+  });
+
+  it('falls back to the leading card fields on an unbound form', () => {
+    const repo = new PageContextRepository();
+    const pc = 'session:page:1310:unb00001';
+    repo.create(pc, 'F8', { isModal: false, wizardState: null });
+    repo.applyToPage(pc, [{
+      type: 'FormCreated', formId: 'F8', isReload: false,
+      controlTree: { t: 'lf', ServerId: 'F8', PageType: 0, Caption: 'Headline', Metadata: { id: 1310, sourceTableId: 0 },
+        Children: [{ t: 'sc', Caption: 'Greeting', StringValue: 'Hi' }] },
+    } as BCEvent]);
+    const d = createTargetDescriber(repo, () => undefined)({ pageContextId: pc });
+    expect(d.keyFields).toBeUndefined();
+    expect(d.fields).toEqual({ Greeting: 'Hi' });
+  });
+
   it('resolves rowIndex and bookmarks[]', () => {
     const describe = createTargetDescriber(listRepo(), () => undefined);
     expect(describe({ pageContextId: PC, rowIndex: 0, fields: { Name: 'X' } }).rows?.map(r => r.bookmark)).toEqual(['BM1']);

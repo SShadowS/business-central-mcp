@@ -73,6 +73,52 @@ describe('GetOperationOperation', () => {
     await ledger.settle(id, { status: 'unknown', replaySafe: false });
   }
 
+  // Live cronus29: Sales Order 42 Metadata.primaryKeyIds = [1, 3]; "No." (field 3) is a hidden control,
+  // "Document Type" (field 1) has none.
+  function keyedRepo(no: string, noCaption = 'No.'): PageContextRepository {
+    const repo = new PageContextRepository();
+    repo.create(CARD, 'C1', { isModal: false, wizardState: null });
+    repo.applyToPage(CARD, [{
+      type: 'FormCreated', formId: 'C1', isReload: false,
+      controlTree: {
+        t: 'lf', ServerId: 'C1', PageType: 0, Caption: 'Sales Order', Bookmark: 'BMK',
+        Metadata: { id: 21, sourceTableId: 36, primaryKeyIds: [1, 3] },
+        Children: [
+          { t: 'sc', Caption: 'Address 2', StringValue: 'X', TableFieldNo: 6 },
+          { t: 'sc', Caption: noCaption, StringValue: no, TableFieldNo: 3, Visible: false },
+        ],
+      },
+    } as BCEvent]);
+    return repo;
+  }
+
+  it('reads the primary key back by table field number, whatever its caption is now', async () => {
+    const target = createTargetDescriber(keyedRepo('101009'), () => 'CRONUS')({ pageContextId: CARD, fields: { 'Address 2': 'X' } });
+    expect(target.keyFields).toEqual([{ fieldNo: 3, caption: 'No.', value: '101009' }]);
+    expect(target.fields).toBeUndefined();
+    await ledger.claim('pk', 'bc_write_data', 'digest', target);
+    await ledger.settle('pk', { status: 'unknown', replaySafe: false });
+    const r = await opWith(keyedRepo('101009', 'Order No.'), 'CRONUS', false, CARD).op.execute({ operationId: 'pk' });
+    if (!r.ok) throw r.error;
+    expect(r.value.readBackError).toBeUndefined();
+    expect(r.value.readBack?.keyFields).toEqual([{ fieldNo: 3, caption: 'No.', value: '101009' }]);
+    expect(r.value.readBack?.fields).toEqual({ 'Address 2': 'X' });
+    expect(r.value.evidenceHash).toBeDefined();
+  });
+
+  it('reports a primary-key mismatch distinctly, without an evidence hash', async () => {
+    const target = createTargetDescriber(keyedRepo('101009'), () => 'CRONUS')({ pageContextId: CARD, action: 'Release' });
+    await ledger.claim('pkx', 'bc_execute_action', 'digest', target);
+    await ledger.settle('pkx', { status: 'unknown', replaySafe: false });
+    const r = await opWith(keyedRepo('101010'), 'CRONUS', false, CARD).op.execute({ operationId: 'pkx' });
+    if (!r.ok) throw r.error;
+    expect(r.value.readBackError?.code).toBe('KEY_MISMATCH');
+    expect(r.value.readBackError?.message).toContain("'101009' -> '101010'");
+    expect(r.value.readBack?.keyFields).toEqual([{ fieldNo: 3, caption: 'No.', value: '101010' }]);
+    expect(r.value.readBack?.fields).toBeUndefined();
+    expect(r.value.evidenceHash).toBeUndefined();
+  });
+
   it('does not open a page while a dialog is open (OpenForm would abort it)', async () => {
     await record('modal', 'unknown', false);
     const { op, pageService } = opWith(listRepo([]), 'CRONUS', true);

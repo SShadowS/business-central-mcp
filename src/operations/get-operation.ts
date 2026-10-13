@@ -4,6 +4,7 @@ import type { PageService } from '../services/page-service.js';
 import { buildSection } from '../protocol/section-dto.js';
 import { resolveSection } from '../protocol/section-resolver.js';
 import { findField } from '../protocol/form-views.js';
+import { readKeyFields } from './target-descriptor.js';
 import { digestInput, type OperationEntry, type OperationLedger } from '../mcp/operation-ledger.js';
 
 export interface GetOperationInput {
@@ -17,7 +18,9 @@ export interface ReadBack {
   /** Record the page was re-opened on (a list's targeted row, else the root form bookmark). */
   bookmark: string;
   sectionId: string;
-  /** Card-shape: the identified fields (key fields + written fields), caption -> value (null = not on the page). */
+  /** Card-shape: the recorded primary-key fields re-read by table field number (value null = no control on the page now). */
+  keyFields?: Array<{ fieldNo: number; caption: string; value: string | null }>;
+  /** Card-shape: the written fields (plus the leading-field fallback identity on unbound forms), caption -> value (null = not on the page). */
   fields?: Record<string, string | null>;
   /** List-shape: the targeted row's current cells; null when the row is gone (e.g. deleted). */
   row?: { bookmark: string; cells: Record<string, unknown> } | null;
@@ -103,6 +106,17 @@ export class GetOperationOperation {
         const row = section.rows?.find(r => r.bookmark === targetRow.bookmark);
         readBack.row = row ? { bookmark: row.bookmark, cells: { ...row.cells } } : null;
       } else {
+        const resolved = resolveSection(ctx, sectionId);
+        const root = 'error' in resolved ? undefined : resolved.form.root;
+        if (target.keyFields) {
+          // Read the key back by table field number, not caption (captions can repeat or be personalized).
+          const now = root ? readKeyFields(root) : [];
+          readBack.keyFields = target.keyFields.map(k => ({ fieldNo: k.fieldNo, caption: k.caption, value: now.find(n => n.fieldNo === k.fieldNo)?.value ?? null }));
+          const diff = readBack.keyFields.filter((k, i) => k.value !== null && k.value !== target.keyFields![i]!.value);
+          if (diff.length > 0) {
+            return ok({ entry, readBack, readBackError: { code: 'KEY_MISMATCH', message: `Page ${pageId} opened a record whose primary key differs from the recorded one (${diff.map((k) => `${k.caption || `field ${k.fieldNo}`}: '${target.keyFields!.find(t => t.fieldNo === k.fieldNo)!.value}' -> '${k.value}'`).join(', ')}).` } });
+          }
+        }
         const written = target.args['fields'];
         const names = new Set([
           ...Object.keys(target.fields ?? {}),
@@ -110,12 +124,9 @@ export class GetOperationOperation {
         ]);
         // Named fields are looked up in the whole form tree: a written field can be
         // hidden in a fresh (view-mode, collapsed) page and so be absent from section.fields.
-        const resolved = resolveSection(ctx, sectionId);
         // Same name resolution as bc_write_data: caption case-insensitively, or controlPath.
-        const root = 'error' in resolved ? undefined : resolved.form.root;
-        readBack.fields = names.size > 0
-          ? Object.fromEntries([...names].map(n => [n, (root && findField(root, n)?.properties.stringValue) ?? null]))
-          : Object.fromEntries((section.fields ?? []).map(f => [f.name, f.value ?? null]));
+        if (names.size > 0) readBack.fields = Object.fromEntries([...names].map(n => [n, (root && findField(root, n)?.properties.stringValue) ?? null]));
+        else if (!target.keyFields) readBack.fields = Object.fromEntries((section.fields ?? []).map(f => [f.name, f.value ?? null]));
         if (sectionId === 'header') {
           const linesId = [...ctx.sections.values()].find(s => s.kind === 'lines')?.sectionId;
           const rows = linesId ? buildSection(ctx, linesId)?.rows : undefined;

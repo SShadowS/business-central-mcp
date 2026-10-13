@@ -40,6 +40,22 @@ export function findField(root: FormNode, fieldName: string): FieldNode | undefi
   return fields(root).find(f => (f.properties.caption ?? '').toLowerCase() === lower || f.controlPath === fieldName);
 }
 
+/**
+ * The record's primary-key controls: for each `Metadata.primaryKeyIds` entry (key
+ * order), the first field bound to that table field (`tableFieldNo`), outside
+ * repeater row templates. A key field with no control on the page is skipped;
+ * an unbound form (no primaryKeyIds) yields [].
+ */
+export function primaryKeyFields(root: FormNode): Array<{ fieldNo: number; node: FieldNode }> {
+  if (!isLogicalFormNode(root)) return [];
+  const rcPaths = [...repeaters(root).keys()];
+  const bound = fields(root).filter(f => f.tableFieldNo !== undefined && !rcPaths.some(p => f.controlPath.startsWith(`${p}/`)));
+  return (root.metadata?.primaryKeyIds ?? []).flatMap(fieldNo => {
+    const node = bound.find(f => f.tableFieldNo === fieldNo);
+    return node ? [{ fieldNo, node }] : [];
+  });
+}
+
 export function actions(root: FormNode): readonly ActionNode[] {
   const cached = actionsCache.get(root);
   if (cached) return cached;

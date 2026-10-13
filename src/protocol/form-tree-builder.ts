@@ -57,12 +57,14 @@ function pageTypeOf(obj: Record<string, unknown>): PageType {
   return 'Unknown';
 }
 
-function metadataOf(obj: Record<string, unknown>): { id: number; sourceTableId: number } | undefined {
+function metadataOf(obj: Record<string, unknown>): LogicalFormNode['metadata'] {
   const m = obj.Metadata as Record<string, unknown> | undefined;
   if (!m) return undefined;
+  const pk = m.primaryKeyIds;
   return {
     id: (m.id as number) ?? 0,
     sourceTableId: (m.sourceTableId as number) ?? 0,
+    ...(Array.isArray(pk) && pk.length > 0 ? { primaryKeyIds: pk.filter((n): n is number => typeof n === 'number') } : {}),
   };
 }
 
@@ -129,6 +131,8 @@ function buildField(obj: Record<string, unknown>, t: FieldType, controlPath: str
     type: t,
     controlPath,
     properties: props,
+    // LogicalControlSerializer writes TableFieldNo with default -1, so presence = bound control.
+    ...(typeof obj.TableFieldNo === 'number' ? { tableFieldNo: obj.TableFieldNo } : {}),
     ...(binder?.Name ? { columnBinder: { name: binder.Name, ...(binder.Path ? { path: binder.Path } : {}) } } : {}),
     ...(hasLookup ? { hasLookup: true } : {}),
     ...(canShowSimpleLookup === false ? { canShowSimpleLookup: false } : {}),

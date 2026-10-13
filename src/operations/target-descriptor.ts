@@ -1,5 +1,6 @@
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
-import type { LogicalFormNode } from '../protocol/form-node.js';
+import type { FormNode, LogicalFormNode } from '../protocol/form-node.js';
+import { primaryKeyFields } from '../protocol/form-views.js';
 import { buildSection } from '../protocol/section-dto.js';
 import { resolveSection } from '../protocol/section-resolver.js';
 
@@ -21,13 +22,26 @@ export interface TargetDescriptor {
   section?: { sectionId: string; kind: string; caption: string };
   /** Targeted rows (bookmark/bookmarks/rowIndex, else BC's current row) with captioned cell values. */
   rows?: Array<{ bookmark: string; cells: Record<string, unknown> }>;
-  /** Card-shape sections: leading non-empty field values (usually the record key). */
+  /**
+   * Card-shape sections: the record's primary key, from the form's
+   * `Metadata.primaryKeyIds` joined to the controls' `TableFieldNo` (key order;
+   * key fields without a control on the page are absent).
+   */
+  keyFields?: KeyField[];
+  /** Card-shape fallback when the form is unbound or no key field has a control: leading non-empty field values. */
   fields?: Record<string, string>;
   dialog?: { formId: string; message?: string };
 }
 
+export interface KeyField { fieldNo: number; caption: string; value: string }
+
+/** A form's primary-key controls with their current values; [] for an unbound form. */
+export function readKeyFields(root: FormNode): KeyField[] {
+  return primaryKeyFields(root).map(({ fieldNo, node }) => ({ fieldNo, caption: node.properties.caption ?? '', value: node.properties.stringValue ?? '' }));
+}
+
 const OMIT_ARGS = new Set(['base64', 'expectedStateVersion']);
-// ponytail: "key" fields of a card = first N non-empty captioned fields (BC cards lead with No./Name); real PK metadata if this misses.
+// Fallback identity for unbound forms: the first N non-empty captioned fields (BC cards lead with No./Name).
 const CARD_KEY_FIELDS = 5;
 
 export type DescribeTarget = (input: unknown) => TargetDescriptor;
@@ -66,8 +80,15 @@ export function createTargetDescriber(repo: Pick<PageContextRepository, 'get'>, 
         : typeof raw['rowIndex'] === 'number' ? (rows[raw['rowIndex']] ? [rows[raw['rowIndex']]!] : [])
           : rows.filter(r => r.bookmark === current);
       if (picked.length > 0) out.rows = picked.map(r => ({ bookmark: r.bookmark, cells: { ...r.cells } }));
-      const keyFields = (section.fields ?? []).filter(f => f.value).slice(0, CARD_KEY_FIELDS);
-      if (keyFields.length > 0) out.fields = Object.fromEntries(keyFields.map(f => [f.name, f.value!]));
+      else {
+        // Whole form tree: a key field can sit outside the first group or be hidden (Sales Order "No.").
+        const keyFields = 'error' in resolved ? [] : readKeyFields(resolved.form.root);
+        if (keyFields.length > 0) out.keyFields = keyFields;
+        else {
+          const leading = (section.fields ?? []).filter(f => f.value).slice(0, CARD_KEY_FIELDS);
+          if (leading.length > 0) out.fields = Object.fromEntries(leading.map(f => [f.name, f.value!]));
+        }
+      }
     }
 
     const dialogId = typeof raw['dialogFormId'] === 'string' ? raw['dialogFormId'] : typeof raw['formId'] === 'string' ? raw['formId'] : undefined;

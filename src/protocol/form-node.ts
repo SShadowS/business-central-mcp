@@ -74,9 +74,12 @@ export interface LogicalFormNode extends NodeBase<'lf'> {
   /**
    * Source object metadata published by BC: `id` is the page object ID;
    * `sourceTableId` is the table this page reads from. Both come from the
-   * `Metadata` object in the wire `lf` node.
+   * `Metadata` object in the wire `lf` node. `primaryKeyIds` are the source
+   * table's primary-key field numbers in key order (absent on unbound forms);
+   * joined to `FieldNode.tableFieldNo` they identify the record's key controls.
+   * Live cronus29: Customer Card 21 `[1]`, Sales Order 42 `[1, 3]`.
    */
-  readonly metadata?: { readonly id: number; readonly sourceTableId: number };
+  readonly metadata?: { readonly id: number; readonly sourceTableId: number; readonly primaryKeyIds?: readonly number[] };
   /**
    * NST form handle of this form's binding manager (wire `ServerFormHandle`,
    * decompiled `LogicalFormSerializer.CalculateServerFormHandle`). Stable per
@@ -93,6 +96,8 @@ export interface GroupNode extends NodeBase<'gc'> {
 export type FieldType = 'sc' | 'dc' | 'bc' | 'dtc' | 'i32c' | 'sec' | 'pc' | 'ssc';
 
 export interface FieldNode extends NodeBase<FieldType> {
+  /** Source table field number (wire `TableFieldNo`, decompiled `LogicalControlSerializer`); absent on unbound controls. */
+  readonly tableFieldNo?: number;
   readonly columnBinder?: { readonly name: string; readonly path?: string };
   readonly hasLookup?: boolean;
   /** False when the field uses an AL OnLookup trigger (LookupAction.CanShowSimpleLookup=false).
