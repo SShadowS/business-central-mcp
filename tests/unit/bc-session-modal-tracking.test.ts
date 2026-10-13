@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import type { BCEvent } from '../../src/protocol/types.js';
 import { BCSession } from '../../src/session/bc-session.js';
 import { ok } from '../../src/core/result.js';
+import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
 
 class TrackingProbe extends (BCSession as any) {
   constructor() {
@@ -215,7 +216,7 @@ describe('BCSession invoke with auto-recovery', () => {
 
     (s as any).reconcileModalStack = vi.fn(async () => {
       s.feed([closed('M1')]);
-      return ok(undefined);
+      return ok([]);
     });
 
     const result = await s.invoke(
@@ -234,7 +235,7 @@ describe('BCSession invoke with auto-recovery', () => {
     (s as any).ws.sendRpc = vi.fn(async () => ({
       ok: false, error: { message: 'LogicalModalityViolationException: persistent' },
     }));
-    (s as any).reconcileModalStack = vi.fn(async () => ok(undefined));
+    (s as any).reconcileModalStack = vi.fn(async () => ok([]));
 
     const result = await s.invoke(
       { type: 'OpenForm', query: 'page=22&tenant=default' } as any,
@@ -331,4 +332,39 @@ describe('BCSession invoke + reconcile end-to-end (no stubs)', () => {
     expect(sendCount).toBe(3); // original violation + abort + retry
     expect(s.stack()).toEqual([]);
   }, 10000);
+
+  // #36: the reconcile Abort's events (with the derived FormClosed) must reach
+  // the caller, which routes them to the page-context repository.
+  it.each([
+    ['BC reports the Abort closed (State=0)', true],
+    ['BC does not report it closed (force-pop)', false],
+  ])('a reconciled dialog leaves its page context: %s', async (_label, bcReportsClose) => {
+    const s = new ReconcileProbe();
+    const repo = new PageContextRepository();
+    repo.create('pc1', 'F1');
+    const opened: BCEvent[] = [
+      { type: 'FormCreated', formId: 'F1', controlTree: {} } as BCEvent,
+      { type: 'DialogOpened', formId: 'M1', ownerFormId: 'F1', controlTree: {} } as BCEvent,
+    ];
+    s.feed(opened);
+    repo.applyEvents(opened);
+    expect(repo.get('pc1')!.dialogs.map(d => d.formId)).toEqual(['M1']);
+
+    let sendCount = 0;
+    (s as any).ws.sendRpc = vi.fn(async () => {
+      sendCount += 1;
+      return sendCount === 1
+        ? { ok: false, error: { message: 'LogicalModalityViolationException: stale dialog' } }
+        : { ok: true, value: [] };
+    });
+    (s as any).decoder.decode = vi.fn(() => (sendCount === 2 && bcReportsClose ? [closed('M1')] : []));
+
+    const result = await s.invoke({ type: 'OpenForm', query: 'page=22&tenant=default' } as any, () => true);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect((result.value as BCEvent[]).filter(e => e.type === 'FormClosed')).toEqual([{ type: 'FormClosed', formId: 'M1' }]);
+
+    repo.applyEvents(result.value);
+    expect(repo.get('pc1')!.dialogs).toEqual([]);
+  });
 });
