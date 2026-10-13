@@ -130,6 +130,13 @@ export interface FormHostNode extends NodeBase<'fhc'> {
 
 export interface FilterNode extends NodeBase<'filc'> {
   readonly children: readonly FormNode[];
+  /**
+   * Wire `FilterColumns`: `id` is the column binder path, `<sourceTableId>_<table name>.<fieldNo>`
+   * for a table field (decompiled `FilterLogicalControlSerializer` writes `ColumnBinder.Path`;
+   * `NavBindingManager.MakeBindingManagerName` builds the prefix, dots stripped from the name).
+   * Lists every filterable table field, controls or not (`NavFilterLogicalControl.GetFilterableColumnDescriptions`).
+   */
+  readonly filterColumns?: ReadonlyArray<{ readonly id: string; readonly caption: string }>;
 }
 
 /**

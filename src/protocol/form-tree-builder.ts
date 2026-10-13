@@ -242,11 +242,14 @@ function buildFormHost(obj: Record<string, unknown>, controlPath: string): FormH
 }
 
 function buildFilter(obj: Record<string, unknown>, controlPath: string): FilterNode {
+  const cols = Array.isArray(obj.FilterColumns) ? (obj.FilterColumns as Array<Record<string, unknown>>) : [];
+  const filterColumns = cols.flatMap(c => (typeof c?.Id === 'string' ? [{ id: c.Id, caption: typeof c.Caption === 'string' ? c.Caption : '' }] : []));
   return {
     type: 'filc',
     controlPath,
     properties: readProperties(obj),
     children: buildChildren(obj.Children, controlPath, false),
+    ...(filterColumns.length > 0 ? { filterColumns } : {}),
   };
 }
 

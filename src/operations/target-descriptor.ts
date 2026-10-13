@@ -1,5 +1,6 @@
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
-import type { FormNode, LogicalFormNode } from '../protocol/form-node.js';
+import type { FilterNode, FormNode, LogicalFormNode } from '../protocol/form-node.js';
+import { walkTree } from '../protocol/form-tree-walk.js';
 import { primaryKeyFields } from '../protocol/form-views.js';
 import { buildSection } from '../protocol/section-dto.js';
 import { resolveSection } from '../protocol/section-resolver.js';
@@ -34,7 +35,12 @@ export interface TargetDescriptor {
   dialog?: { formId: string; message?: string };
 }
 
-/** `source: 'bookmark'`: no control on the page; value decoded from the record bookmark (Option = ordinal, caption ''). */
+/**
+ * `source: 'bookmark'`: no control on the page; value decoded from the record bookmark.
+ * Caption comes from the form's filter-control columns ('' when the form has none). An
+ * Option stays its ordinal: BC sends option captions only on a control's `Items`, and this
+ * field has no control, so nothing we receive names the option (live cronus29 page 42).
+ */
 export interface KeyField { fieldNo: number; caption: string; value: string; source?: 'bookmark' }
 
 /**
@@ -50,10 +56,18 @@ export function readKeyFields(root: FormNode): KeyField[] {
   const bm = root.properties.bookmark;
   const decoded = bm && controls.length < ids.length ? decodeBookmark(bm) : undefined;
   const fromBookmark = decoded && decoded.tableNo === meta?.sourceTableId && decoded.values.length === ids.length ? decoded.values : undefined;
+  // Field captions for control-less key fields: the form's filter control lists every
+  // table field as `<sourceTableId>_<table name>.<fieldNo>` (live cronus29 Sales Order 42:
+  // "36_Sales Header.1" = "Document Type"). The lines subpage's filc carries its own table's prefix.
+  const columns = fromBookmark ? [...walkTree(root)].flatMap(n => (n.type === 'filc' ? (n as FilterNode).filterColumns ?? [] : [])) : [];
+  const captionOf = (fieldNo: number) => {
+    const id = new RegExp(`^${meta?.sourceTableId}_[^.]*\\.${fieldNo}$`);
+    return columns.find(c => id.test(c.id))?.caption ?? '';
+  };
   return ids.flatMap((fieldNo, i): KeyField[] => {
     const node = controls.find(c => c.fieldNo === fieldNo)?.node;
     if (node) return [{ fieldNo, caption: node.properties.caption ?? '', value: node.properties.stringValue ?? '' }];
-    return fromBookmark ? [{ fieldNo, caption: '', value: fromBookmark[i]!, source: 'bookmark' }] : [];
+    return fromBookmark ? [{ fieldNo, caption: captionOf(fieldNo), value: fromBookmark[i]!, source: 'bookmark' }] : [];
   });
 }
 

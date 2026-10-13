@@ -73,6 +73,26 @@ describe('readKeyFields from the record bookmark', () => {
     ]);
   });
 
+  it("captions a control-less key field from the form's own filter columns, not a subpage's", () => {
+    // Live cronus29 Sales Order 42: header filc "Sales Order" and lines filc both list field 1.
+    const root = buildFormTree({
+      t: 'lf', ServerId: 'F1', Caption: 'Sales Order', Bookmark: SALES_ORDERS[0]![0],
+      Metadata: { id: 42, sourceTableId: 36, primaryKeyIds: [1, 3] },
+      Children: [
+        { t: 'filc', Caption: 'Lines', FilterColumns: [{ Id: '37_Sales Line.1', Caption: 'Line Doc Type' }] },
+        { t: 'filc', Caption: 'Sales Order', FilterColumns: [
+          { Id: '36_Sales Header.13631', Caption: 'Account Code' },
+          { Id: '36_Sales Header.11', Caption: 'Your Reference' },
+          { Id: '36_Sales Header.1', Caption: 'Document Type' },
+        ] },
+      ],
+    });
+    expect(readKeyFields(root)).toEqual([
+      { fieldNo: 1, caption: 'Document Type', value: '1', source: 'bookmark' },
+      { fieldNo: 3, caption: '', value: '101009', source: 'bookmark' },
+    ]);
+  });
+
   it('ignores a bookmark of another table or with the wrong key arity', () => {
     const controlOnly = [{ fieldNo: 3, caption: 'No.', value: '101009' }];
     expect(readKeyFields(salesOrder(SALES_ORDERS[0]![0], 37))).toEqual(controlOnly);
