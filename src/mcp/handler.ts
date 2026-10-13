@@ -5,6 +5,7 @@ import { SessionLostError, BCError, UrlElicitationRequiredError, errorHint } fro
 import { applyElicitationCapabilities, type ClientElicitationPort } from './elicitation-port.js';
 import { SERVER_VERSION } from '../core/version.js';
 import { digestInput, type OperationLedger } from './operation-ledger.js';
+import type { DescribeTarget, TargetDescriptor } from '../operations/target-descriptor.js';
 
 export const URL_ELICITATION_JSONRPC_CODE = -32042;
 
@@ -47,6 +48,7 @@ export class MCPHandler {
   private initialized = false;
   private readonly elicitationPort: ClientElicitationPort | undefined;
   private readonly ledger: OperationLedger | undefined;
+  private readonly describeTarget: DescribeTarget | undefined;
 
   get isInitialized(): boolean {
     return this.initialized;
@@ -56,10 +58,11 @@ export class MCPHandler {
     private readonly tools: ToolDefinition[],
     private readonly logger: Logger,
     private readonly prompts: PromptDefinition[] = [],
-    opts?: { elicitationPort?: ClientElicitationPort; ledger?: OperationLedger },
+    opts?: { elicitationPort?: ClientElicitationPort; ledger?: OperationLedger; describeTarget?: DescribeTarget },
   ) {
     this.elicitationPort = opts?.elicitationPort;
     this.ledger = opts?.ledger;
+    this.describeTarget = opts?.describeTarget;
   }
 
   async handleRequest(request: JsonRpcRequest): Promise<JsonRpcResponse> {
@@ -205,7 +208,15 @@ export class MCPHandler {
   private async runIdempotent(tool: ToolDefinition, operationId: string, input: unknown, id: unknown): Promise<JsonRpcResponse> {
     const ledger = this.ledger!;
     const inputDigest = digestInput(input);
-    const claim = await ledger.claim(operationId, tool.name, inputDigest);
+    // Snapshot the target before the call runs: session loss mid-call wipes the
+    // page contexts it would otherwise be read from. Best-effort; never blocks the call.
+    let target: TargetDescriptor | undefined;
+    try {
+      target = this.describeTarget?.(input);
+    } catch (e) {
+      this.logger.warn(`Could not describe ${tool.name} target for operationId ${operationId}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    const claim = await ledger.claim(operationId, tool.name, inputDigest, target);
     if (!claim.claimed) {
       const ex = claim.existing;
       if (ex.tool !== tool.name || ex.inputDigest !== inputDigest) {
@@ -215,7 +226,7 @@ export class MCPHandler {
         this.logger.info(`Replayed ${tool.name} result for operationId ${operationId}`);
         return { jsonrpc: '2.0', id, result: ex.result };
       }
-      const state = { code: 'OPERATION_IN_DOUBT', operationId, status: ex.status, createdAt: ex.createdAt, ...(ex.error ? { error: ex.error } : {}) };
+      const state = { code: 'OPERATION_IN_DOUBT', operationId, status: ex.status, createdAt: ex.createdAt, ...(ex.error ? { error: ex.error } : {}), ...(ex.target ? { target: ex.target } : {}) };
       return {
         jsonrpc: '2.0',
         id,

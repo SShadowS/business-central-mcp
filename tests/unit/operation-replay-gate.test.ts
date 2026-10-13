@@ -77,6 +77,8 @@ describe('operationId replay gate', () => {
     const execute = vi.fn().mockImplementation(() => new Promise(res => { release = () => res({ ok: true, value: {} }); }));
     const h = new MCPHandler([mutatingTool(execute)], logger(), [], { ledger: new OperationLedger(dir) });
     const a = call(h, { value: 'x', operationId: 'op-5' });
+    // Let `a` win the claim first; otherwise `b` may claim, execute and hang on the never-released promise.
+    await vi.waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
     const b = await call(h, { value: 'x', operationId: 'op-5' });
     expect(b.structuredContent).toMatchObject({ code: 'OPERATION_IN_DOUBT', status: 'sent' });
     release();

@@ -315,7 +315,7 @@ Known wart: when the browser sign-in fails (65002, blocked consent), Entra keeps
 
 Every tool carries MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`), so clients can auto-approve the read-only ones and ask before writes, actions, dialogs, reports and uploads.
 
-The eight tools that change state accept an optional `operationId` (an idempotency key you generate). A retry with the same id and arguments returns the first call's stored result instead of running the change again, so retrying after a timeout or dropped connection cannot double-post. The same id with different arguments returns `OPERATION_ID_REUSED`. If the first call's outcome is unknown (timeout, session loss), the retry returns `OPERATION_IN_DOUBT`: check the record before acting under a new id. Calls are recorded in `STATE_DIR/operations/`, so this survives a server restart.
+The eight tools that change state accept an optional `operationId` (an idempotency key you generate). A retry with the same id and arguments returns the first call's stored result instead of running the change again, so retrying after a timeout or dropped connection cannot double-post. The same id with different arguments returns `OPERATION_ID_REUSED`. If the first call's outcome is unknown (timeout, session loss), the retry returns `OPERATION_IN_DOUBT`: check the record before acting under a new id. That response carries a `target` snapshot taken before the first call ran (company, page id and caption, section, the targeted rows' cell values, dialog), so you can find the record again even though the original `pageContextId` died with the session. Calls are recorded in `STATE_DIR/operations/`, so this survives a server restart.
 
 ## How it works
 

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import type { TargetDescriptor } from '../operations/target-descriptor.js';
 
 /**
  * File-backed record of mutating tool calls keyed by a caller-supplied
@@ -24,6 +25,8 @@ export interface OperationEntry {
   status: OperationStatus;
   result?: unknown;
   error?: { code?: string; message: string };
+  /** What the call targeted, captured before it ran (survives session loss). */
+  target?: TargetDescriptor;
   createdAt: string;
   updatedAt: string;
 }
@@ -59,10 +62,10 @@ export class OperationLedger {
    * the id is already taken (by this or another process), so two concurrent
    * calls with one id can never both execute.
    */
-  async claim(operationId: string, tool: string, inputDigest: string): Promise<{ claimed: true } | { claimed: false; existing: OperationEntry }> {
+  async claim(operationId: string, tool: string, inputDigest: string, target?: TargetDescriptor): Promise<{ claimed: true } | { claimed: false; existing: OperationEntry }> {
     await mkdir(this.dir, { recursive: true });
     const now = new Date().toISOString();
-    const entry: OperationEntry = { operationId, tool, inputDigest, status: 'sent', createdAt: now, updatedAt: now };
+    const entry: OperationEntry = { operationId, tool, inputDigest, status: 'sent', ...(target ? { target } : {}), createdAt: now, updatedAt: now };
     try {
       await writeFile(this.pathFor(operationId), JSON.stringify(entry), { flag: 'wx' });
       return { claimed: true };
