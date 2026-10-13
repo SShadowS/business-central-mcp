@@ -68,7 +68,7 @@ export class GetOperationOperation {
 
     // OpenForm runs LogicalModalityVerifier.VerifyAnyModalFormOpen (decompiled
     // NavPropertyBagInvokedActionBase / NavRunPagePropertyBagInvokedAction), and
-    // BCSession answers that violation by aborting every open dialog. A read-only
+    // BCSession answers that violation by closing every open dialog. A read-only
     // lookup must not cancel the pending confirm the caller is about to answer.
     if (this.hasOpenModal()) {
       return ok({ entry, readBackError: { code: 'MODAL_OPEN', message: 'A dialog is open in this session. Answer or close it (bc_respond_dialog / bc_close_page), then call bc_get_operation again.' } });
