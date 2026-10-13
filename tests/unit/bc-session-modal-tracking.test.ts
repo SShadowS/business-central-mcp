@@ -149,7 +149,7 @@ class ReconcileProbe extends (BCSession as any) {
 }
 
 describe('BCSession.reconcileModalStack', () => {
-  it('aborts topmost first, then next-down, popping stack each time', async () => {
+  it('closes topmost first, then next-down, popping stack each time', async () => {
     const s = new ReconcileProbe();
     s.feed([
       { type: 'DialogOpened', formId: 'M1', controlTree: {} },
@@ -157,7 +157,7 @@ describe('BCSession.reconcileModalStack', () => {
     ]);
     expect(s.stack()).toEqual(['M1', 'M2']);
 
-    // Stub invokeUnqueued -- simulate BC closing the modal we just aborted.
+    // Stub invokeUnqueued -- simulate BC closing the modal (State=0).
     // reconcileModalStack uses invokeUnqueued (queue-bypassing) because it
     // runs inside an already-enqueued task.
     (s as any).invokeUnqueued = vi.fn(async (interaction: any) => {
@@ -171,10 +171,25 @@ describe('BCSession.reconcileModalStack', () => {
 
     const calls = (s as any).invokeUnqueued.mock.calls.map((c: any[]) => c[0]);
     expect(calls.map((c: any) => c.formId)).toEqual(['M2', 'M1']);
-    expect(calls.every((c: any) => c.systemAction === 320)).toBe(true);
+    expect(calls.every((c: any) => c.type === 'CloseForm')).toBe(true);
   });
 
-  it('returns error if Abort itself fails', async () => {
+  it('closes a nested dialog the close spawned, then the original', async () => {
+    const s = new ReconcileProbe();
+    s.feed([{ type: 'DialogOpened', formId: 'M1', controlTree: {} }]);
+    let n = 0;
+    (s as any).invokeUnqueued = vi.fn(async (interaction: any) => {
+      n += 1;
+      s.feed(n === 1 ? [{ type: 'DialogOpened', formId: 'M2', controlTree: {} }] : [closed(interaction.formId)]);
+      return ok([]);
+    });
+    const result = await s.reconcile();
+    expect(result.ok).toBe(true);
+    expect((s as any).invokeUnqueued.mock.calls.map((c: any[]) => c[0].formId)).toEqual(['M1', 'M2', 'M1']);
+    expect(s.stack()).toEqual([]);
+  });
+
+  it('returns error if CloseForm itself fails', async () => {
     const s = new ReconcileProbe();
     s.feed([{ type: 'DialogOpened', formId: 'M1', controlTree: {} }]);
     (s as any).invokeUnqueued = vi.fn(async () => ({ ok: false, error: { message: 'BOOM' } }));
@@ -182,13 +197,28 @@ describe('BCSession.reconcileModalStack', () => {
     expect(result.ok).toBe(false);
   });
 
-  it('force-pops if BC does NOT emit FormClosed for the aborted modal', async () => {
+  it('drops a dialog BC no longer knows (FormNotFoundException) and reports it closed', async () => {
     const s = new ReconcileProbe();
+    const reported: BCEvent[] = [];
+    s.onReconciledClose = (ev: BCEvent[]) => reported.push(...ev);
     s.feed([{ type: 'DialogOpened', formId: 'M1', controlTree: {} }]);
-    (s as any).invokeUnqueued = vi.fn(async () => ok([])); // Abort succeeds but BC doesn't close
+    (s as any).invokeUnqueued = vi.fn(async () => ({
+      ok: false, error: { message: '{"errorType":"Microsoft.Dynamics.Framework.UI.FormNotFoundException"}' },
+    }));
     const result = await s.reconcile();
     expect(result.ok).toBe(true);
-    expect(s.stack()).toEqual([]); // force-popped
+    expect(s.stack()).toEqual([]);
+    expect(reported).toEqual([{ type: 'FormClosed', formId: 'M1' }]);
+  });
+
+  it('errors (no force-pop) if BC does not report the dialog closed', async () => {
+    const s = new ReconcileProbe();
+    s.feed([{ type: 'DialogOpened', formId: 'M1', controlTree: {} }]);
+    (s as any).invokeUnqueued = vi.fn(async () => ok([])); // InvokeCompleted only, dialog still open
+    const result = await s.reconcile();
+    expect(result.ok).toBe(false);
+    expect(s.stack()).toEqual(['M1']);
+    expect((s as any).invokeUnqueued).toHaveBeenCalledTimes(1);
   });
 
   it('returns ok with empty stack', async () => {
@@ -297,7 +327,7 @@ describe('BCSession invoke + reconcile end-to-end (no stubs)', () => {
         return { ok: false, error: { message: 'LogicalModalityViolationException: stale dialog' } };
       }
       if (sendCount === 2) {
-        // Second send: the Abort from reconcileModalStack succeeds and BC
+        // Second send: the CloseForm from reconcileModalStack succeeds and BC
         // reports M1 closed (decoder injects State=0 -- see below).
         return { ok: true, value: [] };
       }
@@ -305,7 +335,7 @@ describe('BCSession invoke + reconcile end-to-end (no stubs)', () => {
       return { ok: true, value: [] };
     });
 
-    // Decoder fakes M1's State=0 ONLY on the second sendRpc (the Abort
+    // Decoder fakes M1's State=0 ONLY on the second sendRpc (the CloseForm
     // response) so reconcileModalStack pops M1. The first call doesn't reach
     // decode (sendRpc errored), and the third call doesn't need any events.
     (s as any).decoder.decode = vi.fn((_data: unknown) => {
@@ -329,19 +359,16 @@ describe('BCSession invoke + reconcile end-to-end (no stubs)', () => {
     ]);
 
     expect(result.ok).toBe(true);
-    expect(sendCount).toBe(3); // original violation + abort + retry
+    expect(sendCount).toBe(3); // original violation + close + retry
     expect(s.stack()).toEqual([]);
   }, 10000);
 
   // #36: a reconciled dialog's FormClosed reaches the repository through
   // onReconciledClose, even when the caller drops its invoke result
-  // (run_report, search). The Abort's other events (an AL Error raised while
-  // aborting) must NOT land in the caller's result: services would classify
+  // (run_report, search). The CloseForm's other events (an AL Error raised while
+  // closing) must NOT land in the caller's result: services would classify
   // them as the retried interaction's BUSINESS_ERROR and release its operationId.
-  it.each([
-    ['BC reports the Abort closed (State=0)', true],
-    ['BC does not report it closed (force-pop)', false],
-  ])('a reconciled dialog leaves its page context: %s', async (_label, bcReportsClose) => {
+  it('a reconciled dialog leaves its page context', async () => {
     const s = new ReconcileProbe();
     const repo = new PageContextRepository();
     s.onReconciledClose = (closedEvents: BCEvent[]) => repo.applyEvents(closedEvents);
@@ -361,11 +388,10 @@ describe('BCSession invoke + reconcile end-to-end (no stubs)', () => {
         ? { ok: false, error: { message: 'LogicalModalityViolationException: stale dialog' } }
         : { ok: true, value: [] };
     });
-    const abortError: BCEvent = {
-      type: 'MessageToShow', formId: '', text: 'Aborted by AL', messageType: 'Error', actions: ['Ok'], defaultAction: 'Ok',
+    const closeError: BCEvent = {
+      type: 'MessageToShow', formId: '', text: 'Raised by AL on close', messageType: 'Error', actions: ['Ok'], defaultAction: 'Ok',
     };
-    (s as any).decoder.decode = vi.fn(() =>
-      sendCount === 2 ? [abortError, ...(bcReportsClose ? [closed('M1')] : [])] : []);
+    (s as any).decoder.decode = vi.fn(() => (sendCount === 2 ? [closeError, closed('M1')] : []));
 
     const result = await s.invoke({ type: 'OpenForm', query: 'page=22&tenant=default' } as any, () => true);
     expect(result.ok).toBe(true);

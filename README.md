@@ -407,7 +407,7 @@ Each section carries its own content shape:
 - Handles BC's ~15s NTLM auth slot hold after crashes
 - Auto-dismisses license popups on fresh databases
 - Invoke timeout kills hung sessions and triggers recovery
-- Auto-recovery from `LogicalModalityViolationException` mid-session: reconciles the modal stack and retries transparently; falls back to session reset when BC keeps a confirm dialog sticky
+- Auto-recovery from `LogicalModalityViolationException` mid-session: closes the stale dialogs (`CloseForm`, which answers a confirm with No) and retries transparently; falls back to session reset when BC does not close a dialog
 
 </details>
 

@@ -431,10 +431,10 @@ export class BCSession {
           // outer enqueued task cannot resolve until reconcile finishes, and
           // a queued reconcile sub-invoke cannot start until the outer task
           // resolves. Each sub-invoke decodes its own response and updates
-          // _openFormIds / modalStack via updateFormTracking. The aborted
+          // _openFormIds / modalStack via updateFormTracking. The closed
           // dialogs' FormClosed go to `onReconciledClose`, never into this
-          // invoke's result: the Abort's other events (an AL Error raised
-          // while aborting) are not the outcome of the caller's interaction.
+          // invoke's result: the CloseForm's other events (an AL Error raised
+          // while closing) are not the outcome of the caller's interaction.
           this.logger.warn(`LogicalModalityViolation detected, reconciling modal stack (size=${this.modalStack.size})`);
           const reconcile = await this.reconcileModalStack();
           if (isErr(reconcile)) {
@@ -544,13 +544,25 @@ export class BCSession {
   }
 
   /**
-   * Walk the modal stack from top to bottom, sending Abort (SystemAction=320)
-   * to each modal until the stack is empty or an Abort fails. After each
-   * successful Abort, BC reports the dialog closed (State=0) and
-   * updateFormTracking pops it. If that does not arrive, the loop force-pops
-   * to make progress and emits the FormClosed itself. Each aborted dialog's
-   * FormClosed (and only that) goes to `onReconciledClose`, so it reaches the
-   * page-context repository whichever caller's invoke triggered the reconcile.
+   * Walk the modal stack from top to bottom, sending CloseForm to each modal
+   * until the stack is empty. BC reports a closed dialog as State=0, which
+   * updateFormTracking turns into FormClosed and pops. A close that spawns a
+   * nested dialog pushes it, and the loop closes that next. Each closed
+   * dialog's FormClosed (and only that) goes to `onReconciledClose`, so it
+   * reaches the page-context repository whichever caller's invoke triggered
+   * the reconcile.
+   *
+   * CloseForm, not InvokeAction(Abort=320): `InvokeActionInteraction` only runs
+   * an action the dialog actually has, and confirms (Yes/No), messages (OK) and
+   * request pages (OK/Cancel) have no Abort button, so Abort is a silent no-op
+   * that leaves the dialog open (verified live on cronus29: report 6 request
+   * page, Abort answers InvokeCompleted only and the next OpenForm still hits
+   * LogicalModalityViolation). `CloseFormInteraction` calls `LogicalForm.Close()`
+   * without `VerifyFormModality`; a closed confirm keeps its default
+   * DialogResult (Ok), which `MessageHelper.ShowMessageForm` reads as "not
+   * Yes", i.e. No. If BC answers FormNotFoundException the form is already gone
+   * and is dropped locally; a close that reports nothing is an error (the
+   * dialog is still open, retrying the original interaction cannot succeed).
    *
    * Used to clear stale modal state that produced a
    * `LogicalModalityViolationException`. Calls `invokeUnqueued` directly
@@ -561,33 +573,32 @@ export class BCSession {
    * other invoke is in flight on the same session (BC's wire protocol is
    * stateful and concurrent sends corrupt sequence numbers).
    *
-   * Reference: decompiled `LogicalModalityVerifier.IsUnderModalForm`, which
-   * inspects `LogicalDispatcher.Frames`. SystemAction.Abort=320 closes the
-   * topmost frame's ModalForm.
+   * Reference: decompiled `InvokeActionInteraction.InvokeCore` /
+   * `FindFormActionToExecute`, `LogicalDialog.AddActions`, `CloseFormInteraction`,
+   * `MessageHelper.ShowMessageForm`, `LogicalModalityVerifier.IsUnderModalForm`.
    */
   async reconcileModalStack(): Promise<Result<void, ProtocolError>> {
     const MAX_ATTEMPTS = 10;
     for (let i = 0; i < MAX_ATTEMPTS && this.modalStack.size > 0; i++) {
       const top = this.modalStack.peek()!;
       const result = await this.invokeUnqueued(
-        { type: 'InvokeAction', formId: top, controlPath: 'server:', systemAction: 320 },
+        { type: 'CloseForm', formId: top },
         (event) => event.type === 'InvokeCompleted',
         this.timeoutMs,
       );
       if (isErr(result)) {
-        return err(new ProtocolError(`reconcileModalStack: Abort on formId=${top} failed: ${result.error.message}`));
+        if (!result.error.message.includes('FormNotFoundException')) {
+          return err(new ProtocolError(`reconcileModalStack: CloseForm on formId=${top} failed: ${result.error.message}`));
+        }
+        this.removeOpenForm(top);
+        this.onReconciledClose?.([{ type: 'FormClosed', formId: top }]);
+        continue;
       }
       const closed = result.value.filter(e => e.type === 'FormClosed');
-      // A successful Abort reports State=0 for the dialog, which updateFormTracking
-      // turns into FormClosed and pops. If the response did not report the
-      // dialog closed, force-pop so the loop makes progress; if BC still holds
-      // it open, the retry hits LogicalModalityViolation again and the session resets.
-      if (this.modalStack.peek() === top) {
-        this.logger.warn(`reconcileModalStack: Abort on formId=${top} completed but BC did not report the dialog closed (no State=0) -- force-popping local stack (server-side dialog may still be open)`);
-        this.removeOpenForm(top);
-        closed.push({ type: 'FormClosed', formId: top });
-      }
       if (closed.length > 0) this.onReconciledClose?.(closed);
+      if (this.modalStack.peek() === top) {
+        return err(new ProtocolError(`reconcileModalStack: CloseForm on formId=${top} completed but BC did not report the dialog closed (no State=0)`));
+      }
     }
     if (this.modalStack.size > 0) {
       return err(new ProtocolError(`reconcileModalStack: stack still has ${this.modalStack.size} entries after ${MAX_ATTEMPTS} attempts`));
