@@ -143,16 +143,21 @@ async function openPostDialog(r: Rig, pcId: string): Promise<{ dialogFormId: str
   return { dialogFormId: dialog!.formId, response: /want to/i.test(dialog!.message ?? '') ? 'yes' : 'ok' };
 }
 
+/** A line row's "Quantity Shipped" as a number. */
+function shippedOf(cells: Record<string, unknown>): number {
+  const raw = cells['Quantity Shipped'];
+  const text = typeof raw === 'string' ? raw : (raw as { stringValue?: string } | undefined)?.stringValue;
+  if (text === undefined) throw new Error(`no "Quantity Shipped" cell; columns: ${Object.keys(cells).join(', ')}`);
+  return Number.parseFloat(text.replace(',', '.'));
+}
+
 /** Re-opens the order and returns its line's "Quantity Shipped" (number of shipments x 1). */
 async function quantityShipped(r: Rig, bookmark: string): Promise<number> {
   const pcId = unwrap(await r.pageService.openPage('42', { bookmark })).pageContextId;
   try {
     const row = buildSection(r.repo.get(pcId)!, linesSectionOf(r, pcId))?.rows?.[0];
     expect(row).toBeDefined();
-    const raw = row!.cells['Quantity Shipped'];
-    const text = typeof raw === 'string' ? raw : (raw as { stringValue?: string } | undefined)?.stringValue;
-    if (text === undefined) throw new Error(`no "Quantity Shipped" cell; columns: ${Object.keys(row!.cells).join(', ')}`);
-    return Number.parseFloat(text.replace(',', '.'));
+    return shippedOf(row!.cells);
   } finally {
     await r.pageService.closePage(pcId, { discardChanges: true }).catch(() => undefined);
   }
@@ -261,8 +266,12 @@ describe.sequential('Destructive: replay gate on a real posting (#27)', () => {
     expect(g.readBack).toMatchObject({ pageId: '42', sectionId: 'header', bookmark: order.bookmark });
     expect(g.evidenceHash).toBe(digestInput(g.readBack));
     expect(g.evidenceHash).toMatch(/^[0-9a-f]{64}$/);
+    // The header key fields do not change on a posting; the read-back's lines do,
+    // so the evidence itself attests the commit.
+    expect(g.readBack!.lines).toHaveLength(1);
+    expect(shippedOf(g.readBack!.lines![0]!.cells)).toBe(1);
 
-    // The response was lost, but the posting committed, once.
+    // The response was lost, but the posting committed, once (independent re-read).
     expect(await quantityShipped(r, order.bookmark)).toBe(1);
   }, 240_000);
 });

@@ -21,6 +21,13 @@ export interface ReadBack {
   fields?: Record<string, string | null>;
   /** List-shape: the targeted row's current cells; null when the row is gone (e.g. deleted). */
   row?: { bookmark: string; cells: Record<string, unknown> } | null;
+  /**
+   * Document-shape (a header target on a page with a lines subpage): the loaded
+   * lines. A posting or release changes nothing in the header's leading key fields
+   * but does change line state (e.g. "Quantity Shipped"), so without this the
+   * read-back would only identify the record, not attest the outcome.
+   */
+  lines?: Array<{ bookmark: string; cells: Record<string, unknown> }>;
 }
 
 export interface GetOperationOutput {
@@ -103,6 +110,11 @@ export class GetOperationOperation {
         readBack.fields = names.size > 0
           ? Object.fromEntries([...names].map(n => [n, (root && findField(root, n)?.properties.stringValue) ?? null]))
           : Object.fromEntries((section.fields ?? []).map(f => [f.name, f.value ?? null]));
+        if (sectionId === 'header') {
+          const linesId = [...ctx.sections.values()].find(s => s.kind === 'lines')?.sectionId;
+          const rows = linesId ? buildSection(ctx, linesId)?.rows : undefined;
+          if (rows) readBack.lines = rows.map(r => ({ bookmark: r.bookmark, cells: { ...r.cells } }));
+        }
       }
       return ok({ entry, readBack, evidenceHash: digestInput(readBack) });
     } finally {

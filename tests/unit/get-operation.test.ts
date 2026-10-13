@@ -98,6 +98,38 @@ describe('GetOperationOperation', () => {
     expect(r.value.readBack?.fields).toMatchObject({ 'address 2': 'X', 'server:c[0]': 'X' });
   });
 
+  it('reads a document target back with its lines, so a posting shows in the evidence', async () => {
+    const DOC = 'session:page:42:doc00001';
+    const docRepo = (shipped: string): PageContextRepository => {
+      const repo = new PageContextRepository();
+      repo.create(DOC, 'H1', { isModal: false, wizardState: null });
+      repo.applyToPage(DOC, [{
+        type: 'FormCreated', formId: 'H1', isReload: false,
+        controlTree: { t: 'lf', ServerId: 'H1', PageType: 0, Caption: 'Sales Order', Bookmark: 'BMH', Children: [{ t: 'sc', Caption: 'No.', StringValue: '101005' }] },
+      } as BCEvent]);
+      repo.applyToPage(DOC, [{
+        type: 'FormCreated', formId: 'L1', parentFormId: 'H1', isReload: false,
+        controlTree: { t: 'lf', ServerId: 'L1', PageType: 1, Caption: 'Lines', IsSubForm: true, IsPart: true,
+          Children: [{ t: 'rc', Columns: [{ t: 'rcc', Caption: 'Quantity Shipped', ColumnBinder: { Name: 'q', Path: '37.1' } }] }] },
+      } as BCEvent]);
+      repo.applyToPage(DOC, [{
+        type: 'DataLoaded', formId: 'L1', controlPath: 'server:c[0]', currentRowOnly: false,
+        rows: [{ DataRowInserted: [0, { bookmark: 'BML', cells: { q: { stringValue: shipped } } }] }],
+      } as BCEvent]);
+      return repo;
+    };
+    const target = createTargetDescriber(docRepo('0'), () => 'CRONUS')({ pageContextId: DOC, dialogFormId: 'D1', response: 'ok' });
+    expect(target.fields).toEqual({ 'No.': '101005' }); // identity only: unchanged by a posting
+    await ledger.claim('post', 'bc_respond_dialog', 'digest', target);
+    await ledger.settle('post', { status: 'unknown', replaySafe: false });
+
+    const r = await opWith(docRepo('1'), 'CRONUS', false, DOC).op.execute({ operationId: 'post' });
+    if (!r.ok) throw r.error;
+    expect(r.value.readBack?.lines).toEqual([{ bookmark: 'BML', cells: { 'Quantity Shipped': '1' } }]);
+    const unposted = await opWith(docRepo('0'), 'CRONUS', false, DOC).op.execute({ operationId: 'post' });
+    expect(unposted.ok && unposted.value.evidenceHash).not.toBe(r.value.evidenceHash);
+  });
+
   it('rejects an unknown operationId', async () => {
     const r = await opWith(listRepo([])).op.execute({ operationId: 'nope' });
     expect(r.ok).toBe(false);

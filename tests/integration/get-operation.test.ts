@@ -49,6 +49,7 @@ describe('bc_get_operation (integration)', () => {
   let writeDataOp: WriteDataOperation;
   let handler: MCPHandler;
   let stateDir: string;
+  let ledger: OperationLedger;
 
   const logger = createNullLogger();
   const openedPages: string[] = [];
@@ -62,7 +63,7 @@ describe('bc_get_operation (integration)', () => {
     openPageOp = new OpenPageOperation(pageService);
     writeDataOp = new WriteDataOperation(dataSvc, repo);
     stateDir = mkdtempSync(join(tmpdir(), 'bcmcp-getop-int-'));
-    const ledger = new OperationLedger(stateDir);
+    ledger = new OperationLedger(stateDir);
     const ops = {
       writeData: writeDataOp,
       getOperation: new GetOperationOperation(ledger, pageService, () => session.companyName, () => session.modalStackSnapshot().length > 0),
@@ -135,5 +136,23 @@ describe('bc_get_operation (integration)', () => {
       await writeDataOp.execute({ pageContextId: restoreId, fields: { 'Address 2': original } });
       await pageService.closePage(restoreId);
     }
+  }, 120_000);
+
+  it('reads a document target back with its lines (commit-sensitive state, e.g. Quantity Shipped)', async () => {
+    const orders = unwrap(await openPageOp.execute({ pageId: '9305' }));
+    openedPages.push(orders.pageContextId);
+    const bookmark = unwrap(dataService.readRows(orders.pageContextId))[0]!.bookmark;
+    const order = unwrap(await openPageOp.execute({ pageId: '42', bookmark }));
+    const target = createTargetDescriber(repo, () => session.companyName)({ pageContextId: order.pageContextId, dialogFormId: 'x', response: 'ok' });
+    expect(isOk(await pageService.closePage(order.pageContextId, { discardChanges: true }))).toBe(true);
+    const id = `getop-doc-${randomUUID()}`;
+    await ledger.claim(id, 'bc_respond_dialog', 'digest', target);
+    await ledger.settle(id, { status: 'unknown', replaySafe: false });
+
+    const g = JSON.parse((await call('bc_get_operation', { operationId: id })).text) as GetOperationOutput;
+    expect(g.readBackError).toBeUndefined();
+    expect(g.readBack).toMatchObject({ pageId: '42', sectionId: 'header', bookmark: target.page!.bookmark });
+    expect(g.readBack!.lines!.length).toBeGreaterThan(0);
+    expect(Object.keys(g.readBack!.lines![0]!.cells)).toContain('Quantity Shipped');
   }, 120_000);
 });
