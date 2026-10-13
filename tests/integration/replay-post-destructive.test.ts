@@ -78,8 +78,11 @@ async function rig(stateDir: string): Promise<Rig> {
   const handler = new MCPHandler([respondDialogTool(ops), getOperationTool(ops)], logger, [], {
     ledger, describeTarget: createTargetDescriber(repo, () => session.companyName),
   });
-  const call = async (name: string, args: Record<string, unknown>): Promise<ToolResult> =>
-    (await handler.handleRequest({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } })).result as ToolResult;
+  const call = async (name: string, args: Record<string, unknown>): Promise<ToolResult> => {
+    const res = await handler.handleRequest({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } });
+    if (res.result === undefined) throw new Error(`${name} returned a JSON-RPC error: ${JSON.stringify(res.error)}`);
+    return res.result as ToolResult;
+  };
   return {
     lease, session, repo, pageService, respond, ledger, call,
     dataService: new DataService(session, repo, logger),
@@ -109,22 +112,40 @@ const linesSectionOf = (r: Rig, pcId: string): string => {
 
 /** Sales Order for 10000: one 1996-S line, Quantity 2, Qty. to Ship 1. Returns the open card and its record bookmark. */
 async function createHalfShippableOrder(r: Rig): Promise<{ pcId: string; bookmark: string }> {
-  const pcId = unwrap(await r.pageService.openPage('42')).pageContextId;
+  // openPage('42') lands on an EXISTING order in view mode, where every SaveValue is a
+  // silent no-op (live, cronus29: an earlier version of this test posted demo orders).
+  // Only the New action gives a fresh record; every guard below runs before any post.
+  const listPc = unwrap(await r.pageService.openPage('42')).pageContextId;
+  // New opens the blank order as a NEW ownerless form, registered as its own page context.
+  const created = unwrap(await r.actionService.executeAction(listPc, 'New')).events
+    .find(e => e.type === 'FormCreated' && !e.parentFormId && e.formId !== r.repo.get(listPc)!.rootFormId);
+  const pcId = created ? r.repo.getByFormId(created.formId)?.pageContextId : undefined;
+  if (!pcId) throw new Error('New opened no new order form; refusing to continue');
+  await r.pageService.closePage(listPc, { discardChanges: true });
+  const header = (caption: string) => unwrap(r.dataService.getFields(pcId, 'header')).find(f => f.caption === caption)?.stringValue ?? '';
+  const orderNo = () => header('No.');
+  if (header('Customer No.') !== '') throw new Error(`New did not give a blank order (No. ${orderNo()}, customer ${header('Customer No.')}); refusing to continue`);
+
   const cust = await r.dataService.writeField(pcId, 'Customer No.', '10000');
-  expect(isOk(cust)).toBe(true);
-  await settleDialogs(r, pcId, dialogsIn(isOk(cust) ? cust.value.events : undefined), 'ok');
+  if (!isOk(cust) || !cust.value.echoed) throw new Error(`Customer No. write did not take: ${isOk(cust) ? 'no echo' : cust.error.message}`);
+  await settleDialogs(r, pcId, dialogsIn(cust.value.events), 'ok');
+  const no = orderNo();
+  if (no === '') throw new Error('order got no number after the customer was entered');
 
   const lines = linesSectionOf(r, pcId);
   expect(isOk(await r.actionService.executeAction(pcId, 'New', lines))).toBe(true);
-  for (const [field, value] of [['Type', '2'], ['No.', '1996-S'], ['Quantity', '2'], ['Qty. to Ship', '1']] as const) {
+  // Type may already default to Item (unchanged value = no echo), so only it is unchecked.
+  for (const [field, value, mustEcho] of [['Type', '2', false], ['No.', '1996-S', true], ['Quantity', '2', true], ['Qty. to Ship', '1', true]] as const) {
     const w = await r.dataService.writeField(pcId, field, value, { sectionId: lines, rowIndex: 0 });
     if (!isOk(w)) throw new Error(`write ${field}=${value} failed: ${w.error.message}`);
+    if (mustEcho && !w.value.echoed) throw new Error(`write ${field}=${value} was not echoed (silent no-op?)`);
     await settleDialogs(r, pcId, dialogsIn(w.value.events), 'ok');
   }
+  if (orderNo() !== no) throw new Error(`order No. changed from ${no} to ${orderNo()}`);
 
   const bookmark = rootBookmark(r, pcId);
   expect(bookmark).toBeTruthy();
-  console.error(`[#27] order created, bookmark=${bookmark}`);
+  console.error(`[#27] order ${no} created, bookmark=${bookmark}`);
   return { pcId, bookmark: bookmark! };
 }
 
@@ -146,8 +167,9 @@ async function openPostDialog(r: Rig, pcId: string): Promise<{ dialogFormId: str
 /** A line row's "Quantity Shipped" as a number. */
 function shippedOf(cells: Record<string, unknown>): number {
   const raw = cells['Quantity Shipped'];
+  if (typeof raw === 'number') return raw;
   const text = typeof raw === 'string' ? raw : (raw as { stringValue?: string } | undefined)?.stringValue;
-  if (text === undefined) throw new Error(`no "Quantity Shipped" cell; columns: ${Object.keys(cells).join(', ')}`);
+  if (text === undefined) throw new Error(`unreadable "Quantity Shipped" cell ${JSON.stringify(raw)}; columns: ${Object.keys(cells).join(', ')}`);
   return Number.parseFloat(text.replace(',', '.'));
 }
 
@@ -155,6 +177,8 @@ function shippedOf(cells: Record<string, unknown>): number {
 async function quantityShipped(r: Rig, bookmark: string): Promise<number> {
   const pcId = unwrap(await r.pageService.openPage('42', { bookmark })).pageContextId;
   try {
+    // A deleted record opens the nearest one without an error.
+    expect(rootBookmark(r, pcId)).toBe(bookmark);
     const row = buildSection(r.repo.get(pcId)!, linesSectionOf(r, pcId))?.rows?.[0];
     expect(row).toBeDefined();
     return shippedOf(row!.cells);
