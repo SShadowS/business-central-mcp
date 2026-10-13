@@ -157,6 +157,7 @@ export class SessionManager {
       const result = await this.sessionFactory.create();
 
       if (!isErr(result)) {
+        result.value.onReconciledClose = (closed) => this.pageContextRepo.applyEvents(closed);
         return { session: result.value };
       }
 

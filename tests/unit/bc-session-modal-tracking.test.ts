@@ -216,7 +216,7 @@ describe('BCSession invoke with auto-recovery', () => {
 
     (s as any).reconcileModalStack = vi.fn(async () => {
       s.feed([closed('M1')]);
-      return ok([]);
+      return ok(undefined);
     });
 
     const result = await s.invoke(
@@ -235,7 +235,7 @@ describe('BCSession invoke with auto-recovery', () => {
     (s as any).ws.sendRpc = vi.fn(async () => ({
       ok: false, error: { message: 'LogicalModalityViolationException: persistent' },
     }));
-    (s as any).reconcileModalStack = vi.fn(async () => ok([]));
+    (s as any).reconcileModalStack = vi.fn(async () => ok(undefined));
 
     const result = await s.invoke(
       { type: 'OpenForm', query: 'page=22&tenant=default' } as any,
@@ -333,14 +333,18 @@ describe('BCSession invoke + reconcile end-to-end (no stubs)', () => {
     expect(s.stack()).toEqual([]);
   }, 10000);
 
-  // #36: the reconcile Abort's events (with the derived FormClosed) must reach
-  // the caller, which routes them to the page-context repository.
+  // #36: a reconciled dialog's FormClosed reaches the repository through
+  // onReconciledClose, even when the caller drops its invoke result
+  // (run_report, search). The Abort's other events (an AL Error raised while
+  // aborting) must NOT land in the caller's result: services would classify
+  // them as the retried interaction's BUSINESS_ERROR and release its operationId.
   it.each([
     ['BC reports the Abort closed (State=0)', true],
     ['BC does not report it closed (force-pop)', false],
   ])('a reconciled dialog leaves its page context: %s', async (_label, bcReportsClose) => {
     const s = new ReconcileProbe();
     const repo = new PageContextRepository();
+    s.onReconciledClose = (closedEvents: BCEvent[]) => repo.applyEvents(closedEvents);
     repo.create('pc1', 'F1');
     const opened: BCEvent[] = [
       { type: 'FormCreated', formId: 'F1', controlTree: {} } as BCEvent,
@@ -357,14 +361,17 @@ describe('BCSession invoke + reconcile end-to-end (no stubs)', () => {
         ? { ok: false, error: { message: 'LogicalModalityViolationException: stale dialog' } }
         : { ok: true, value: [] };
     });
-    (s as any).decoder.decode = vi.fn(() => (sendCount === 2 && bcReportsClose ? [closed('M1')] : []));
+    const abortError: BCEvent = {
+      type: 'MessageToShow', formId: '', text: 'Aborted by AL', messageType: 'Error', actions: ['Ok'], defaultAction: 'Ok',
+    };
+    (s as any).decoder.decode = vi.fn(() =>
+      sendCount === 2 ? [abortError, ...(bcReportsClose ? [closed('M1')] : [])] : []);
 
     const result = await s.invoke({ type: 'OpenForm', query: 'page=22&tenant=default' } as any, () => true);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect((result.value as BCEvent[]).filter(e => e.type === 'FormClosed')).toEqual([{ type: 'FormClosed', formId: 'M1' }]);
-
-    repo.applyEvents(result.value);
+    // Caller never applies the result, yet the dialog has left pc1.
     expect(repo.get('pc1')!.dialogs).toEqual([]);
+    expect(result.value as BCEvent[]).toEqual([]);
   });
 });

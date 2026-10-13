@@ -69,6 +69,17 @@ describe('SessionManager', () => {
     expect(factory.create).toHaveBeenCalledOnce();
   });
 
+  it('routes modal-reconcile FormClosed events to the page-context repository (#36)', async () => {
+    const mockSession = createMockSession() as ReturnType<typeof createMockSession> & { onReconciledClose?: (e: unknown[]) => void };
+    const applyEvents = vi.fn();
+    const mgr = new TestSessionManager(createMockSessionFactory(mockSession) as any, { ...repo, applyEvents } as any, logger as any);
+
+    await mgr.getSession();
+    const closed = [{ type: 'FormClosed', formId: 'M1' }];
+    mockSession.onReconciledClose!(closed);
+    expect(applyEvents).toHaveBeenCalledWith(closed);
+  });
+
   it('returns existing alive session without recreating', async () => {
     const mockSession = createMockSession();
     const factory = createMockSessionFactory(mockSession);
