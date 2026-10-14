@@ -7,11 +7,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-10-14
+
 ### Added
+
+- **`operationId` replay safety on every mutating tool.** `bc_write_data`,
+  `bc_execute_action`, `bc_respond_dialog`, `bc_wizard_navigate`,
+  `bc_close_page`, `bc_switch_company`, `bc_run_report` and `bc_upload_file`
+  accept an optional `operationId`. A retry with the same id and input replays
+  the stored result without touching BC; different input returns
+  `OPERATION_ID_REUSED`; an unresolved outcome (timeout, session loss,
+  transport error, crash mid-call) returns `OPERATION_IN_DOUBT` with the
+  target snapshot. The ledger lives under `{STATE_DIR}/operations/`, and entries
+  expire after `BC_OPERATION_TTL` (24h, completed) and `BC_OPERATION_INDOUBT_TTL`
+  (30 days, in doubt). A replay returns download metadata only, not file bytes.
+- **`replaySafe` on every mutating result**: true only when BC's response proves
+  a re-run cannot apply the change twice (the written value was echoed, or the
+  dialog/form was closed).
+- **`bc_get_operation`** (read-only): returns a ledger entry and, when the
+  outcome is unknown, re-opens the target record by its primary key and record
+  bookmark, then returns a read-back (key fields, written fields, document
+  lines) with a SHA-256 evidence hash. Readback errors include
+  `COMPANY_MISMATCH`, `MODAL_OPEN`, `RECORD_NOT_OPENED` and `KEY_MISMATCH`.
+- **REST `Idempotency-Key`** on `pages/write`, `pages/action` and `pages/close`,
+  sharing the same ledger as MCP (replay 200 + `Idempotent-Replayed: true`,
+  reused 422, in doubt 409).
+- **`bc_upload_file`**: answers AL `UploadIntoStream` file dialogs (open the
+  dialog with the page's upload action, then send the bytes).
+- **MCP tool annotations** (`readOnlyHint`, `destructiveHint`,
+  `idempotentHint`, `openWorldHint`) on every tool. `serverInfo.version` and
+  `/health` report the package version.
+- **`SESSION_LOST` recovery state** (`impactedPageContextIds`,
+  `reconnectFailed`) in `structuredContent`.
 
 ### Changed
 
+- **Long operations no longer die at 30 seconds.** While a call runs, the
+  server asks BC every `BC_ISEXECUTING_POLL_INTERVAL` (10s) whether it is still
+  working, and only kills the session when BC reports it wedged or
+  `BC_INVOKE_MAX_DURATION` (600s) passes. `BC_INVOKE_TIMEOUT` now applies only
+  to session open and modal recovery.
+- **REST error status codes**: failures are no longer all 400. Auth errors are
+  401, `TIMEOUT_ERROR` 504, other ambiguous failures 503, unexpected errors 500;
+  ambiguous failures on mutating routes carry `replaySafe: false`.
+- **`bc_respond_dialog` `"abort"`** now fails with `INPUT_VALIDATION_ERROR` when
+  BC ignores it (the dialog has no Abort button and stays open). Before, it
+  returned success while nothing happened.
+- **`BC_APPLICATION_ID` is detected when unset.** Before the first session the
+  server reads the `applicationId` the web client would use from
+  `{BC_BASE_URL}/boot/browser/desktop` (no sign-in needed), so on-prem
+  containers that expect `NAV` work without configuration. It falls back to
+  `FIN` if detection fails. An explicit value always wins; BC Online always
+  uses `FIN`.
+
 ### Fixed
+
+- **Stale dialogs are cleared with CloseForm.** Recovery from BC's "a modal
+  dialog is open" error used Abort, which BC ignores on confirms, messages and
+  request pages, so the dialog stayed open. Closing a dialog counts as No or
+  Cancel. A request page with an invalid value is now closed too (its
+  discard-changes question is answered Yes, so the report does not run).
+  Modals whose close could accept them (RunModal pages, lookups) reset the
+  session instead.
+- **Form close tracking** follows BC's real close signal, so closed dialogs and
+  pages leave the server's page contexts reliably.
+- A factbox or subpage update no longer overwrites its host card's record
+  bookmark.
 
 ## [1.7.2] - 2026-10-07
 
