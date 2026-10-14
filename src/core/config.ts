@@ -24,7 +24,8 @@ export interface BCConfig {
   /** When false, ODataClient does not append ?tenant= (SaaS has tenant in the path). */
   appendTenantQuery: boolean;
   profile: string;
-  applicationId: string;
+  /** BC_APPLICATION_ID; undefined = detect from the server at session creation. */
+  applicationId: string | undefined;
   clientVersionString: string;
   serverMajor: number;
   timeoutMs: number;
@@ -142,7 +143,7 @@ export function loadConfig(): AppConfig {
       oauth: resolved.oauth,
       appendTenantQuery: resolved.appendTenantQuery,
       profile: optionalEnv('BC_PROFILE', ''),
-      applicationId: optionalEnv('BC_APPLICATION_ID', 'FIN'),
+      applicationId: process.env.BC_APPLICATION_ID || undefined,
       clientVersionString: optionalEnv('BC_CLIENT_VERSION', '28.0.0.0'),
       serverMajor: optionalEnvInt('BC_SERVER_MAJOR', 28),
       timeoutMs: optionalEnvInt('BC_TIMEOUT', 120000),

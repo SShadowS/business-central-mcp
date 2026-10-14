@@ -17,9 +17,22 @@ export class SessionFactory {
     private readonly timeoutMs: number = 30000,
     private readonly profile: string = '',
     private readonly liveness: InvokeLiveness = DEFAULT_LIVENESS,
+    /** Detects the server's applicationId (BC_APPLICATION_ID unset). Retried until it answers once. */
+    private applicationIdProbe?: () => Promise<string | undefined>,
   ) {}
 
   async create(): Promise<Result<BCSession, SessionCreateError>> {
+    if (this.applicationIdProbe) {
+      const detected = await this.applicationIdProbe();
+      if (detected) {
+        this.encoder.setApplicationId(detected);
+        this.applicationIdProbe = undefined;
+        this.logger.info('Detected BC applicationId', { applicationId: detected });
+      } else {
+        this.logger.warn('Could not detect BC applicationId; sending FIN (set BC_APPLICATION_ID to override)');
+      }
+    }
+
     const wsResult = await this.connectionFactory.create();
     if (isErr(wsResult)) return wsResult;
 

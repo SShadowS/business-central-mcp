@@ -42,12 +42,17 @@ export class InteractionEncoder {
    *   the SaaS/cronus images sends "FIN" (the default). On some on-prem BC 27
    *   (ltsc2025) containers the server expects "NAV" and throws
    *   NavCancelCredentialPromptException on OpenSession with "FIN" even though the
-   *   WS handshake succeeds. Override via BC_APPLICATION_ID for those builds.
+   *   WS handshake succeeds. Set via BC_APPLICATION_ID, or detected from the
+   *   server by `SessionFactory` (`setApplicationId`) when that is unset.
    */
   constructor(
     readonly clientVersion: string,
-    private readonly applicationId: string = 'FIN',
+    private applicationId: string = 'FIN',
   ) {}
+
+  setApplicationId(applicationId: string): void {
+    this.applicationId = applicationId;
+  }
 
   encode(interaction: BCInteraction, context: EncodeContext): EncodedRpcCall {
     const invocation = this.buildInvocation(interaction, context.callbackId);

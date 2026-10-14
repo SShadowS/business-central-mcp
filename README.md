@@ -150,7 +150,7 @@ Restart Claude Desktop.
 | `BC_PROFILE` | No | server default | Profile id, e.g. `BUSINESS MANAGER`. Affects which Role Center loads and which pages Tell Me indexes. |
 | `BC_TENANT_ID` | No | `default` | On-prem multi-tenant id. SaaS uses the Entra tenant from the URL. |
 | `BC_CLIENT_VERSION` | No | `27.0.0.0` | Version reported to BC during session open. |
-| `BC_APPLICATION_ID` | No | `FIN` | `navigationContext.applicationId` sent at session open. SaaS and cronus images expect `FIN`; some on-prem containers expect `NAV` (see below). |
+| `BC_APPLICATION_ID` | No | detected | `navigationContext.applicationId` sent at session open. Unset: read from the server's web client config (`FIN` on SaaS and cronus images, `NAV` on on-prem containers), falling back to `FIN` (see below). |
 | `PORT` | No | `3000` | HTTP transport port (stdio transport ignores this). |
 | `LOG_LEVEL` | No | `info` | `debug` / `info` / `warn` / `error`. |
 | `LOG_DIR` | No | `./logs` | Directory for log files. |
@@ -196,19 +196,24 @@ A `<cwd>/.env` (or the file at `BC_ENV_FILE`) is also auto-loaded at startup,
 before connection resolution — real environment variables set outside the
 file still win (`override:false`).
 
-### On-prem containers: set `BC_APPLICATION_ID=NAV`
+### On-prem containers: `applicationId` (`FIN` vs `NAV`)
 
-If sign-in and the WebSocket upgrade both succeed but the session dies at `OpenSession` with
-`NavCancelCredentialPromptException`, the server is rejecting the default `applicationId` (`FIN`).
-On-prem BcContainerHelper containers (the `onprem` artifact type) generally expect `NAV`:
+`OpenSession` must carry the `applicationId` the server expects. SaaS and cronus images expect
+`FIN`; on-prem BcContainerHelper containers (the `onprem` artifact type) generally expect `NAV`.
+With `BC_APPLICATION_ID` unset, bc-mcp reads the value the web client would use from
+`{BC_BASE_URL}/boot/browser/desktop?tenant=…` (served without sign-in) before the first session,
+and falls back to `FIN` if that fails (logged as a warning).
+
+If the session still dies at `OpenSession` with `NavCancelCredentialPromptException` although
+sign-in and the WebSocket upgrade both succeeded, set it explicitly:
 
 ```
 BC_APPLICATION_ID=NAV
 ```
 
 The failure is misleading because authentication and the `/csh` upgrade complete first (you get a
-101); BC only rejects the `applicationId` inside the `OpenSession` RPC body. SaaS and cronus images
-keep the `FIN` default. Verified against BC 27.1 `onprem` (see issue #10).
+101); BC only rejects the `applicationId` inside the `OpenSession` RPC body. Verified against BC
+27.1 `onprem` (see issue #10).
 
 ### SaaS sandbox setup
 

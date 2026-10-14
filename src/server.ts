@@ -8,6 +8,7 @@ import { ClientElicitationPort } from './mcp/elicitation-port.js';
 import { ConnectionFactory } from './connection/connection-factory.js';
 import { EventDecoder } from './protocol/event-decoder.js';
 import { InteractionEncoder } from './protocol/interaction-encoder.js';
+import { applicationIdProbeFor } from './connection/application-id-probe.js';
 import { PageContextRepository } from './protocol/page-context-repo.js';
 import { SessionFactory } from './session/session-factory.js';
 import { SessionManager } from './session/session-manager.js';
@@ -101,6 +102,7 @@ async function main() {
   const sessionFactory = new SessionFactory(
     connectionFactory, decoder, encoder, logger, config.bc.tenantId, config.bc.invokeTimeoutMs, config.bc.profile,
     { pollIntervalMs: config.bc.isExecutingPollIntervalMs, maxDurationMs: config.bc.invokeMaxDurationMs },
+    applicationIdProbeFor(config.bc),
   );
   const sessionManager = new SessionManager(sessionFactory, pageContextRepo, logger, {
     maxRetries: config.bc.reconnectMaxRetries,
