@@ -1,4 +1,4 @@
-import { WriteDataSchema, toMcpJsonSchema } from '../mcp/schemas.js';
+import { WriteDataSchema, WriteDataOutputSchema, toMcpJsonSchema } from '../mcp/schemas.js';
 import type { ToolDefinition, Operations } from '../mcp/tool-registry.js';
 
 export function createToolDefinition(ops: Operations): ToolDefinition {
@@ -20,6 +20,7 @@ Examples:
 - Write with bookmark targeting: { "pageContextId": "abc", "section": "lines", "bookmark": "XXXX", "fields": { "Description": "Consulting Services" } }
 - Write with staleness guard: { "pageContextId": "abc", "fields": { "Name": "Contoso" }, "expectedStateVersion": 3 }`,
     inputSchema: toMcpJsonSchema(WriteDataSchema),
+    outputSchema: toMcpJsonSchema(WriteDataOutputSchema),
     zodSchema: WriteDataSchema,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     execute: (input) => ops.writeData.execute(input as Parameters<typeof ops.writeData.execute>[0]),

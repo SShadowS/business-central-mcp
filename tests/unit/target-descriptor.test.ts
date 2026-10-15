@@ -149,8 +149,10 @@ describe('replay gate stores the target descriptor', () => {
     expect(entry?.status).toBe('unknown');
     expect(entry?.target).toMatchObject({ company: 'CRONUS', page: { pageId: '22' }, rows: [{ bookmark: 'BM1', cells: { 'No.': '10000' } }] });
 
-    const retry = (await call()).result as { structuredContent: Record<string, unknown> };
-    expect(retry.structuredContent).toMatchObject({ code: 'OPERATION_IN_DOUBT', target: { args: { action: 'Post' } } });
+    const retry = (await call()).result as { structuredContent: { error: { code: string; details: Record<string, unknown> } } };
+    expect(retry.structuredContent.error.code).toBe('OPERATION_IN_DOUBT');
+    // target is a scalar-only detail, so it rides as a JSON string.
+    expect(JSON.parse(retry.structuredContent.error.details.target as string).args.action).toBe('Post');
     expect(execute).toHaveBeenCalledTimes(1);
   });
 });

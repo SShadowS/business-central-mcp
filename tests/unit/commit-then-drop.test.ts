@@ -56,7 +56,8 @@ describe('commit then drop', () => {
     expect(await ledger.get('op-post')).toMatchObject({ status: 'unknown', tool: 'bc_respond_dialog', error: { code: 'PROTOCOL_ERROR' } });
 
     const retry = await post();
-    expect(retry.structuredContent).toMatchObject({ code: 'OPERATION_IN_DOUBT', operationId: 'op-post', status: 'unknown' });
+    expect((retry.structuredContent as { error: { code: string; details: Record<string, unknown> } }).error)
+      .toMatchObject({ code: 'OPERATION_IN_DOUBT', details: { operationId: 'op-post', status: 'unknown' } });
     expect(server.sent).toHaveLength(1); // nothing re-sent to BC
   });
 

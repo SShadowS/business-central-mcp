@@ -1,4 +1,4 @@
-import { SearchPagesSchema, toMcpJsonSchema } from '../mcp/schemas.js';
+import { SearchPagesSchema, SearchPagesOutputSchema, toMcpJsonSchema } from '../mcp/schemas.js';
 import type { ToolDefinition, Operations } from '../mcp/tool-registry.js';
 
 export function createToolDefinition(ops: Operations): ToolDefinition {
@@ -16,6 +16,7 @@ Examples:
 - { "query": "customer" } returns rows like { "name": "Customers", "objectType": "page", "runTarget": "Customer List", "category": "Lists", "score": 9 }.
 - Empty case: { "results": [], "note": "No results. Tell Me is profile-scoped..." }.`,
     inputSchema: toMcpJsonSchema(SearchPagesSchema),
+    outputSchema: toMcpJsonSchema(SearchPagesOutputSchema),
     zodSchema: SearchPagesSchema,
     annotations: { readOnlyHint: true, openWorldHint: false },
     execute: (input) => ops.searchPages.execute(input as Parameters<typeof ops.searchPages.execute>[0]),

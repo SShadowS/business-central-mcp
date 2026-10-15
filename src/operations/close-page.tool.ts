@@ -1,4 +1,4 @@
-import { ClosePageSchema, toMcpJsonSchema } from '../mcp/schemas.js';
+import { ClosePageSchema, ClosePageOutputSchema, toMcpJsonSchema } from '../mcp/schemas.js';
 import type { ToolDefinition, Operations } from '../mcp/tool-registry.js';
 
 export function createToolDefinition(ops: Operations): ToolDefinition {
@@ -10,6 +10,7 @@ After closing, the pageContextId becomes invalid -- any subsequent bc_read_data,
 
 Do NOT call this in the middle of a multi-step workflow -- finish all reads, writes, and actions on the page first. Do NOT call this to "reset" a page; use bc_read_data to refresh data instead.`,
     inputSchema: toMcpJsonSchema(ClosePageSchema),
+    outputSchema: toMcpJsonSchema(ClosePageOutputSchema),
     zodSchema: ClosePageSchema,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     execute: (input) => ops.closePage.execute(input as Parameters<typeof ops.closePage.execute>[0]),

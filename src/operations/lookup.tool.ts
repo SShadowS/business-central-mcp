@@ -1,5 +1,5 @@
 // src/operations/lookup.tool.ts
-import { LookupSchema, toMcpJsonSchema } from '../mcp/schemas.js';
+import { LookupSchema, LookupOutputSchema, toMcpJsonSchema } from '../mcp/schemas.js';
 import type { ToolDefinition, Operations } from '../mcp/tool-registry.js';
 
 export function createToolDefinition(ops: Operations): ToolDefinition {
@@ -13,6 +13,7 @@ Do NOT use bc_lookup for option/enum fields — those already expose their fixed
 
 Workflow: bc_open_page → inspect field isLookup=true → bc_lookup to list candidates → bc_write_data with chosen value.`,
     inputSchema: toMcpJsonSchema(LookupSchema),
+    outputSchema: toMcpJsonSchema(LookupOutputSchema),
     zodSchema: LookupSchema,
     annotations: { readOnlyHint: true, openWorldHint: false },
     execute: (input) => ops.lookup.execute(input as Parameters<typeof ops.lookup.execute>[0]),

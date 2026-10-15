@@ -1,4 +1,4 @@
-import { GetOperationSchema, toMcpJsonSchema } from '../mcp/schemas.js';
+import { GetOperationSchema, GetOperationOutputSchema, toMcpJsonSchema } from '../mcp/schemas.js';
 import type { ToolDefinition, Operations } from '../mcp/tool-registry.js';
 import type { GetOperationInput } from './get-operation.js';
 
@@ -11,6 +11,7 @@ When the outcome is unknown or replaySafe is false, this tool also re-reads the 
 
 This tool changes nothing in BC. A completed, replay-safe operation is returned without a read-back. If the operation ran in another company, readBackError COMPANY_MISMATCH tells you to bc_switch_company first. If a dialog is open in the session, readBackError MODAL_OPEN: answer it with bc_respond_dialog first (opening a page would cancel it). If the record no longer exists (a fully posted document is deleted), readBackError RECORD_NOT_OPENED. If the re-opened page shows a different key value than the recorded one, readBackError KEY_MISMATCH returns readBack WITHOUT an evidenceHash: the page landed on another record, so the read-back proves nothing about the target. Do NOT use it to read arbitrary records -- use bc_open_page and bc_read_data for that.`,
     inputSchema: toMcpJsonSchema(GetOperationSchema),
+    outputSchema: toMcpJsonSchema(GetOperationOutputSchema),
     zodSchema: GetOperationSchema,
     annotations: { readOnlyHint: true, openWorldHint: false },
     execute: (input) => ops.getOperation.execute(input as GetOperationInput),

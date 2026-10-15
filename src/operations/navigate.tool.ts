@@ -1,4 +1,4 @@
-import { NavigateSchema, toMcpJsonSchema } from '../mcp/schemas.js';
+import { NavigateSchema, NavigateOutputSchema, toMcpJsonSchema } from '../mcp/schemas.js';
 import type { ToolDefinition, Operations } from '../mcp/tool-registry.js';
 
 export function createToolDefinition(ops: Operations): ToolDefinition {
@@ -19,6 +19,7 @@ Examples:
 - Drill down to Card: { "pageContextId": "abc", "bookmark": "XXXX", "action": "drill_down" }
 - Drill down from a document line: { "pageContextId": "abc", "bookmark": "XXXX", "action": "drill_down", "section": "lines" }`,
     inputSchema: toMcpJsonSchema(NavigateSchema),
+    outputSchema: toMcpJsonSchema(NavigateOutputSchema),
     zodSchema: NavigateSchema,
     annotations: { readOnlyHint: true, openWorldHint: false },
     execute: (input) => ops.navigate.execute(input as Parameters<typeof ops.navigate.execute>[0]),

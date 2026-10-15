@@ -1,4 +1,4 @@
-import { ReadDataSchema, toMcpJsonSchema } from '../mcp/schemas.js';
+import { ReadDataSchema, ReadDataOutputSchema, toMcpJsonSchema } from '../mcp/schemas.js';
 import type { ToolDefinition, Operations } from '../mcp/tool-registry.js';
 
 export function createToolDefinition(ops: Operations): ToolDefinition {
@@ -33,6 +33,7 @@ Examples:
 - Read sales order lines: { "pageContextId": "abc", "section": "lines" }
 - Refresh a FactBox: { "pageContextId": "abc", "section": "factbox:Customer Statistics" }`,
     inputSchema: toMcpJsonSchema(ReadDataSchema),
+    outputSchema: toMcpJsonSchema(ReadDataOutputSchema),
     zodSchema: ReadDataSchema,
     annotations: { readOnlyHint: true, openWorldHint: false },
     execute: (input) => ops.readData.execute(input as Parameters<typeof ops.readData.execute>[0]),

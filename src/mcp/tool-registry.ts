@@ -36,6 +36,13 @@ export interface ToolDefinition {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  /**
+   * JSON Schema (same representation as `inputSchema`) describing the tool's
+   * success value — advertised in tools/list and matching the `structuredContent`
+   * every successful call now returns. All 16 built-in tools set it. Optional on
+   * the interface so test fixtures and ad-hoc tools need not supply one.
+   */
+  outputSchema?: Record<string, unknown>;
   zodSchema: z.ZodType;
   execute: (input: unknown) => Promise<unknown>;
   /**

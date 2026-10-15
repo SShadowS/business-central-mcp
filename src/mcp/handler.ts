@@ -5,6 +5,10 @@ import { SessionLostError, BCError, UrlElicitationRequiredError, errorHint } fro
 import { applyElicitationCapabilities, type ClientElicitationPort } from './elicitation-port.js';
 import { SERVER_VERSION } from '../core/version.js';
 import { IdempotencyGate, invalidOperationId, isAmbiguousFailure, type Failure } from './idempotency-gate.js';
+import { bcErrorResult } from './error-envelope.js';
+import type { ErrorBody } from '@sshadows/bc-toolbox-envelope';
+import type { SkillDefinition } from './skills.js';
+import { SKILL_TTL_MS, SKILL_CACHE_SCOPE, findSkillResource } from './skills.js';
 
 export const URL_ELICITATION_JSONRPC_CODE = -32042;
 
@@ -47,6 +51,7 @@ export class MCPHandler {
   private initialized = false;
   private readonly elicitationPort: ClientElicitationPort | undefined;
   private readonly gate: IdempotencyGate | undefined;
+  private readonly skills: SkillDefinition[];
 
   get isInitialized(): boolean {
     return this.initialized;
@@ -56,10 +61,11 @@ export class MCPHandler {
     private readonly tools: ToolDefinition[],
     private readonly logger: Logger,
     private readonly prompts: PromptDefinition[] = [],
-    opts?: { elicitationPort?: ClientElicitationPort; gate?: IdempotencyGate },
+    opts?: { elicitationPort?: ClientElicitationPort; gate?: IdempotencyGate; skills?: SkillDefinition[] },
   ) {
     this.elicitationPort = opts?.elicitationPort;
     this.gate = opts?.gate;
+    this.skills = opts?.skills ?? [];
   }
 
   async handleRequest(request: JsonRpcRequest): Promise<JsonRpcResponse> {
@@ -74,13 +80,17 @@ export class MCPHandler {
         case 'tools/call':
           return await this.handleToolsCall(request);
         case 'resources/list':
-          return { jsonrpc: '2.0', id: request.id, result: { resources: [] } };
+          return this.handleResourcesList(request);
         case 'resources/read':
-          return { jsonrpc: '2.0', id: request.id, error: { code: -32601, message: 'Resource not found' } };
+          return this.handleResourcesRead(request);
         case 'prompts/list':
           return this.handlePromptsList(request);
         case 'prompts/get':
           return this.handlePromptsGet(request);
+        case 'skills/list':
+          return this.handleSkillsList(request);
+        case 'skills/get':
+          return this.handleSkillsGet(request);
         default:
           return { jsonrpc: '2.0', id: request.id, error: { code: -32601, message: `Method not found: ${request.method}` } };
       }
@@ -110,6 +120,9 @@ export class MCPHandler {
           tools: { listChanged: false },
           resources: { subscribe: false, listChanged: false },
           ...(this.prompts.length > 0 ? { prompts: { listChanged: false } } : {}),
+          ...(this.skills.length > 0
+            ? { extensions: { 'io.modelcontextprotocol/skills': { directoryRead: false } } }
+            : {}),
         },
       },
     };
@@ -124,6 +137,7 @@ export class MCPHandler {
           name: t.name,
           description: t.description,
           inputSchema: this.gate && !t.annotations.readOnlyHint ? withOperationId(t.inputSchema) : t.inputSchema,
+          outputSchema: t.outputSchema,
           annotations: t.annotations,
         })),
       },
@@ -168,6 +182,63 @@ export class MCPHandler {
     return { jsonrpc: '2.0', id: request.id, result };
   }
 
+  private handleResourcesList(request: JsonRpcRequest): JsonRpcResponse {
+    return {
+      jsonrpc: '2.0',
+      id: request.id,
+      result: {
+        resources: this.skills.map(s => ({
+          uri: s.entry.uri,
+          name: `${s.entry.frontmatter.name}/SKILL.md`,
+          mimeType: 'text/markdown',
+        })),
+      },
+    };
+  }
+
+  private handleResourcesRead(request: JsonRpcRequest): JsonRpcResponse {
+    const uri = (request.params as { uri?: string } | undefined)?.uri;
+    const hit = uri ? findSkillResource(this.skills, uri) : undefined;
+    if (!hit || !uri) {
+      return { jsonrpc: '2.0', id: request.id, error: { code: -32601, message: 'Resource not found' } };
+    }
+    return {
+      jsonrpc: '2.0',
+      id: request.id,
+      result: {
+        resultType: 'complete',
+        contents: [{ uri, mimeType: 'text/markdown', text: hit.text }],
+        ttlMs: SKILL_TTL_MS,
+        cacheScope: SKILL_CACHE_SCOPE,
+      },
+    };
+  }
+
+  private handleSkillsList(request: JsonRpcRequest): JsonRpcResponse {
+    return {
+      jsonrpc: '2.0',
+      id: request.id,
+      result: {
+        resultType: 'complete',
+        skills: this.skills.map(s => s.entry),
+        ttlMs: SKILL_TTL_MS,
+        cacheScope: SKILL_CACHE_SCOPE,
+      },
+    };
+  }
+
+  private handleSkillsGet(request: JsonRpcRequest): JsonRpcResponse {
+    const uri = (request.params as { uri?: string } | undefined)?.uri;
+    if (!uri) return { jsonrpc: '2.0', id: request.id, error: { code: -32602, message: 'Missing skill uri' } };
+    const skill = this.skills.find(s => s.entry.uri === uri);
+    if (!skill) return { jsonrpc: '2.0', id: request.id, error: { code: -32602, message: `Unknown skill: ${uri}` } };
+    return {
+      jsonrpc: '2.0',
+      id: request.id,
+      result: { resultType: 'complete', skill: skill.entry, ttlMs: SKILL_TTL_MS, cacheScope: SKILL_CACHE_SCOPE },
+    };
+  }
+
   private async handleToolsCall(request: JsonRpcRequest): Promise<JsonRpcResponse> {
     const params = request.params as { name?: string; arguments?: unknown } | undefined;
     if (!params?.name) {
@@ -184,12 +255,12 @@ export class MCPHandler {
     const operationId = gated ? args['operationId'] : undefined;
     if (gated) delete args['operationId'];
     const badId = operationId === undefined ? undefined : invalidOperationId(operationId);
-    if (badId) return toolError(request.id, `Input validation error: operationId ${badId}`);
+    if (badId) return bcErrorResult(request.id, tool.name, { code: 'INPUT_VALIDATION_ERROR', message: `operationId ${badId}` });
 
     // Validate input via Zod
     const parseResult = tool.zodSchema.safeParse(args);
     if (!parseResult.success) {
-      return toolError(request.id, `Input validation error: ${parseResult.error.message}`);
+      return bcErrorResult(request.id, tool.name, { code: 'INPUT_VALIDATION_ERROR', message: parseResult.error.message });
     }
 
     if (operationId === undefined) return (await this.runTool(tool, parseResult.data, request.id)).response;
@@ -202,32 +273,30 @@ export class MCPHandler {
     switch (gated.kind) {
       case 'ran': return gated.outcome.response;
       case 'replayed': return { jsonrpc: '2.0', id, result: successResult(gated.value) };
-      case 'reused': return toolError(id, formatBcError({ code: 'OPERATION_ID_REUSED', message: gated.message }));
+      case 'reused': return bcErrorResult(id, tool.name, { code: 'OPERATION_ID_REUSED', message: gated.message });
       case 'inDoubt':
-        return {
-          jsonrpc: '2.0',
-          id,
-          result: {
-            content: [
-              { type: 'text', text: formatBcError({ code: 'OPERATION_IN_DOUBT', message: gated.message }) },
-              { type: 'text', text: JSON.stringify(gated.state) },
-            ],
-            structuredContent: gated.state,
-            isError: true,
-          },
-        };
+        return bcErrorResult(id, tool.name, { code: 'OPERATION_IN_DOUBT', message: gated.message }, {
+          operationId: String(gated.state.operationId),
+          status: String(gated.state.status),
+          createdAt: Number(gated.state.createdAt) || 0,
+          ...(gated.state.target ? { target: JSON.stringify(gated.state.target) } : {}),
+          ...(gated.state.error ? { error: JSON.stringify(gated.state.error) } : {}),
+        });
     }
   }
 
   private async runTool(tool: ToolDefinition, input: unknown, id: unknown): Promise<ToolRun> {
     const outcome = await this.executeTool(tool, input, id);
     const { failure } = outcome;
-    const result = outcome.response.result as { content: Array<{ type: string; text: string }>; structuredContent?: Record<string, unknown> } | undefined;
+    const result = outcome.response.result as { content: Array<{ type: string; text: string }>; structuredContent?: ErrorBody } | undefined;
     // An ambiguous failure of a mutating tool is exactly when the caller most
     // needs the verdict: the change may have committed, so a re-run is unsafe.
-    if (failure && result && !tool.annotations.readOnlyHint && isAmbiguousFailure(failure.code)) {
-      const state = { ...(result.structuredContent ?? (failure.code ? { code: failure.code } : {})), replaySafe: false };
-      outcome.response.result = { ...result, content: [result.content[0]!, { type: 'text', text: JSON.stringify(state) }], structuredContent: state };
+    // The result is already an error envelope; stamp the verdict into its
+    // scalar-only `error.details` (a sibling of `error` would break the strict body).
+    if (failure && result?.structuredContent?.error && !tool.annotations.readOnlyHint && isAmbiguousFailure(failure.code)) {
+      const body = result.structuredContent;
+      body.error.details = { ...body.error.details, replaySafe: false };
+      result.content = [{ type: 'text', text: JSON.stringify(body, null, 2) }];
     }
     return outcome;
   }
@@ -236,17 +305,17 @@ export class MCPHandler {
     try {
       const result = await tool.execute(input);
       // Result is a Result<T, BCError>
-      const r = result as { ok: boolean; value?: unknown; error?: { message: string } };
+      const r = result as { ok: boolean; value?: unknown; error?: { code?: string; message?: string } };
       if (r.ok) return { response: { jsonrpc: '2.0', id, result: successResult(r.value) }, value: r.value };
-      const errObj = r.error as { code?: string; message?: string } | undefined;
+      const errObj = r.error;
       const failure = { code: errObj?.code, message: errObj?.message ?? 'Unknown error' };
       if (errObj instanceof UrlElicitationRequiredError || errObj?.code === 'URL_ELICITATION_REQUIRED') {
         return { response: urlElicitationResponse(id, errObj as UrlElicitationRequiredError), failure };
       }
-      const text = (errObj && typeof errObj.code === 'string')
-        ? formatBcError(errObj as { code: string; message: string })
-        : `Error: ${failure.message}`;
-      return { response: toolError(id, text), failure };
+      // Pass the error INSTANCE when it is a BCError so detailsFor's instanceof
+      // branches carry the rich scalar fields; a plain object carries only its code.
+      const like = errObj instanceof BCError ? errObj : { code: errObj?.code, message: failure.message };
+      return { response: bcErrorResult(id, tool.name, like), failure };
     } catch (e) {
       if (e instanceof UrlElicitationRequiredError) {
         return { response: urlElicitationResponse(id, e), failure: { code: e.code, message: e.message } };
@@ -255,30 +324,18 @@ export class MCPHandler {
       if (e instanceof BCError) {
         const failure = { code: e.code, message: e.message };
         if (e instanceof SessionLostError) {
+          // SessionLost is a recovered state, not a server fault: log at info.
+          // The impacted pageContextIds + reconnectFailed ride in error.details.
           this.logger.info(`Session recovered during ${tool.name}. Impacted contexts: ${e.impactedPageContextIds.join(', ') || 'none'}`);
-          // Recovery state as data, not just prose, so an agent can tell which
-          // pageContextIds died and whether the reconnect itself failed.
-          const state = { code: e.code, impactedPageContextIds: e.impactedPageContextIds, reconnectFailed: e.reconnectFailed };
-          return {
-            response: {
-              jsonrpc: '2.0',
-              id,
-              result: {
-                content: [{ type: 'text', text: formatBcError(e) }, { type: 'text', text: JSON.stringify(state) }],
-                structuredContent: state,
-                isError: true,
-              },
-            },
-            failure,
-          };
+        } else {
+          this.logger.error(`Tool ${tool.name} threw BCError [${e.code}]: ${e.message}`);
         }
-        this.logger.error(`Tool ${tool.name} threw BCError [${e.code}]: ${e.message}`);
-        return { response: toolError(id, formatBcError(e)), failure };
+        return { response: bcErrorResult(id, tool.name, e), failure };
       }
 
       const message = e instanceof Error ? e.message : String(e);
       this.logger.error(`Tool ${tool.name} failed: ${message}`);
-      return { response: toolError(id, `Tool error: ${message}`), failure: { message } };
+      return { response: bcErrorResult(id, tool.name, { message }), failure: { message } };
     }
   }
 }
@@ -286,9 +343,18 @@ export class MCPHandler {
 /** One tool run: the JSON-RPC response, plus the raw output value or the failure. */
 interface ToolRun { response: JsonRpcResponse; value?: unknown; failure?: Failure }
 
-/** A successful tool result. A replay renders the stored value the same way (minus stripped download bytes). */
-function successResult(value: unknown): { content: Array<{ type: 'text'; text: string }> } {
-  return { content: [{ type: 'text', text: JSON.stringify(value, null, 2) }] };
+/**
+ * A successful tool result. The JSON text stays for human/legacy readers; the
+ * same value is also attached as `structuredContent` so it validates against the
+ * tool's advertised `outputSchema`. A replay renders the stored value the same
+ * way (minus stripped download bytes). All 16 tool outputs are objects; the
+ * guard keeps the function total for a non-object or array value.
+ */
+function successResult(value: unknown): { content: Array<{ type: 'text'; text: string }>; structuredContent?: Record<string, unknown> } {
+  const base = { content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }] };
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? { ...base, structuredContent: value as Record<string, unknown> }
+    : base;
 }
 
 const OPERATION_ID_SCHEMA = {
@@ -312,10 +378,6 @@ const OPERATION_ID_SCHEMA = {
 function withOperationId(schema: Record<string, unknown>): Record<string, unknown> {
   const properties = (schema['properties'] ?? {}) as Record<string, unknown>;
   return { ...schema, properties: { ...properties, operationId: OPERATION_ID_SCHEMA } };
-}
-
-function toolError(id: unknown, text: string): JsonRpcResponse {
-  return { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text }], isError: true } };
 }
 
 function urlElicitationResponse(id: unknown, e: UrlElicitationRequiredError): JsonRpcResponse {

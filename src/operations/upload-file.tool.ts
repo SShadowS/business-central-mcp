@@ -1,4 +1,4 @@
-import { UploadFileSchema, toMcpJsonSchema } from '../mcp/schemas.js';
+import { UploadFileSchema, UploadFileOutputSchema, toMcpJsonSchema } from '../mcp/schemas.js';
 import type { ToolDefinition, Operations } from '../mcp/tool-registry.js';
 
 export function createToolDefinition(ops: Operations): ToolDefinition {
@@ -15,6 +15,7 @@ The response reports the uploaded fileName, sizeBytes, the target formId, and an
 Example (local path):  { "pageContextId": "session:page:9650:ab12", "path": "C:/tmp/layout.docx" }
 Example (base64):      { "pageContextId": "session:page:9650:ab12", "base64": "UEsDBAo...", "fileName": "layout.docx" }`,
     inputSchema: toMcpJsonSchema(UploadFileSchema),
+    outputSchema: toMcpJsonSchema(UploadFileOutputSchema),
     zodSchema: UploadFileSchema,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     execute: (input) => ops.uploadFile.execute(input as Parameters<typeof ops.uploadFile.execute>[0]),

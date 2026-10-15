@@ -58,25 +58,30 @@ describe('operationId replay gate', () => {
     const h = new MCPHandler([mutatingTool(timeout)], logger(), [], withGate(ledger));
     await call(h, { value: 'x', operationId: 'rs-3' });
     expect((await ledger.get('rs-3'))?.replaySafe).toBe(false);
-    expect((await call(h, { value: 'x', operationId: 'rs-3' })).structuredContent).toMatchObject({ code: 'OPERATION_IN_DOUBT', replaySafe: false });
+    const inDoubt = (await call(h, { value: 'x', operationId: 'rs-3' })).structuredContent as { error: { code: string; category: string } };
+    expect(inDoubt.error).toMatchObject({ code: 'OPERATION_IN_DOUBT', category: 'state' });
   });
 
   it('puts replaySafe:false on the first response to an ambiguous failure, with or without operationId', async () => {
     const timeout = vi.fn().mockResolvedValue({ ok: false, error: new TimeoutError('watchdog') });
     const gated = await call(new MCPHandler([mutatingTool(timeout)], logger(), [], withGate(new OperationLedger(dir))), { value: 'x', operationId: 'af-1' });
     expect(gated.isError).toBe(true);
-    expect(gated.structuredContent).toEqual({ code: 'TIMEOUT_ERROR', replaySafe: false });
-    expect(JSON.parse(gated.content[1]!.text)).toEqual({ code: 'TIMEOUT_ERROR', replaySafe: false });
+    // The verdict rides in the strict envelope's scalar `error.details`.
+    expect((gated.structuredContent as { error: { code: string; details: Record<string, unknown> } }).error)
+      .toMatchObject({ code: 'TIMEOUT', details: { bcCode: 'TIMEOUT_ERROR', replaySafe: false } });
+    expect(JSON.parse(gated.content[0]!.text).error.details.replaySafe).toBe(false);
 
     const lost = vi.fn().mockRejectedValue(new SessionLostError('dropped', ['pc:1']));
     const plain = await call(new MCPHandler([mutatingTool(lost)], logger(), []), { value: 'x' });
-    expect(plain.structuredContent).toMatchObject({ code: 'SESSION_LOST', impactedPageContextIds: ['pc:1'], replaySafe: false });
+    expect((plain.structuredContent as { error: { code: string; details: Record<string, unknown> } }).error)
+      .toMatchObject({ code: 'SESSION_LOST', details: { impactedPageContextIds: '["pc:1"]', replaySafe: false } });
 
-    // Definite failures and read-only tools carry no verdict.
+    // Definite failures and read-only tools carry an envelope but no replaySafe verdict.
     const invalid = vi.fn().mockResolvedValue({ ok: false, error: new BusinessValidationError([{ description: 'bad' }]) });
-    expect((await call(new MCPHandler([mutatingTool(invalid)], logger(), []), { value: 'x' })).structuredContent).toBeUndefined();
+    const definite = (await call(new MCPHandler([mutatingTool(invalid)], logger(), []), { value: 'x' })).structuredContent as { error: { details: Record<string, unknown> } };
+    expect(definite.error.details).not.toHaveProperty('replaySafe');
     const readTimeout = await call(new MCPHandler([mutatingTool(timeout, true)], logger(), []), { value: 'x' }, 'bc_read');
-    expect(readTimeout.structuredContent).toBeUndefined();
+    expect((readTimeout.structuredContent as { error: { details: Record<string, unknown> } }).error.details).not.toHaveProperty('replaySafe');
   });
 
   it('rejects a reused id with different input', async () => {
@@ -96,7 +101,9 @@ describe('operationId replay gate', () => {
     const r = await call(h, { value: 'x', operationId: 'op-3' });
     expect(execute).toHaveBeenCalledTimes(1);
     expect(r.isError).toBe(true);
-    expect(r.structuredContent).toMatchObject({ code: 'OPERATION_IN_DOUBT', operationId: 'op-3', status: 'unknown', error: { code: 'TIMEOUT_ERROR' } });
+    const sc = r.structuredContent as { error: { code: string; details: Record<string, unknown> } };
+    expect(sc.error).toMatchObject({ code: 'OPERATION_IN_DOUBT', details: { operationId: 'op-3', status: 'unknown' } });
+    expect(JSON.parse(sc.error.details.error as string).code).toBe('TIMEOUT_ERROR');
   });
 
   it('frees the id after a definite failure so a retry executes again', async () => {
@@ -117,7 +124,8 @@ describe('operationId replay gate', () => {
     const a = call(h, { value: 'x', operationId: 'op-5' });
     const b = call(h, { value: 'x', operationId: 'op-5' });
     const loser = await Promise.race([a, b]);
-    expect(loser.structuredContent).toMatchObject({ code: 'OPERATION_IN_DOUBT', status: 'sent' });
+    expect((loser.structuredContent as { error: { code: string; details: Record<string, unknown> } }).error)
+      .toMatchObject({ code: 'OPERATION_IN_DOUBT', details: { status: 'sent' } });
     releases.forEach(r => r());
     await Promise.all([a, b]);
     expect(execute).toHaveBeenCalledTimes(1);

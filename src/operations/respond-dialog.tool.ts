@@ -1,4 +1,4 @@
-import { RespondDialogSchema, toMcpJsonSchema } from '../mcp/schemas.js';
+import { RespondDialogSchema, RespondDialogOutputSchema, toMcpJsonSchema } from '../mcp/schemas.js';
 import type { ToolDefinition, Operations } from '../mcp/tool-registry.js';
 
 export function createToolDefinition(ops: Operations): ToolDefinition {
@@ -16,6 +16,7 @@ Example: { "pageContextId": "abc", "dialogFormId": "dialog-123", "response": "ye
 
 If the action produces a file (Open in Excel, Print, export), its bytes appear in \`downloads[]\` (an operationId replay returns the metadata with error code NOT_REPLAYED instead of the bytes); links BC would open externally appear in \`externalUris[]\` and are never fetched by the server.`,
     inputSchema: toMcpJsonSchema(RespondDialogSchema),
+    outputSchema: toMcpJsonSchema(RespondDialogOutputSchema),
     zodSchema: RespondDialogSchema,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     execute: (input) => ops.respondDialog.execute(input as Parameters<typeof ops.respondDialog.execute>[0]),

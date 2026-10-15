@@ -1,4 +1,4 @@
-import { SwitchCompanySchema, toMcpJsonSchema } from '../mcp/schemas.js';
+import { SwitchCompanySchema, SwitchCompanyOutputSchema, toMcpJsonSchema } from '../mcp/schemas.js';
 import type { ToolDefinition, Operations } from '../mcp/tool-registry.js';
 
 export function createToolDefinition(ops: Operations): ToolDefinition {
@@ -12,6 +12,7 @@ Do NOT switch companies in the middle of a multi-step workflow (e.g., between cr
 
 Example: { "companyName": "CRONUS International Ltd." }`,
     inputSchema: toMcpJsonSchema(SwitchCompanySchema),
+    outputSchema: toMcpJsonSchema(SwitchCompanyOutputSchema),
     zodSchema: SwitchCompanySchema,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     execute: (input) => ops.switchCompany.execute(input as Parameters<typeof ops.switchCompany.execute>[0]),

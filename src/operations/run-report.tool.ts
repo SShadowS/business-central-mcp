@@ -1,4 +1,4 @@
-import { RunReportSchema, toMcpJsonSchema } from '../mcp/schemas.js';
+import { RunReportSchema, RunReportOutputSchema, toMcpJsonSchema } from '../mcp/schemas.js';
 import type { ToolDefinition, Operations } from '../mcp/tool-registry.js';
 
 export function createToolDefinition(ops: Operations): ToolDefinition {
@@ -19,6 +19,7 @@ Example (capture PDF):       { "reportId": 6, "format": "pdf" }
 Example (capture Excel):     { "reportId": 6, "format": "excel" }
 Example (capture Word):      { "reportId": 6, "format": "word" }`,
     inputSchema: toMcpJsonSchema(RunReportSchema),
+    outputSchema: toMcpJsonSchema(RunReportOutputSchema),
     zodSchema: RunReportSchema,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     execute: (input) => ops.runReport.execute(input as Parameters<typeof ops.runReport.execute>[0]),

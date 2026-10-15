@@ -156,3 +156,160 @@ export function toMcpJsonSchema(schema: z.ZodType): Record<string, unknown> {
   }
   return z.toJSONSchema(schema) as Record<string, unknown>;
 }
+
+// ---------------------------------------------------------------------------
+// Per-tool OUTPUT schemas (issue #40). Advertised in tools/list and matching
+// the `structuredContent` each successful call returns. Top-level fields are
+// precise; deeply-nested, already-typed DTOs (Section, FieldWriteResult,
+// Download, SearchResult, LookupRow, OperationEntry, ...) are accepted loosely
+// so a real payload never fails to validate and a forward-added nested field
+// never breaks the advertised contract.
+// ---------------------------------------------------------------------------
+
+const Dialog = z.looseObject({ formId: z.string(), message: z.string().optional() });
+const Download = z.looseObject({
+  fileName: z.string(),
+  contentType: z.string(),
+  sizeBytes: z.number(),
+  style: z.string(),
+  savedPath: z.string().optional(),
+});
+const ExternalUri = z.object({ uri: z.string(), style: z.string() });
+const OpenedPage = z.object({ pageContextId: z.string(), caption: z.string() });
+const Section = z.looseObject({});
+const Loose = z.looseObject({});
+
+export const OpenPageOutputSchema = z.object({
+  pageContextId: z.string(),
+  pageType: z.string(),
+  caption: z.string(),
+  isModal: z.boolean(),
+  sections: z.array(Section),
+  stateVersion: z.number(),
+});
+
+export const ReadDataOutputSchema = z.object({
+  section: Section,
+  stateVersion: z.number(),
+});
+
+export const WriteDataOutputSchema = z.object({
+  results: z.array(Loose),
+  allSucceeded: z.boolean(),
+  changedSections: z.array(z.string()),
+  dialogsOpened: z.array(Dialog),
+  requiresDialogResponse: z.boolean(),
+  validationWarnings: z.array(Loose),
+  replaySafe: z.boolean(),
+});
+
+export const ExecuteActionOutputSchema = z.object({
+  success: z.boolean(),
+  dialog: Dialog.optional(),
+  updatedFields: z.array(z.object({ name: z.string(), value: z.string().optional() })).optional(),
+  changedSections: z.array(z.string()),
+  openedPages: z.array(OpenedPage),
+  dialogsOpened: z.array(Dialog),
+  requiresDialogResponse: z.boolean(),
+  downloads: z.array(Download),
+  externalUris: z.array(ExternalUri),
+  replaySafe: z.boolean(),
+});
+
+export const ClosePageOutputSchema = z.object({
+  success: z.boolean(),
+  dialogsOpened: z.array(Dialog),
+  requiresDialogResponse: z.boolean(),
+  replaySafe: z.boolean(),
+});
+
+export const SearchPagesOutputSchema = z.object({
+  results: z.array(Loose),
+  note: z.string().optional(),
+});
+
+export const NavigateOutputSchema = z.object({
+  targetPageContextId: z.string().optional(),
+  pageType: z.string().optional(),
+  sections: z.array(Section).optional(),
+  changedSections: z.array(z.string()),
+  dialogsOpened: z.array(Dialog),
+  requiresDialogResponse: z.boolean(),
+});
+
+export const RespondDialogOutputSchema = z.object({
+  success: z.boolean(),
+  changedSections: z.array(z.string()),
+  dialogsOpened: z.array(Dialog),
+  requiresDialogResponse: z.boolean(),
+  openedPages: z.array(OpenedPage),
+  downloads: z.array(Download),
+  externalUris: z.array(ExternalUri),
+  replaySafe: z.boolean(),
+});
+
+export const SwitchCompanyOutputSchema = z.object({
+  previousCompany: z.string(),
+  newCompany: z.string(),
+  invalidatedPageContextIds: z.array(z.string()),
+  replaySafe: z.boolean(),
+});
+
+export const ListCompaniesOutputSchema = z.object({
+  currentCompany: z.string(),
+  companies: z.array(z.object({ name: z.string(), displayName: z.string() })),
+});
+
+export const RunReportOutputSchema = z.object({
+  success: z.boolean(),
+  reportId: z.number(),
+  requestPage: z.looseObject({ pageContextId: z.string(), formId: z.string() }).optional(),
+  dialogsOpened: z.array(Dialog),
+  requiresDialogResponse: z.boolean(),
+  downloads: z.array(Download),
+  externalUris: z.array(ExternalUri),
+  replaySafe: z.boolean(),
+});
+
+export const WizardNavigateOutputSchema = z.object({
+  success: z.boolean(),
+  caption: z.string(),
+  fields: z.array(z.object({ name: z.string(), value: z.string().optional(), editable: z.boolean() })),
+  availableNav: z.array(z.string()),
+  closed: z.boolean(),
+  changedSections: z.array(z.string()),
+  dialogsOpened: z.array(Dialog),
+  downloads: z.array(Download),
+  externalUris: z.array(ExternalUri),
+  replaySafe: z.boolean(),
+});
+
+export const LookupOutputSchema = z.object({
+  rows: z.array(Loose),
+  totalFound: z.number(),
+});
+
+export const QueryOutputSchema = z.object({
+  entity: z.string(),
+  rows: z.array(z.unknown()),
+  rowCount: z.number(),
+  count: z.number().optional(),
+  cappedAt: z.number().optional(),
+  hasMore: z.boolean(),
+});
+
+export const UploadFileOutputSchema = z.object({
+  success: z.boolean(),
+  fileName: z.string(),
+  sizeBytes: z.number(),
+  formId: z.string(),
+  dialogsOpened: z.array(z.looseObject({ formId: z.string(), message: z.string().optional() })),
+  replaySafe: z.boolean(),
+});
+
+export const GetOperationOutputSchema = z.looseObject({
+  entry: Loose,
+  readBack: Loose.optional(),
+  evidenceHash: z.string().optional(),
+  readBackError: z.object({ code: z.string(), message: z.string() }).optional(),
+});

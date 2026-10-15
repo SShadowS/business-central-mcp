@@ -1,4 +1,4 @@
-import { ExecuteActionSchema, toMcpJsonSchema } from '../mcp/schemas.js';
+import { ExecuteActionSchema, ExecuteActionOutputSchema, toMcpJsonSchema } from '../mcp/schemas.js';
 import type { ToolDefinition, Operations } from '../mcp/tool-registry.js';
 
 export function createToolDefinition(ops: Operations): ToolDefinition {
@@ -33,6 +33,7 @@ Examples:
 
 If the action produces a file (Open in Excel, Print, export), its bytes appear in \`downloads[]\` (an operationId replay returns the metadata with error code NOT_REPLAYED instead of the bytes); links BC would open externally appear in \`externalUris[]\` and are never fetched by the server.`,
     inputSchema: toMcpJsonSchema(ExecuteActionSchema),
+    outputSchema: toMcpJsonSchema(ExecuteActionOutputSchema),
     zodSchema: ExecuteActionSchema,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     execute: (input) => ops.executeAction.execute(input as Parameters<typeof ops.executeAction.execute>[0]),

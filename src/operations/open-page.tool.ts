@@ -1,4 +1,4 @@
-import { OpenPageSchema, toMcpJsonSchema } from '../mcp/schemas.js';
+import { OpenPageSchema, OpenPageOutputSchema, toMcpJsonSchema } from '../mcp/schemas.js';
 import type { ToolDefinition, Operations } from '../mcp/tool-registry.js';
 
 export function createToolDefinition(ops: Operations): ToolDefinition {
@@ -18,6 +18,7 @@ Examples:
 - { "pageId": 22 } opens Customer List. Sections: [{ "sectionId": "header", "kind": "header", "rows": [...], "actions": [...] }] (no fields[] on a list-shape header).
 - { "pageId": 21, "bookmark": "..." } opens Customer Card. Sections include the header card plus FactBoxes (e.g. { "sectionId": "factbox:Customer Statistics", "kind": "factbox", "fields": [...] }).`,
     inputSchema: toMcpJsonSchema(OpenPageSchema),
+    outputSchema: toMcpJsonSchema(OpenPageOutputSchema),
     zodSchema: OpenPageSchema,
     annotations: { readOnlyHint: true, openWorldHint: false },
     execute: (input) => ops.openPage.execute(input as Parameters<typeof ops.openPage.execute>[0]),
