@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-10-15
+
+### Added
+
+- **Skills over MCP (SEP-2640).** The server exposes skills on the Resources
+  primitive: `skills/list`, `skills/get`, and `resources/read` for skill bytes,
+  with the `io.modelcontextprotocol/skills` extension advertised in `initialize`
+  when skills are present. Ships the `bc-ui-recovery` skill, which tells an agent
+  how to recover from failed `bc_*` UI actions (modal-stack reconcile, session
+  death, in-doubt writes, `MULTI_ROW_ACTION_UNAVAILABLE`, `CARDPART_STUB`,
+  `COMPANY_NOT_FOUND`).
+- **`outputSchema` + `structuredContent` on every tool.** Each tool declares a
+  JSON Schema for its success result and returns `structuredContent` that
+  validates against it, so an agent can branch on results without parsing prose.
+
+### Changed
+
+- **Shared toolbox machine envelope on every failure (BREAKING).** Tool failures
+  no longer return an `Error [CODE]: message` text body. They now return the
+  shared `@sshadows/bc-toolbox-envelope` error body: a stable `error.code` (one
+  of the core codes or a server extension code), `category`, `retryable`, a
+  redacted `message`/`details`, and non-empty `nextSteps`. BC-specific error
+  codes are folded to the shared core codes (the original code is preserved in
+  `details.bcCode`). Consumers that parsed the old error strings must read the
+  structured body instead.
+
 ## [1.8.0] - 2026-10-14
 
 ### Added
