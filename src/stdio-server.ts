@@ -46,6 +46,7 @@ import { IdempotencyGate } from './mcp/idempotency-gate.js';
 import { createTargetDescriber } from './operations/target-descriptor.js';
 import { GetOperationOperation } from './operations/get-operation.js';
 import { PROMPTS } from './mcp/prompts.js';
+import { SKILLS } from './mcp/skills.js';
 // isErr no longer needed — SessionManager handles session creation errors internally
 
 async function main() {
@@ -177,6 +178,7 @@ async function main() {
   const mcpHandler = new MCPHandler(lazyTools, logger, PROMPTS, {
     elicitationPort,
     gate: new IdempotencyGate(ledger, logger, createTargetDescriber(pageContextRepo, () => sessionManager.currentSession?.companyName)),
+    skills: SKILLS,
   });
 
   // Read JSON-RPC from stdin, write responses to stdout

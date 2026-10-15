@@ -45,6 +45,7 @@ import { IdempotencyGate } from './mcp/idempotency-gate.js';
 import { createTargetDescriber } from './operations/target-descriptor.js';
 import { GetOperationOperation } from './operations/get-operation.js';
 import { PROMPTS } from './mcp/prompts.js';
+import { SKILLS } from './mcp/skills.js';
 import { createApiRoutes } from './api/routes.js';
 import { parseJsonBody, checkApiToken, bcErrorToHttp } from './api/middleware.js';
 import { SERVER_VERSION } from './core/version.js';
@@ -197,6 +198,7 @@ async function main() {
   const mcpHandler = new MCPHandler(lazyTools, logger, PROMPTS, {
     elicitationPort,
     gate,
+    skills: SKILLS,
   });
 
   // HTTP Server
