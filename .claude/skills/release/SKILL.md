@@ -1,6 +1,6 @@
 ---
 name: bc-mcp-release
-description: Release `business-central-mcp` to npm — bumps version, builds, tests, dry-run-inspects the tarball, publishes, and pushes the tag. Use this whenever the user wants to ship a new version, publish to npm, cut a release, tag a version, or asks "how do we release this". Also use when the user has finished a body of work and asks what's next, since release is often the natural next step after merging features. Walks through preflight checks, semver decision, and post-publish smoke. Does NOT actually run `npm publish` without explicit confirmation — releases are irreversible.
+description: Release `business-central-mcp` to npm — bumps version, builds, tests, dry-run-inspects the tarball, publishes, and pushes the tag. Use this whenever the user wants to ship a new version, publish to npm, cut a release, tag a version, or asks "how do we release this". Also use when the user has finished a body of work and asks what's next, since release is often the natural next step after merging features. Walks through preflight checks, semver decision, and post-publish smoke. Publishing is done by the GitHub Release workflow on tag push (npm Trusted Publishing) — never run `npm publish` locally; the tag push needs explicit confirmation, releases are irreversible.
 ---
 
 # bc-mcp release runbook
@@ -151,31 +151,32 @@ head -1 dist/stdio-server.js
 If it's missing, add the shebang to `src/stdio-server.ts` (top line, before
 imports) and rebuild.
 
-## Step 6: Publish
+## Step 6: Publish = push the tag (do NOT run `npm publish` locally)
 
-This is the irreversible step. Confirm with the user before running.
+Publishing is done by `.github/workflows/release.yml`, triggered by any `v*`
+tag push. It publishes via npm Trusted Publishing (OIDC, with provenance, no
+NPM_TOKEN), after gating on: tag == package.json version, `npm run test`, and
+`npm run smoke:prod`. It also builds the `.dxt` and creates the GitHub release
+(auto-generated notes) with the `.dxt` attached.
 
-```bash
-npm whoami                          # confirm logged in as the right account
-npm publish                         # uses prepublishOnly hook
-```
+A local `npm publish` is wrong: it ships without provenance and makes the
+workflow fail on the duplicate version. No `npm login` is needed.
 
-If 2FA is enabled, npm will prompt for a one-time code. The user must enter
-it interactively — bc-mcp can't supply it.
-
-If the package is scoped (`@org/business-central-mcp`), add `--access public`
-on first publish.
-
-## Step 7: Push the tag
-
-`npm version` created the tag locally; push it to GitHub:
+Run the workflow's smoke gate locally first, then confirm with the user
+(irreversible) and push:
 
 ```bash
-git push --follow-tags              # pushes the master branch + the new tag
+npm run smoke:prod
+git push --follow-tags              # pushes master + the tag -> Release workflow publishes
+gh run list --workflow=release.yml --limit 1
+gh run watch <run-id> --exit-status
 ```
 
-This triggers GitHub Actions CI on the new commit (sanity check) and makes
-the tag available for issue references and changelog links.
+## Step 7: Confirm the workflow published
+
+When the run is green, `npm view business-central-mcp version` shows the new
+version. If the run failed before "Publish to npm", fix, then move the tag
+only with the user's explicit approval (it is a destructive tag rewrite).
 
 ## Step 8: Post-publish smoke
 
@@ -202,17 +203,14 @@ dependency), the publish is broken. Options:
 
 ## Step 9: GitHub release notes (optional)
 
-For visibility, create a GitHub release tied to the new tag:
+The workflow's `build-dxt` job already creates the GitHub release (auto-generated
+notes + `.dxt`). To replace its notes with the CHANGELOG section, edit it, don't
+create a second release:
 
 ```bash
-gh release create v<version> \
-  --title "v<version>" \
-  --notes-from-file <(awk '/^## \[<version>\]/,/^## \[/' CHANGELOG.md | sed '$d')
+awk '/^## \[<version>\]/{f=1;next} /^## \[/{f=0} f' CHANGELOG.md > notes.md   # read it first
+gh release edit v<version> --notes-file notes.md
 ```
-
-The awk extracts the just-released CHANGELOG section. Read the output before
-running `gh release create` — escape characters in version numbers can trip
-the regex.
 
 ## Failure recovery
 
@@ -220,8 +218,8 @@ If something goes wrong mid-flow:
 
 | Failure | Recovery |
 |---|---|
-| `npm version` succeeded, `npm publish` failed | Fix the issue, run `npm publish` again. The tag is already created and harmless. |
-| `npm publish` succeeded, `git push` failed | `git push origin master --tags` separately. The package is live, the tag isn't synced — fix immediately so users can't `git checkout v<version>` and find nothing. |
+| Release workflow failed before "Publish to npm" | Nothing shipped. Fix on master; re-pointing the tag needs the user's explicit OK (delete + re-push the tag), or cut the next patch version instead. |
+| Release workflow failed AT "Publish to npm" | Check npmjs.com trusted-publisher config for this repo/workflow, then re-run the job (`gh run rerun <id> --failed`). Never fall back to a local `npm publish`. |
 | Wrong version published | `npm unpublish business-central-mcp@<version>` (within 72h) OR publish a corrected patch and `npm deprecate` the bad one. |
 | Tarball leaked secrets | Treat as a credential rotation: revoke the leaked secret, `npm unpublish` if within 72h, otherwise publish a fixed version + deprecate. Tarballs on npm cache servers may persist even after unpublish. |
 | CI failed on the release commit | Don't unpublish — investigate the failure. CI failures on a freshly-released commit usually mean a flaky test or a Node-version-specific issue (matrix runs Node 20/22/24). If a real regression, ship a patch ASAP. |
@@ -245,8 +243,7 @@ ceremony (e.g. fixing a critical post-publish bug), the minimal flow is:
 ```bash
 # Edit code, commit normally
 npm version patch
-npm publish
-git push --follow-tags
+git push --follow-tags       # the Release workflow publishes
 ```
 
 This skips Step 2 (CHANGELOG) — fine for emergencies. Backfill the CHANGELOG

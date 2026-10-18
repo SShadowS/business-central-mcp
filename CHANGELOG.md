@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-10-18
+
+### Fixed
+
+- **`bc_wizard_navigate` "next" did nothing (#41).** A NavigatePage carries each
+  navigation action twice, a hidden action-bar copy and the footer copy. The tool
+  invoked the hidden one, which BC ignores, so it returned `success: true` while
+  the wizard stayed on step one. It now invokes the visible footer action
+  (verified on Company Setup 1803 and Cash Flow Forecast setup 1818).
+- **Writing the first line of an empty document.** On a repeater section with no
+  rows, `bc_write_data` now says no rows are loaded instead of
+  "Loaded rows: 0--1", and when the page is in view mode it says to run `Edit`
+  first (BC then adds empty draft rows). Writing a line column without `rowIndex`
+  or `bookmark` says so instead of "Field not found".
+- **Network loss reported as bad credentials.** An NTLM sign-in that cannot reach
+  BC now fails as `ENDPOINT_UNREACHABLE` (retryable) instead of
+  `AUTHENTICATION_FAILED`, and `SESSION_LOST` with `reconnectFailed: true` no
+  longer says the session was reconnected.
+- **Never-sent calls marked in doubt.** A mutating call that failed before any
+  frame reached BC (for example "Action not found") no longer leaves its
+  `operationId` as `OPERATION_IN_DOUBT`; the id is released so a corrected retry
+  can reuse it.
+
 ## [2.0.0] - 2026-10-15
 
 ### Added
