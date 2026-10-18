@@ -141,7 +141,9 @@ export function toBcErrorBody(
 ): ErrorBody {
   const rule = (like.code && RULES[like.code]) || FALLBACK;
   const nextSteps = [
-    (like.code && errorHint(like.code)) || DEFAULT_NEXT[rule.code] || 'Retry the operation.',
+    like instanceof SessionLostError && like.reconnectFailed
+      ? 'The session was lost and reconnecting to BC failed. Check that BC is reachable, then retry; re-open any pages with bc_open_page.'
+      : (like.code && errorHint(like.code)) || DEFAULT_NEXT[rule.code] || 'Retry the operation.',
   ];
   const details = { ...detailsFor(like, like.code), ...extraDetails };
   return errorBody(

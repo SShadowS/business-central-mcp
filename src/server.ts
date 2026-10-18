@@ -49,6 +49,7 @@ import { SKILLS } from './mcp/skills.js';
 import { createApiRoutes } from './api/routes.js';
 import { parseJsonBody, checkApiToken, bcErrorToHttp } from './api/middleware.js';
 import { SERVER_VERSION } from './core/version.js';
+import { wireSendCount } from './connection/bc-websocket.js';
 // isErr no longer needed — SessionManager handles session creation errors internally
 
 /** The request-target's pathname: query stripped, trailing slashes trimmed,
@@ -114,7 +115,7 @@ async function main() {
   ledger.startPruning(logger);
   // One gate for both transports: an operationId / Idempotency-Key means the
   // same operation over MCP and REST.
-  const gate = new IdempotencyGate(ledger, logger, createTargetDescriber(pageContextRepo, () => sessionManager.currentSession?.companyName));
+  const gate = new IdempotencyGate(ledger, logger, createTargetDescriber(pageContextRepo, () => sessionManager.currentSession?.companyName), wireSendCount);
 
   // Services — built once after session is available
   function buildServices(s: BCSession): { operations: Operations; tools: ReturnType<typeof buildToolRegistry> } {

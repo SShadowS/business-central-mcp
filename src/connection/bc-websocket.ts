@@ -6,6 +6,15 @@ import { composeWithTimeout } from '../core/abort.js';
 import { decompressIfNeeded } from '../protocol/decompression.js';
 import type { Logger } from '../core/logger.js';
 
+let wireSends = 0;
+
+/**
+ * Process-wide count of RPC frames handed to a socket. The replay gate compares
+ * it across a call: unchanged means the call failed before reaching BC, so it
+ * cannot have committed (issue #41).
+ */
+export const wireSendCount = (): number => wireSends;
+
 export interface BCWebSocketConfig {
   url: string;
   headers: Record<string, string>;
@@ -293,6 +302,7 @@ export class BCWebSocket {
         { once: true },
       );
 
+      wireSends++;
       this.ws!.send(payload, (sendError?: Error) => {
         if (sendError) {
           const pending = this.pendingRequests.get(id);

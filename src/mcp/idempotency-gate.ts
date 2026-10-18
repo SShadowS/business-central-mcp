@@ -30,6 +30,8 @@ export class IdempotencyGate {
     private readonly ledger: OperationLedger,
     private readonly logger: Logger,
     private readonly describeTarget?: DescribeTarget,
+    /** Count of frames sent to BC (`wireSendCount`); without it every ambiguous failure is assumed sent. */
+    private readonly sendCount?: () => number,
   ) {}
 
   async run<R extends RunOutcome>(tool: string, operationId: string, input: unknown, exec: () => Promise<R>): Promise<GateOutcome<R>> {
@@ -61,18 +63,22 @@ export class IdempotencyGate {
       };
     }
 
+    const sentBefore = this.sendCount?.();
+    // Nothing reached BC (e.g. "Action not found"), so nothing can have committed.
+    const neverSent = (): boolean => sentBefore !== undefined && this.sendCount!() === sentBefore;
     let outcome: R;
     try {
       outcome = await exec();
     } catch (e) {
-      await this.ledger.settle(operationId, { status: 'unknown', replaySafe: false, error: { message: e instanceof Error ? e.message : String(e) } });
+      if (neverSent()) await this.ledger.release(operationId);
+      else await this.ledger.settle(operationId, { status: 'unknown', replaySafe: false, error: { message: e instanceof Error ? e.message : String(e) } });
       throw e;
     }
     const { failure } = outcome;
     if (!failure) {
       const replaySafe = (outcome.value as { replaySafe?: unknown } | null | undefined)?.replaySafe === true;
       await this.ledger.settle(operationId, { status: 'completed', replaySafe, result: outcome.value });
-    } else if (isAmbiguousFailure(failure.code)) {
+    } else if (isAmbiguousFailure(failure.code) && !neverSent()) {
       await this.ledger.settle(operationId, { status: 'unknown', replaySafe: false, error: { code: failure.code, message: failure.message } });
     } else {
       // BC gave a definite answer (validation, business rule, sign-in...): nothing

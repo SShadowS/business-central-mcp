@@ -5,7 +5,9 @@ import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { BCEvent, RepeaterRow, ControlField, TabGroup, SaveValueInteraction, SetCurrentRowInteraction, ScrollRepeaterInteraction } from '../protocol/types.js';
 import type { Logger } from '../core/logger.js';
 import { resolveSection } from '../protocol/section-resolver.js';
-import { fields as treeFields, tabs as treeTabs, findField } from '../protocol/form-views.js';
+import { fields as treeFields, tabs as treeTabs, actions as treeActions, findField } from '../protocol/form-views.js';
+import type { PageContext } from '../protocol/page-context.js';
+import { SystemAction } from '../protocol/types.js';
 import { findByControlPath } from '../protocol/form-tree-walk.js';
 import { isFieldNode, type RepeaterNode } from '../protocol/form-node.js';
 import { fieldNodeToControlField } from '../protocol/mcp-adapters.js';
@@ -26,6 +28,20 @@ export interface FieldWriteResult {
 export interface WriteFieldsResult {
   results: FieldWriteResult[];
   events: BCEvent[];
+}
+
+/**
+ * A document in view mode loads no empty rows; after Edit (SystemAction 40)
+ * BC adds DraftRecord rows to write new lines into (live cronus28, Sales
+ * Quote 41: 0 drafts in view mode, 15 after Edit). Issue #41.
+ */
+function emptyRowsHint(ctx: PageContext, rowCount: number): string {
+  if (rowCount > 0) return '';
+  const root = ctx.forms.get(ctx.rootFormId);
+  const canEdit = root && treeActions(root.root).some(a => a.systemAction === SystemAction.Edit && a.properties.enabled !== false);
+  return canEdit
+    ? " The page is in view mode: run bc_execute_action 'Edit' first, then bc_read_data on this section to get the empty draft rows to write into."
+    : ' Run bc_read_data on this section to load its rows.';
 }
 
 export class DataService {
@@ -144,6 +160,14 @@ export class DataService {
 
     // Header/card field write
     const fieldNode = findField(form.root, fieldName);
+    // A repeater column is not a form field: without a row target the lookup
+    // above can only miss it. Say so instead of "Field not found".
+    const isColumn = resolved.repeater?.columns.some(c => (c.properties.caption ?? '').toLowerCase() === fieldName.toLowerCase());
+    if (!fieldNode && isColumn) {
+      return err(new ProtocolError(
+        `'${fieldName}' is a column of a list of rows: pass rowIndex or bookmark to write it.${emptyRowsHint(ctx, resolved.rows.length)}`,
+      ));
+    }
     if (!fieldNode) {
       return err(new ProtocolError(`Field not found: ${fieldName}`, {
         pageContextId,
@@ -215,7 +239,11 @@ export class DataService {
     let bookmark = options.bookmark;
     if (!bookmark && options.rowIndex !== undefined) {
       const row = rows[options.rowIndex];
-      if (!row) return err(new ProtocolError(`Row index ${options.rowIndex} out of range. Loaded rows: 0-${rows.length - 1}.`));
+      if (!row) {
+        const ctx = this.repo.get(pageContextId)!;
+        const loaded = rows.length === 0 ? 'No rows are loaded.' : `Loaded rows: 0-${rows.length - 1}.`;
+        return err(new ProtocolError(`Row index ${options.rowIndex} out of range. ${loaded}${emptyRowsHint(ctx, rows.length)}`));
+      }
       bookmark = row.bookmark;
     }
     if (!bookmark) return err(new ProtocolError('No bookmark or rowIndex provided for line cell write'));

@@ -7,7 +7,7 @@ import { MCPHandler } from '../../src/mcp/handler.js';
 import { OperationLedger, digestInput } from '../../src/mcp/operation-ledger.js';
 import { IdempotencyGate } from '../../src/mcp/idempotency-gate.js';
 import type { ToolDefinition } from '../../src/mcp/tool-registry.js';
-import { BusinessValidationError, SessionLostError, TimeoutError } from '../../src/core/errors.js';
+import { BusinessValidationError, ProtocolError, SessionLostError, TimeoutError } from '../../src/core/errors.js';
 
 const logger = () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() });
 const withGate = (ledger: OperationLedger) => ({ gate: new IdempotencyGate(ledger, logger()) });
@@ -154,6 +154,19 @@ describe('operationId replay gate', () => {
     const list = (await h.handleRequest({ jsonrpc: '2.0', id: 1, method: 'tools/list' })).result as { tools: Array<{ name: string; inputSchema: { properties: Record<string, unknown> } }> };
     expect(list.tools.find(t => t.name === 'bc_write')!.inputSchema.properties).toHaveProperty('operationId');
     expect(list.tools.find(t => t.name === 'bc_read')!.inputSchema.properties).not.toHaveProperty('operationId');
+  });
+
+  it('releases the id when an ambiguous failure happened before any frame reached BC (#41)', async () => {
+    const ledger = new OperationLedger(dir);
+    let sent = 0;
+    const gate = { gate: new IdempotencyGate(ledger, logger(), undefined, () => sent) };
+    const lookupFails = vi.fn().mockResolvedValue({ ok: false, error: new ProtocolError('Action not found: Make Order') });
+    await call(new MCPHandler([mutatingTool(lookupFails)], logger(), [], gate), { value: 'x', operationId: 'pre-1' });
+    expect(await ledger.get('pre-1')).toBeUndefined();
+
+    const sentThenFails = vi.fn().mockImplementation(async () => { sent++; return { ok: false, error: new ProtocolError('bad frame') }; });
+    await call(new MCPHandler([mutatingTool(sentThenFails)], logger(), [], gate), { value: 'x', operationId: 'pre-2' });
+    expect((await ledger.get('pre-2'))?.status).toBe('unknown');
   });
 
   it('digestInput ignores key order', () => {

@@ -1,6 +1,6 @@
 import * as cheerio from 'cheerio';
 import { ok, err, type Result } from '../../core/result.js';
-import { AuthenticationError } from '../../core/errors.js';
+import { AuthenticationError, ConnectionError } from '../../core/errors.js';
 import { bindingFromBaseUrl, type IBCAuthProvider, type AuthResult, type ConnectionBinding } from './auth-provider.js';
 import { mergeSetCookies } from './set-cookie-merge.js';
 import type { Logger } from '../../core/logger.js';
@@ -22,7 +22,7 @@ export class NTLMAuthProvider implements IBCAuthProvider {
     private readonly logger: Logger
   ) {}
 
-  async authenticate(): Promise<Result<AuthResult, AuthenticationError>> {
+  async authenticate(): Promise<Result<AuthResult, AuthenticationError | ConnectionError>> {
     try {
       // Step 1: GET /SignIn
       const signInUrl = `${this.config.baseUrl}/SignIn?tenant=${this.config.tenantId}`;
@@ -118,8 +118,11 @@ export class NTLMAuthProvider implements IBCAuthProvider {
       return ok({ cookies: this.cookies, csrfToken: this.csrfToken });
 
     } catch (e) {
-      return err(new AuthenticationError(
-        `Authentication failed: ${e instanceof Error ? e.message : String(e)}`,
+      // A rejected sign-in is an HTTP status, handled above; a throw here is
+      // fetch failing to reach BC at all ("fetch failed"), so it is a retryable
+      // outage, not bad credentials (issue #41).
+      return err(new ConnectionError(
+        `Could not reach BC to sign in: ${e instanceof Error ? e.message : String(e)}`,
         { baseUrl: this.config.baseUrl, username: this.config.username }
       ));
     }
