@@ -197,7 +197,13 @@ export class ActionService {
     const root = ctx.forms.get(ctx.rootFormId);
     if (!root) return err(new ProtocolError(`Root form not found for page ${pageContextId}`));
 
-    const allActions = treeActions(root.root);
+    // A NavigatePage carries each nav action twice: a hidden action-bar copy
+    // (server:c[0]/...) and the footer-bar copy the user clicks. Invoking the
+    // hidden copy is a silent no-op (bare InvokeCompleted), so only pick a
+    // visible one. Verified live cronus28, page 1803 (issue #41).
+    const groupVis = treeGroupVisibility(root.root);
+    const allActions = treeActions(root.root)
+      .filter(a => isEffectivelyVisible(root.root, a.controlPath, groupVis, ctx.wizardState));
     const actionNode = allActions.find(a => classifyWizardNav(a) === nav);
     if (!actionNode) {
       const available = allActions.map(a => classifyWizardNav(a)).filter(Boolean);
