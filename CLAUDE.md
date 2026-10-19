@@ -225,6 +225,13 @@ Wire format is identical: same handler types, type abbreviations (~50 aliases), 
 
 Reference: `ResponseManager.cs`, `VersionCompatibility.cs`, `BrowserLogicalChangeTypeIds.cs` compared between versions.
 
+### BC26: `/csh` is a SignalR hub (#42, verified live on Cronus26)
+BC26 maps `/csh` to the SignalR hub `ClientServiceHub` (JSON hub protocol, records end in `0x1E`). Its one client method is `InvokeRequest(JsonRpcRequest)` (OpenSession and Invoke), answered by a type-3 completion `{compressed:true, result:'<base64>'}`; the server pushes `Message(ClientMessage)` (`{compressed:true, data:'<base64>'}` or an uncompressed `data` array) and `Session("Close")`. BC26 never answers a raw JSON-RPC frame; BC28 closes the socket on a SignalR handshake. `BCWebSocket.connect` probes with the handshake once per server (cached by host + first path segment) and `routeSignalR` normalizes to the BC28 raw shapes (`compressedResult` / `compressedData`), so nothing above the socket knows the framing. The hub runs one invocation per connection (SignalR default `MaximumParallelInvocationsPerClient=1`), so on SignalR `probeIsExecuting` returns `'true'` and liveness is socket close + `BC_INVOKE_MAX_DURATION`. The client pings (`{type:6}`) every 15s; the server drops a client silent for 30s.
+
+The `csrftoken` query param is the antiforgery REQUEST token from `POST {baseUrl}/csrf?tenant=` (`{csrfToken}`), on every version. BC28 also accepted the antiforgery cookie value; BC26's `QueryBasedAntiforgeryProtectionMiddleware` answers it with 401 (+ an NTLM challenge header, which is misleading). A BC26 container is multi-tenant: a sign-in without `?tenant=` fails with `NavTenantNotFoundException`.
+
+Reference: decompiled BC26 `Prod.Client.WebCoreApp` (`ClientServiceHub.cs`, `SignalRHubMiddleware.cs`, `Startup.cs`) in `reference/bc26/webcoreapp/`. Test: `tests/unit/signalr-framing.test.ts`.
+
 ### Reactive control tree (FormState shape)
 
 `FormState.root` is the canonical tree representation of a BC form, built once

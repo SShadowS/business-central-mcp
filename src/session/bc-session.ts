@@ -362,6 +362,11 @@ export class BCSession {
 
   /** One out-of-band IsExecuting probe; any transport failure reads as 'error'. */
   private async probeIsExecuting(): Promise<ProbeAnswer> {
+    // A SignalR hub (BC26) runs one invocation per connection at a time
+    // (HubOptions.MaximumParallelInvocationsPerClient defaults to 1, BC26
+    // Startup leaves it), so a probe would queue behind the invoke it watches.
+    // There, liveness is the socket's close plus the ceiling.
+    if (this.ws.wireFraming === 'signalr') return 'true';
     const encoded = this.encoder.encode({ type: 'IsExecuting' }, this.encodeContext(uuid()));
     const r = await this.ws.sendOutOfBand(encoded.method, encoded.params, this.liveness.pollIntervalMs);
     const answer = isOk(r) ? parseIsExecutingAnswer(r.value) : 'error';
@@ -427,6 +432,9 @@ export class BCSession {
             const events = this.decoder.decode(decompResult.value as unknown[]);
             asyncEvents.push(...events);
           }
+        } else if (Array.isArray(messageData?.['data'])) {
+          // Uncompressed ClientMessage (BC26 sends small ones this way).
+          asyncEvents.push(...this.decoder.decode(messageData['data'] as unknown[]));
         }
       }
     });
