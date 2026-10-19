@@ -83,35 +83,26 @@ export class NTLMAuthProvider implements IBCAuthProvider {
         this.cookies = mergeSetCookies(this.cookies, postCookies);
       }
 
-      // Extract CSRF token from antiforgery cookie. Prefer the cookie whose
-      // NAME contains "Antiforgery" — every ASP.NET Core data-protection
-      // cookie value shares the CfDJ8 prefix (auth cookie included), so a
-      // value-prefix scan alone would let cookie ordering pick the wrong one.
-      const allCookieParts = this.cookies.split('; ');
-      for (const part of allCookieParts) {
-        const eqIdx = part.indexOf('=');
-        if (eqIdx >= 0 && part.substring(0, eqIdx).toLowerCase().includes('antiforgery')) {
-          this.csrfToken = part.substring(eqIdx + 1);
-          break;
-        }
+      // The /csh `csrftoken` is the antiforgery REQUEST token from POST /csrf,
+      // as the web client fetches it. BC28 also accepted the antiforgery cookie
+      // value; BC26 does not (401 on the upgrade, issue #42).
+      const csrfResponse = await fetch(`${this.config.baseUrl}/csrf?tenant=${encodeURIComponent(this.config.tenantId)}`, {
+        method: 'POST',
+        redirect: 'manual',
+        headers: { 'Cookie': this.cookies, 'User-Agent': 'BCMCPServer/2.0' },
+      });
+      const csrfCookies = csrfResponse.headers.getSetCookie?.() ?? [];
+      if (csrfCookies.length > 0) this.cookies = mergeSetCookies(this.cookies, csrfCookies);
+      const csrfBody = csrfResponse.ok
+        ? await csrfResponse.json().catch(() => undefined) as { csrfToken?: unknown } | undefined
+        : undefined;
+      if (typeof csrfBody?.csrfToken !== 'string' || !csrfBody.csrfToken) {
+        return err(new AuthenticationError(
+          `Sign-in succeeded but POST /csrf returned no antiforgery token (HTTP ${csrfResponse.status}).`,
+          { baseUrl: this.config.baseUrl, username: this.config.username },
+        ));
       }
-      if (!this.csrfToken) {
-        // Fallback: first cookie whose value carries the data-protection prefix
-        for (const part of allCookieParts) {
-          const eqIdx = part.indexOf('=');
-          if (eqIdx >= 0) {
-            const value = part.substring(eqIdx + 1);
-            if (value.startsWith('CfDJ8')) {
-              this.csrfToken = value;
-              break;
-            }
-          }
-        }
-      }
-
-      if (!this.csrfToken) {
-        return err(new AuthenticationError('Failed to extract CSRF token from antiforgery cookie'));
-      }
+      this.csrfToken = csrfBody.csrfToken;
 
       this.authenticated = true;
       this.logger.info(`Authenticated as ${this.config.username} to ${this.config.baseUrl}`);
