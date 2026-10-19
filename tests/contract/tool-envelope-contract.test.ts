@@ -33,6 +33,7 @@ import {
   QueryOutputSchema,
   UploadFileOutputSchema,
   GetOperationOutputSchema,
+  RunTestsOutputSchema,
 } from '../../src/mcp/schemas.js';
 
 // The body the server EMITS must validate against core ∪ BC extension codes.
@@ -170,10 +171,11 @@ describe('tool envelope contract — every tool success validates against its ou
     ['bc_query', QueryOutputSchema, { entity: 'customers', rows: [], rowCount: 0, hasMore: false }],
     ['bc_upload_file', UploadFileOutputSchema, { success: true, fileName: 'f', sizeBytes: 0, formId: 'form', dialogsOpened: [], replaySafe: false }],
     ['bc_get_operation', GetOperationOutputSchema, { entry: {} }],
+    ['bc_run_tests', RunTestsOutputSchema, { outcome: 'failed', summary: { total: 1, passed: 0, failed: 1, skipped: 0, notRun: 0, durationMs: 4 }, results: [{ codeunitId: 50491, codeunitName: 'I49 SelfStart Tests', method: 'MockStoppedAfterSelfStart', status: 'failed', durationMs: 4, output: 'Assert.IsFalse failed.', callStack: 'Library Assert(CodeUnit 130002).IsFalse line 3' }], failedTests: [{ codeunitId: 50491, method: 'MockStoppedAfterSelfStart' }], suiteName: 'MCP', testRunnerCodeunitId: 130450, replaySafe: false }],
   ];
 
-  it('covers all 16 tools', () => {
-    expect(cases).toHaveLength(16);
+  it('covers all 17 tools', () => {
+    expect(cases).toHaveLength(17);
   });
 
   it.each(cases)('%s success carries schema-valid structuredContent', async (name, schema, value) => {

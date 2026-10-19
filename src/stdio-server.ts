@@ -32,6 +32,7 @@ import { RespondDialogOperation } from './operations/respond-dialog.js';
 import { SwitchCompanyOperation } from './operations/switch-company.js';
 import { ListCompaniesOperation } from './operations/list-companies.js';
 import { RunReportOperation } from './operations/run-report.js';
+import { RunTestsOperation } from './operations/run-tests.js';
 import { WizardNavigateOperation } from './operations/wizard-navigate.js';
 import { DownloadService } from './services/download-service.js';
 import { UploadService } from './services/upload-service.js';
@@ -135,6 +136,7 @@ async function main() {
       query: queryOperation,
       uploadFile: new UploadFileOperation(uploadService),
       getOperation: new GetOperationOperation(ledger, pageService, () => s.companyName, () => s.modalStackSnapshot().length > 0),
+      runTests: new RunTestsOperation(pageService, dataService, actionService, pageContextRepo, logger),
     };
 
     return buildToolRegistry(operations);

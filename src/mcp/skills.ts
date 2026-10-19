@@ -44,7 +44,7 @@ const RECOVERY_BODY = `
 
 This server drives the BC web client. Mutating tools — \`bc_execute_action\`,
 \`bc_write_data\`, \`bc_respond_dialog\`, \`bc_wizard_navigate\`, \`bc_close_page\`,
-\`bc_switch_company\`, \`bc_run_report\`, \`bc_upload_file\` — can fail mid-flow.
+\`bc_switch_company\`, \`bc_run_report\`, \`bc_upload_file\`, \`bc_run_tests\` — can fail mid-flow.
 Follow the rules below instead of blindly retrying; a blind retry on a mutating
 call can double-post.
 

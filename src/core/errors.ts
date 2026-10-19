@@ -148,6 +148,13 @@ export class CardPartStubError extends ProtocolError {
   }
 }
 
+/** bc_run_tests: page 130455 "Command Line Test Tool" (Microsoft's Test Runner app) is not available. */
+export class TestRunnerNotInstalledError extends ProtocolError {
+  constructor(message: string) {
+    super(message, undefined, 'TEST_RUNNER_NOT_INSTALLED');
+  }
+}
+
 /**
  * Thrown when BC rejects a SaveValue due to field-level validation.
  * Maps to BC `ValidationResults` with Severity='Error' in PropertyChanged events.
@@ -289,6 +296,7 @@ const ERROR_HINTS: Record<string, string> = {
   OAUTH_NOT_CONFIGURED: 'bc_query on BC Online needs BC_CLIENT_ID set to a multi-tenant public Entra app (delegated user_impersonation). If it is set, check the server logs. UI tools do not need this.',
   DEVICE_LOGIN_REQUIRED: 'Show the user the sign-in URL and code from this message. After they complete sign-in, retry this tool — it picks up the pending sign-in automatically.',
   URL_ELICITATION_REQUIRED: 'The host must open the sign-in page. Retry the tool after completing sign-in.',
+  TEST_RUNNER_NOT_INSTALLED: 'Install Microsoft\'s Test Runner app (part of the Test Framework, e.g. BcContainerHelper -includeTestToolkit), then retry.',
 };
 
 /**

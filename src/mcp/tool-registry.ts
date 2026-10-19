@@ -15,6 +15,7 @@ import type { LookupOperation } from '../operations/lookup.js';
 import type { QueryOperation } from '../operations/query.js';
 import type { UploadFileOperation } from '../operations/upload-file.js';
 import type { GetOperationOperation } from '../operations/get-operation.js';
+import type { RunTestsOperation } from '../operations/run-tests.js';
 import { createToolDefinition as openPageTool } from '../operations/open-page.tool.js';
 import { createToolDefinition as readDataTool } from '../operations/read-data.tool.js';
 import { createToolDefinition as writeDataTool } from '../operations/write-data.tool.js';
@@ -31,6 +32,7 @@ import { createToolDefinition as lookupTool } from '../operations/lookup.tool.js
 import { createToolDefinition as queryTool } from '../operations/query.tool.js';
 import { createToolDefinition as uploadFileTool } from '../operations/upload-file.tool.js';
 import { createToolDefinition as getOperationTool } from '../operations/get-operation.tool.js';
+import { createToolDefinition as runTestsTool } from '../operations/run-tests.tool.js';
 
 export interface ToolDefinition {
   name: string;
@@ -39,7 +41,7 @@ export interface ToolDefinition {
   /**
    * JSON Schema (same representation as `inputSchema`) describing the tool's
    * success value — advertised in tools/list and matching the `structuredContent`
-   * every successful call now returns. All 16 built-in tools set it. Optional on
+   * every successful call now returns. All 17 built-in tools set it. Optional on
    * the interface so test fixtures and ad-hoc tools need not supply one.
    */
   outputSchema?: Record<string, unknown>;
@@ -85,6 +87,7 @@ export interface Operations {
   query: QueryOperation;
   uploadFile: UploadFileOperation;
   getOperation: GetOperationOperation;
+  runTests: RunTestsOperation;
 }
 
 export function buildToolRegistry(ops: Operations): ToolDefinition[] {
@@ -105,5 +108,6 @@ export function buildToolRegistry(ops: Operations): ToolDefinition[] {
     queryTool(ops),
     uploadFileTool(ops),
     getOperationTool(ops),
+    runTestsTool(ops),
   ];
 }

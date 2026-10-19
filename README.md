@@ -24,7 +24,7 @@
 | npm package | [`business-central-mcp`](https://www.npmjs.com/package/business-central-mcp) |
 | BC versions | BC27, BC28 (wire-compatible) |
 | Auth | On-prem NavUserPassword. BC Online: ESTS cookie session for `/csh` (no password in env) + device-code for `bc_query`. |
-| Tools | 16 |
+| Tools | 17 |
 | Tests | 1117 unit/protocol + 164 integration |
 | License | MIT |
 
@@ -320,14 +320,15 @@ Known wart: when the browser sign-in fails (65002, blocked consent), Entra keeps
 | `bc_query` | Bulk read-only OData queries against the BC Standard API v2.0 |
 | `bc_upload_file` | Upload a local file into a BC file-upload dialog (e.g. Import Layout) |
 | `bc_get_operation` | Look up an earlier `operationId` and, when its outcome is in doubt, read the record back |
+| `bc_run_tests` | Run AL test codeunits through the AL Test Runner (page 130455), so the Permissions Mock and test personas apply; one row per test method |
 
-Every tool carries MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`), so clients can auto-approve the read-only ones and ask before writes, actions, dialogs, reports and uploads.
+Every tool carries MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`), so clients can auto-approve the read-only ones and ask before writes, actions, dialogs, reports, uploads and test runs.
 
-The eight tools that change state accept an optional `operationId` (an idempotency key you generate). A retry with the same id and arguments returns the first call's stored result instead of running the change again, so retrying after a timeout or dropped connection cannot double-post. The same id with different arguments returns `OPERATION_ID_REUSED`. If the first call's outcome is unknown (timeout, session loss), the retry returns `OPERATION_IN_DOUBT`: check the record before acting under a new id. That response carries a `target` snapshot taken before the first call ran (company, page id and caption, section, the targeted rows' cell values, dialog), so you can find the record again even though the original `pageContextId` died with the session. Calls are recorded in `STATE_DIR/operations/`, so this survives a server restart.
+The nine tools that change state accept an optional `operationId` (an idempotency key you generate). A retry with the same id and arguments returns the first call's stored result instead of running the change again, so retrying after a timeout or dropped connection cannot double-post. The same id with different arguments returns `OPERATION_ID_REUSED`. If the first call's outcome is unknown (timeout, session loss), the retry returns `OPERATION_IN_DOUBT`: check the record before acting under a new id. That response carries a `target` snapshot taken before the first call ran (company, page id and caption, section, the targeted rows' cell values, dialog), so you can find the record again even though the original `pageContextId` died with the session. Calls are recorded in `STATE_DIR/operations/`, so this survives a server restart.
 
 Replay is time-limited. The server prunes the ledger at start and hourly: a completed entry is deleted after `BC_OPERATION_TTL` (default 24 hours), after which a retry with the same id runs the call again, so check with `bc_get_operation` before a late retry. `sent`/`unknown` entries are kept for `BC_OPERATION_INDOUBT_TTL` (default 30 days). Download bytes are not stored: a replayed result lists each download's `fileName`, `contentType`, `sizeBytes` and `savedPath` (set when `BC_DOWNLOAD_DIR` is configured), but not its `bytes`; each such entry carries `error.code: "NOT_REPLAYED"` so it is never mistaken for a successful capture.
 
-Every result from those eight tools (and its ledger entry) carries `replaySafe`. `true` means BC's response proved that re-running the same call, even under a new `operationId` after an unknown outcome, cannot apply the change twice. `false` means a re-run may double-apply, or nothing in the response proved otherwise: read the record back first. The server only says `true` when it can prove it:
+Every result from those nine tools (and its ledger entry) carries `replaySafe`. `true` means BC's response proved that re-running the same call, even under a new `operationId` after an unknown outcome, cannot apply the change twice. `false` means a re-run may double-apply, or nothing in the response proved otherwise: read the record back first. The server only says `true` when it can prove it:
 
 | Tool | `replaySafe: true` when |
 |------|-------------------------|
@@ -337,7 +338,7 @@ Every result from those eight tools (and its ledger entry) carries `replaySafe`.
 | `bc_wizard_navigate` | BC closed the wizard form (finish/cancel); next/back never |
 | `bc_close_page` | no save/discard dialog blocked the close (closing a closed form is a no-op) |
 | `bc_switch_company` | the session ends on the requested company (a switch to the current company is a no-op that keeps open pages) |
-| `bc_run_report`, `bc_upload_file` | never: a re-run reruns the report or the import |
+| `bc_run_report`, `bc_upload_file`, `bc_run_tests` | never: a re-run reruns the report, the import or the tests |
 
 An `OPERATION_IN_DOUBT` response is always `replaySafe: false`, and so is the first error response to an ambiguous failure (`TIMEOUT_ERROR`, `SESSION_LOST`, `CONNECTION_ERROR`, `PROTOCOL_ERROR`, `ABORTED_ERROR`, or an unclassified error), with or without an `operationId`: it is in `structuredContent` next to the error code. Definite failures (validation, business errors) carry no verdict, because nothing was applied.
 

@@ -131,6 +131,16 @@ export const QuerySchema = z.object({
   company: z.string().optional().describe('Override the BC company name for this query. Defaults to the server-configured company (BC_ODATA_COMPANY or first available company). Use when querying a specific company in a multi-company BC environment.'),
 });
 
+export const RunTestsSchema = z.object({
+  codeunits: z.string().min(1).optional().describe('Test codeunit ID filter in BC filter syntax: a range "50490..50494", a list "50490|50492", or one ID "50490". Provide exactly one of `codeunits` or `extensionId`.'),
+  extensionId: z.string().min(1).optional().describe('App ID (GUID) of the extension whose test codeunits to run. Provide exactly one of `codeunits` or `extensionId`.'),
+  methods: z.string().min(1).optional().describe('Optional test procedure name filter in BC filter syntax, e.g. "TestPostInvoice" or "*Persona*|NoPersona*". Only matching methods run.'),
+  suiteName: z.string().min(1).max(10).regex(/^[A-Za-z0-9_-]+$/).optional().describe('Test suite to (re)build and run. Default "MCP". Up to 10 characters. The suite\'s lines are replaced on every run; pick a different name to keep another suite (e.g. BcContainerHelper\'s "DEFAULT") untouched.'),
+  testRunnerCodeunitId: z.number().int().optional().describe('Test runner codeunit. Default 130450 ("Test Runner - Isol. Codeunit", rolls back after each codeunit). 130451 runs with isolation disabled, so test writes are committed.'),
+  requiredTestIsolation: z.number().int().min(0).optional().describe('Optional RequiredTestIsolation filter (0 None/Codeunit, 1 Disabled, 2 Function, per the CodeUnit Metadata option). Only applies together with testType.'),
+  testType: z.number().int().min(1).optional().describe('Optional TestType filter (1 UnitTest, 2 IntegrationTest, 3 Uncategorized, per the CodeUnit Metadata option).'),
+}).refine((v) => (v.codeunits ? 1 : 0) + (v.extensionId ? 1 : 0) === 1, { message: 'Provide exactly one of `codeunits` or `extensionId`.' });
+
 /**
  * Generate MCP-compatible JSON schema from a Zod schema.
  * Handles the OpenPageSchema specially since it uses .transform() which
@@ -312,4 +322,25 @@ export const GetOperationOutputSchema = z.looseObject({
   readBack: Loose.optional(),
   evidenceHash: z.string().optional(),
   readBackError: z.object({ code: z.string(), message: z.string() }).optional(),
+});
+
+const TestRow = z.object({
+  codeunitId: z.number(),
+  codeunitName: z.string(),
+  method: z.string(),
+  status: z.enum(['passed', 'failed', 'skipped', 'notRun']),
+  durationMs: z.number(),
+  output: z.string(),
+  callStack: z.string().optional(),
+});
+
+export const RunTestsOutputSchema = z.object({
+  outcome: z.enum(['passed', 'failed', 'noTests', 'aborted']),
+  summary: z.object({ total: z.number(), passed: z.number(), failed: z.number(), skipped: z.number(), notRun: z.number(), durationMs: z.number() }),
+  results: z.array(TestRow),
+  failedTests: z.array(z.object({ codeunitId: z.number(), method: z.string() })),
+  suiteName: z.string(),
+  testRunnerCodeunitId: z.number(),
+  aborted: z.object({ code: z.string(), message: z.string() }).optional(),
+  replaySafe: z.boolean(),
 });

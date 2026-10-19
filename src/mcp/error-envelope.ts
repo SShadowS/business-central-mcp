@@ -39,6 +39,7 @@ export const BC_EXTENSION_CODES = [
   'ABORTED_ERROR',
   'OPERATION_ID_REUSED',
   'OPERATION_IN_DOUBT',
+  'TEST_RUNNER_NOT_INSTALLED',
 ] as const;
 
 interface Rule {
@@ -76,6 +77,7 @@ const RULES: Record<string, Rule> = {
   ABORTED_ERROR: { code: 'ABORTED_ERROR', category: 'server', retryable: true },
   OPERATION_ID_REUSED: { code: 'OPERATION_ID_REUSED', category: 'validation', retryable: false },
   OPERATION_IN_DOUBT: { code: 'OPERATION_IN_DOUBT', category: 'state', retryable: false },
+  TEST_RUNNER_NOT_INSTALLED: { code: 'TEST_RUNNER_NOT_INSTALLED', category: 'configuration', retryable: false },
 };
 
 const FALLBACK: Rule = { code: 'INTERNAL_ERROR', category: 'internal', retryable: false };
