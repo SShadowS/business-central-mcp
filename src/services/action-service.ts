@@ -21,6 +21,14 @@ const ROW_TARGETING_ACTIONS: Set<number> = new Set([
   SystemAction.DrillDown, SystemAction.New,
 ]);
 
+/** A caption without its access-key markers ("Run N&ext Test" -> "Run Next Test"; "&&" is a literal "&"). */
+export function plainCaption(caption: string): string {
+  return caption.replace(/&(.)/g, '$1');
+}
+
+/** Caption match key: access keys stripped, case-insensitive (issue #43). */
+const actionKey = (caption: string): string => plainCaption(caption).toLowerCase();
+
 /** Map well-known action names to their system action codes. */
 const SYSTEM_ACTION_NAMES: Map<string, number> = new Map([
   ['new', SystemAction.New],
@@ -104,14 +112,14 @@ export class ActionService {
       return this.executeSystemAction(pageContextId, systemActionByName, sectionId);
     }
 
-    const lower = actionName.toLowerCase();
-    const actionNode = allActions.find(a => (a.properties.caption ?? '').toLowerCase() === lower);
+    const lower = actionKey(actionName);
+    const actionNode = allActions.find(a => actionKey(a.properties.caption ?? '') === lower);
     if (!actionNode) {
       // Provide the cross-section hint
       for (const [otherId, otherSection] of ctx.sections) {
         if (otherId === (sectionId ?? 'header')) continue;
         const otherForm = ctx.forms.get(otherSection.formId);
-        if (otherForm && treeActions(otherForm.root).some(a => (a.properties.caption ?? '').toLowerCase() === lower)) {
+        if (otherForm && treeActions(otherForm.root).some(a => actionKey(a.properties.caption ?? '') === lower)) {
           return err(new ProtocolError(
             `Action '${actionName}' not found in section '${sectionId ?? 'header'}'. It exists in section '${otherId}'. Use section: '${otherId}' to target it.`,
             { availableSections: Array.from(ctx.sections.keys()) },
@@ -122,7 +130,7 @@ export class ActionService {
       return err(new ProtocolError(`Action not found: ${actionName}`, {
         availableActions: allActions
           .filter(a => (a.properties.enabled ?? true) && isEffectivelyVisible(form.root, a.controlPath, groupVis, ctx.wizardState))
-          .map(a => a.properties.caption ?? '')
+          .map(a => plainCaption(a.properties.caption ?? ''))
           .filter(Boolean),
       }));
     }
