@@ -10,7 +10,7 @@ Publish: `curl -u <user>:<pw> -F "file=@SShadowS_Issue49 Permissions Probe_1.0.0
 
 ## Expected results with `bc_run_tests { "codeunits": "50490..50494" }`
 
-8 rows, 4 passed and 4 failed. Measured on Cronus28 (BC 28.4) and Cronus29 (BC 29.0) on 2026-10-19.
+8 rows, 4 passed and 4 failed. Measured 2026-10-19 with `bc_run_tests` 2.2.0 and BcContainerHelper on Cronus28 (BC 28.4), and with BcContainerHelper only on Cronus29 (BC 29.0). Same rows everywhere.
 
 | Codeunit | Method | AL Test Runner | TestRunnerHub (for contrast) |
 |---|---|---|---|
