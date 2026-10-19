@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-10-19
+
+### Added
+
+- **Business Central 26 on-premises (#42).** BC26 serves the client endpoint
+  `/csh` as a SignalR hub; BC28 speaks raw JSON-RPC there. The first connect to
+  a server now sends a SignalR handshake: BC26 acks it, BC28 closes the socket
+  and the connect retries raw. The answer is cached per server, so later
+  connects skip the probe. On SignalR the `IsExecuting` watchdog stands down
+  (the hub runs one call at a time, so a probe would queue behind the call it
+  watches); `BC_INVOKE_MAX_DURATION` and socket loss still end a stuck call.
+
+### Fixed
+
+- **On-prem sign-in token.** The `/csh` `csrftoken` is now the antiforgery
+  request token from `POST /csrf`, as the web client fetches it. BC28 also
+  accepted the antiforgery cookie value; BC26 answers that with 401.
+
 ## [2.0.1] - 2026-10-18
 
 ### Fixed
