@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-10-19
+
+### Added
+
+- **`bc_run_tests` (#43).** Runs AL test codeunits through Microsoft's AL Test
+  Runner (page 130455 "Command Line Test Tool", the path BcContainerHelper
+  uses), so the Permissions Mock, TestPermissions and test personas apply.
+  Select by codeunit filter or extension id, optionally narrow by method name,
+  and get one row per test method (`codeunitId`, `method`, `status`,
+  `durationMs`, `output`, `callStack`) plus a summary. The suite (default `MCP`)
+  is rebuilt on every call. A run that stops early returns `outcome: "aborted"`
+  with the codeunits that finished; a missing Test Runner app returns
+  `TEST_RUNNER_NOT_INSTALLED`.
+
+### Fixed
+
+- **`bc_execute_action` ignores access-key markers.** "Run Next Test" now finds
+  the action captioned "Run N&ext Test"; the not-found hint lists plain captions.
+
 ## [2.1.0] - 2026-10-19
 
 ### Added
