@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.1] - 2026-10-21
+
+### Fixed
+
+- **`bc_read_data` filters on list columns (#44).** A column's filter id now
+  comes from the wire `ColumnBinderPath` (`RepeaterColumnControlSerializer`).
+  `ColumnBinder.Path` is the parent cell name, not a column id, so every
+  column filter failed with "has no columnBinderPath for filtering" and a tree
+  column sent `["treenode"]` as its id. Thanks to Tim Falken for the report
+  and first fix.
+
 ## [2.2.0] - 2026-10-19
 
 ### Added
