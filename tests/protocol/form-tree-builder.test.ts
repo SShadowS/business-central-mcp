@@ -164,6 +164,18 @@ describe('buildFormTree — repeaters', () => {
     expect(rep!.columns[0]!.columnBinder?.name).toBe('no');
   });
 
+  it('falls back to the rcc ColumnBinderPath when ColumnBinder has no Path', () => {
+    const raw = { t: 'lf', ServerId: 'F1', PageType: 1, Children: [
+      { t: 'rc', Columns: [
+        { t: 'rcc', Caption: 'No.', ColumnBinder: { Name: 'no' }, ColumnBinderPath: '18_Customer.1' },
+      ], Children: [] },
+    ] };
+    const root = buildFormTree(raw);
+    if (!('children' in root)) throw new Error();
+    const rep = childrenOf(root).find(isRepeaterNode);
+    expect(rep!.columns[0]!.columnBinder?.path).toBe('18_Customer.1');
+  });
+
   it('skips placeholder columns (MappingHint=PlaceholderField)', () => {
     const raw = { t: 'lf', ServerId: 'F1', PageType: 1, Children: [
       { t: 'rc', Columns: [

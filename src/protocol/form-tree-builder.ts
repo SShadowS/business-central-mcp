@@ -174,11 +174,12 @@ function buildRepeater(obj: Record<string, unknown>, controlPath: string): Repea
       if (c.t !== 'rcc') continue;
       if (c.MappingHint === 'PlaceholderField') continue;
       const binder = c.ColumnBinder as { Name?: string; Path?: string } | undefined;
+      const path = binder?.Path ?? (c.ColumnBinderPath as string | undefined);
       columns.push({
         type: 'rcc',
         controlPath: `${controlPath}/co[${j}]`,
         properties: readProperties(c),
-        ...(binder?.Name ? { columnBinder: { name: binder.Name, ...(binder.Path ? { path: binder.Path } : {}) } } : {}),
+        ...(binder?.Name ? { columnBinder: { name: binder.Name, ...(path ? { path } : {}) } } : {}),
       });
     }
   }
