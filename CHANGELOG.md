@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Dialogs opened by `bc_execute_action` are page contexts.** Each
+  `dialogsOpened[]` entry (and `dialog`) now carries a `pageContextId`, like the
+  request page `bc_run_report` returns. Fill the dialog's input fields with
+  `bc_write_data` against that id (field lookup, editability, validation and
+  error handling are the ones every write already has), then press the button
+  with `bc_respond_dialog`, which stays a plain button press. A closed dialog
+  also leaves the `dialogs` of the page that opened it, and closing that page no
+  longer orphans the dialog's context.
+
 ## [2.2.1] - 2026-10-21
 
 ### Fixed

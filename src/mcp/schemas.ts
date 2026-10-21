@@ -36,7 +36,7 @@ export const ReadDataSchema = z.object({
 });
 
 export const WriteDataSchema = z.object({
-  pageContextId: z.string().min(1).describe('Page context ID returned by bc_open_page.'),
+  pageContextId: z.string().min(1).describe('Page context ID returned by bc_open_page. To fill a dialog or request page, use the pageContextId of its dialogsOpened entry (bc_execute_action) or requestPage (bc_run_report).'),
   fields: z.record(z.string(), z.string()).refine(f => Object.keys(f).length > 0, { message: 'fields must contain at least one field to write' }).describe('Key-value pairs of field caption names and string values to write (e.g., { "Name": "Contoso", "City": "London" }).'),
   section: z.string().optional().describe('Section to write to (e.g., "lines" for document line items). Omit for header fields.'),
   rowIndex: z.number().int().min(0).optional().describe('0-based row position in the repeater to write to. Use for line items. Prefer bookmark for stability.'),
@@ -80,11 +80,7 @@ export const NavigateSchema = z.object({
 export const RespondDialogSchema = z.object({
   pageContextId: z.string().min(1).describe('Page context ID of the page that triggered the dialog.'),
   dialogFormId: z.string().min(1).describe('Dialog form ID from the dialogsOpened array returned by bc_execute_action or bc_write_data, or requestPage.formId returned by bc_run_report.'),
-  response: z.enum(['ok', 'cancel', 'yes', 'no', 'abort', 'close', 'none']).describe('"ok" confirms, "cancel" dismisses, "yes"/"no" answers a question, "abort" force-closes, "close" closes a modal info page, "none" only sets fields and leaves the dialog open.'),
-  fields: z.array(z.object({
-    field: z.string().min(1).describe('Caption (case-insensitive) or controlPath of a field in dialogsOpened[].fields / requestPage fields.'),
-    value: z.string().describe('Value as typed in the web client (e.g. "02-11-2026", "3").'),
-  })).optional().describe('Request-page / dialog field values to set (SaveValue) before the response is sent.'),
+  response: z.enum(['ok', 'cancel', 'yes', 'no', 'abort', 'close']).describe('"ok" confirms, "cancel" dismisses, "yes"/"no" answers a question, "abort" force-closes, "close" closes a modal info page.'),
 });
 
 export const SwitchCompanySchema = z.object({
@@ -181,6 +177,7 @@ export function toMcpJsonSchema(schema: z.ZodType): Record<string, unknown> {
 // ---------------------------------------------------------------------------
 
 const Dialog = z.looseObject({ formId: z.string(), message: z.string().optional() });
+const OpenedDialog = Dialog.extend({ pageContextId: z.string() });
 const Download = z.looseObject({
   fileName: z.string(),
   contentType: z.string(),
@@ -219,11 +216,11 @@ export const WriteDataOutputSchema = z.object({
 
 export const ExecuteActionOutputSchema = z.object({
   success: z.boolean(),
-  dialog: Dialog.optional(),
+  dialog: OpenedDialog.optional(),
   updatedFields: z.array(z.object({ name: z.string(), value: z.string().optional() })).optional(),
   changedSections: z.array(z.string()),
   openedPages: z.array(OpenedPage),
-  dialogsOpened: z.array(Dialog),
+  dialogsOpened: z.array(OpenedDialog),
   requiresDialogResponse: z.boolean(),
   downloads: z.array(Download),
   externalUris: z.array(ExternalUri),
@@ -260,7 +257,6 @@ export const RespondDialogOutputSchema = z.object({
   downloads: z.array(Download),
   externalUris: z.array(ExternalUri),
   replaySafe: z.boolean(),
-  fieldResults: z.array(z.object({ field: z.string(), controlPath: z.string(), requested: z.string(), value: z.string().optional(), error: z.string().optional() })).optional(),
 });
 
 export const SwitchCompanyOutputSchema = z.object({

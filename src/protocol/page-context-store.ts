@@ -48,7 +48,11 @@ export class PageContextStore {
   removePage(pageContextId: string): void {
     const page = this.pages.get(pageContextId);
     if (page) {
-      for (const fId of page.ownedFormIds) this.formIdIndex.delete(fId);
+      // Only drop entries still pointing at this page: a dialog registered as its own
+      // page context re-indexes its formId, and closing the host must not orphan it.
+      for (const fId of page.ownedFormIds) {
+        if (this.formIdIndex.get(fId) === pageContextId) this.formIdIndex.delete(fId);
+      }
     }
     this.pages.delete(pageContextId);
   }
