@@ -80,7 +80,11 @@ export const NavigateSchema = z.object({
 export const RespondDialogSchema = z.object({
   pageContextId: z.string().min(1).describe('Page context ID of the page that triggered the dialog.'),
   dialogFormId: z.string().min(1).describe('Dialog form ID from the dialogsOpened array returned by bc_execute_action or bc_write_data, or requestPage.formId returned by bc_run_report.'),
-  response: z.enum(['ok', 'cancel', 'yes', 'no', 'abort', 'close']).describe('"ok" confirms, "cancel" dismisses, "yes"/"no" answers a question, "abort" force-closes, "close" closes a modal info page.'),
+  response: z.enum(['ok', 'cancel', 'yes', 'no', 'abort', 'close', 'none']).describe('"ok" confirms, "cancel" dismisses, "yes"/"no" answers a question, "abort" force-closes, "close" closes a modal info page, "none" only sets fields and leaves the dialog open.'),
+  fields: z.array(z.object({
+    field: z.string().min(1).describe('Caption (case-insensitive) or controlPath of a field in dialogsOpened[].fields / requestPage fields.'),
+    value: z.string().describe('Value as typed in the web client (e.g. "02-11-2026", "3").'),
+  })).optional().describe('Request-page / dialog field values to set (SaveValue) before the response is sent.'),
 });
 
 export const SwitchCompanySchema = z.object({
@@ -256,6 +260,7 @@ export const RespondDialogOutputSchema = z.object({
   downloads: z.array(Download),
   externalUris: z.array(ExternalUri),
   replaySafe: z.boolean(),
+  fieldResults: z.array(z.object({ field: z.string(), controlPath: z.string(), requested: z.string(), value: z.string().optional(), error: z.string().optional() })).optional(),
 });
 
 export const SwitchCompanyOutputSchema = z.object({

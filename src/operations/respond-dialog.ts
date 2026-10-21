@@ -7,12 +7,19 @@ import { detectChangedSections, detectDialogs } from '../protocol/mutation-resul
 import { classifyBusinessError } from '../protocol/error-classifier.js';
 import { formClosed } from '../protocol/replay-safety.js';
 import type { Download, DownloadService } from '../services/download-service.js';
+import { buildFormTree } from '../protocol/form-tree-builder.js';
+import { fields as treeFields } from '../protocol/form-views.js';
+import { fieldNodeToControlField } from '../protocol/mcp-adapters.js';
+import type { BCEvent } from '../protocol/types.js';
 
 export interface RespondDialogInput {
   pageContextId: string;
   dialogFormId: string;
-  response: 'ok' | 'cancel' | 'yes' | 'no' | 'abort' | 'close';
+  response: 'ok' | 'cancel' | 'yes' | 'no' | 'abort' | 'close' | 'none';
+  fields?: Array<{ field: string; value: string }>;
 }
+
+export interface DialogFieldResult { field: string; controlPath: string; requested: string; value?: string; error?: string }
 
 export interface RespondDialogOutput {
   success: boolean;
@@ -26,6 +33,8 @@ export interface RespondDialogOutput {
   externalUris: Array<{ uri: string; style: string }>;
   /** True when BC closed the dialog form: a re-run against that dialogFormId is rejected (FormNotFoundException). */
   replaySafe: boolean;
+  /** Per-field outcome of input.fields (value = what BC echoed back). */
+  fieldResults?: DialogFieldResult[];
 }
 
 const RESPONSE_MAP: Record<string, number> = {
@@ -46,6 +55,17 @@ export class RespondDialogOperation {
   async execute(input: RespondDialogInput): Promise<Result<RespondDialogOutput, BCError>> {
     const ctx = this.repo.get(input.pageContextId);
     if (!ctx) return err(new ProtocolError(`Page context not found: ${input.pageContextId}`));
+
+    let fieldResults: DialogFieldResult[] | undefined;
+    if (input.fields && input.fields.length > 0) {
+      const set = await this.setDialogFields(input.pageContextId, input.dialogFormId, input.fields);
+      if (!isOk(set)) return set;
+      fieldResults = set.value;
+    }
+    if (input.response === 'none') {
+      return ok({ success: !(fieldResults ?? []).some(f => f.error), changedSections: [], dialogsOpened: [], requiresDialogResponse: true,
+        openedPages: [], downloads: [], externalUris: [], replaySafe: false, fieldResults });
+    }
 
     // "close" uses CloseForm instead of InvokeAction
     if (input.response === 'close') {
@@ -73,6 +93,7 @@ export class RespondDialogOperation {
         downloads: closeCaptured.downloads,
         externalUris: closeCaptured.externalUris,
         replaySafe: formClosed(closeResult.value, input.dialogFormId),
+        fieldResults,
       });
     }
 
@@ -134,6 +155,42 @@ export class RespondDialogOperation {
       downloads: captured.downloads,
       externalUris: captured.externalUris,
       replaySafe: formClosed(events, input.dialogFormId),
+      fieldResults,
     });
+  }
+
+  private async setDialogFields(pcId: string, dialogFormId: string, wanted: Array<{ field: string; value: string }>): Promise<Result<DialogFieldResult[], BCError>> {
+    const page = this.repo.get(pcId);
+    const dlg = page?.dialogs.find(d => d.formId === dialogFormId);
+    if (!dlg?.controlTree) return err(new ProtocolError(`Dialog ${dialogFormId} not found on page context ${pcId}`));
+    const raw = dlg.controlTree as Record<string, unknown>;
+    const root = buildFormTree(raw.t === 'lf' ? raw : { ...raw, t: 'lf' });
+    const all = treeFields(root).map(f => fieldNodeToControlField(root, f));
+    const out: DialogFieldResult[] = [];
+    for (const w of wanted) {
+      const key = w.field.trim().toLowerCase();
+      const f = all.find(c => c.controlPath === w.field) ?? all.find(c => c.caption.trim().toLowerCase() === key)
+        ?? all.find(c => c.caption.trim().toLowerCase().startsWith(key));
+      if (!f) {
+        return err(new InputValidationError([{ path: 'fields', message: `Field "${w.field}" not on dialog. Available: ${all.map(c => c.caption).filter(Boolean).join(', ')}` }]));
+      }
+      const r = await this.session.invoke(
+        { type: 'SaveValue' as const, formId: dialogFormId, controlPath: f.controlPath, newValue: w.value },
+        (e) => e.type === 'InvokeCompleted',
+      );
+      if (!isOk(r)) { out.push({ field: f.caption, controlPath: f.controlPath, requested: w.value, error: r.error.message }); continue; }
+      const evs = r.value as BCEvent[];
+      const bizErr = classifyBusinessError(evs);
+      let echoed: string | undefined;
+      for (const e of evs) {
+        if (e.type === 'PropertyChanged' && e.controlPath === f.controlPath) {
+          const ch = e.changes as Record<string, unknown>;
+          if (typeof ch.StringValue === 'string') echoed = ch.StringValue;
+          else if (ch.ObjectValue !== undefined && echoed === undefined) echoed = String(ch.ObjectValue);
+        }
+      }
+      out.push({ field: f.caption, controlPath: f.controlPath, requested: w.value, ...(echoed !== undefined ? { value: echoed } : {}), ...(bizErr ? { error: bizErr.message } : {}) });
+    }
+    return ok(out);
   }
 }
