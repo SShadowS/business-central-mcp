@@ -132,8 +132,8 @@ describe('buildSection', () => {
       Children: [{
         t: 'rc',
         Columns: [
-          { t: 'rcc', Caption: 'No.', ColumnBinder: { Name: 'c1', Path: '37.1' } },
-          { t: 'rcc', Caption: 'Quantity', ColumnBinder: { Name: 'c2', Path: '37.5' } },
+          { t: 'rcc', Caption: 'No.', ColumnBinder: { Name: 'c1' }, ColumnBinderPath: '37.1' },
+          { t: 'rcc', Caption: 'Quantity', ColumnBinder: { Name: 'c2' }, ColumnBinderPath: '37.5' },
         ],
       }],
     };
@@ -179,8 +179,8 @@ describe('buildSection', () => {
       Children: [{
         t: 'rc',
         Columns: [
-          { t: 'rcc', Caption: 'No.', ColumnBinder: { Name: 'c1', Path: '37.1' } },
-          { t: 'rcc', Caption: 'Quantity', ColumnBinder: { Name: 'c2', Path: '37.5' } },
+          { t: 'rcc', Caption: 'No.', ColumnBinder: { Name: 'c1' }, ColumnBinderPath: '37.1' },
+          { t: 'rcc', Caption: 'Quantity', ColumnBinder: { Name: 'c2' }, ColumnBinderPath: '37.5' },
         ],
       }],
     };

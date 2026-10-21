@@ -164,6 +164,31 @@ describe('buildFormTree — repeaters', () => {
     expect(rep!.columns[0]!.columnBinder?.name).toBe('no');
   });
 
+  it('reads the filter column id from the rcc ColumnBinderPath', () => {
+    const raw = { t: 'lf', ServerId: 'F1', PageType: 1, Children: [
+      { t: 'rc', Columns: [
+        { t: 'rcc', Caption: 'No.', ColumnBinder: { Name: 'no' }, ColumnBinderPath: '18_Customer.1' },
+      ], Children: [] },
+    ] };
+    const root = buildFormTree(raw);
+    if (!('children' in root)) throw new Error();
+    const rep = childrenOf(root).find(isRepeaterNode);
+    expect(rep!.columns[0]!.columnBinder?.path).toBe('18_Customer.1');
+  });
+
+  it('ignores ColumnBinder.Path, which is the parent cell name (tests/recordings/page42-debug.json tree column)', () => {
+    const raw = { t: 'lf', ServerId: 'F1', PageType: 1, Children: [
+      { t: 'rc', Columns: [
+        { t: 'rcc', Caption: 'Name', ColumnBinder: { Name: '1149836241_c5', Path: ['treenode'] },
+          ColumnBinderPath: '137_Inc Doc Attachment Overview.5' },
+      ], Children: [] },
+    ] };
+    const root = buildFormTree(raw);
+    if (!('children' in root)) throw new Error();
+    const rep = childrenOf(root).find(isRepeaterNode);
+    expect(rep!.columns[0]!.columnBinder).toEqual({ name: '1149836241_c5', path: '137_Inc Doc Attachment Overview.5' });
+  });
+
   it('skips placeholder columns (MappingHint=PlaceholderField)', () => {
     const raw = { t: 'lf', ServerId: 'F1', PageType: 1, Children: [
       { t: 'rc', Columns: [

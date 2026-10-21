@@ -91,7 +91,7 @@ export type FieldType = 'sc' | 'dc' | 'bc' | 'dtc' | 'i32c' | 'sec' | 'pc' | 'ss
 export interface FieldNode extends NodeBase<FieldType> {
   /** Source table field number (wire `TableFieldNo`, decompiled `LogicalControlSerializer`); absent on unbound controls. */
   readonly tableFieldNo?: number;
-  readonly columnBinder?: { readonly name: string; readonly path?: string };
+  readonly columnBinder?: { readonly name: string };
   readonly hasLookup?: boolean;
   /** False when the field uses an AL OnLookup trigger (LookupAction.CanShowSimpleLookup=false).
    * Invoking Lookup=110 on such a field will not emit LookupFormReady. */
@@ -111,6 +111,7 @@ export interface RepeaterNode extends NodeBase<'rc'> {
 }
 
 export interface RepeaterColumnNode extends NodeBase<'rcc'> {
+  /** `path` is the filter column id (wire `ColumnBinderPath`, e.g. `18_Customer.1`). */
   readonly columnBinder?: { readonly name: string; readonly path?: string };
 }
 
@@ -164,7 +165,7 @@ export interface StackGroupNode extends NodeBase<'stackgc'> {
  * column-binder serialization.
  */
 export interface CueFieldNode extends NodeBase<'stackc'> {
-  readonly columnBinder?: { readonly name: string; readonly path?: string };
+  readonly columnBinder?: { readonly name: string };
   /** True when BC marked the cue as drill-downable (HasAction = true on the wire). */
   readonly hasAction?: boolean;
   /** Tooltip text from the AL source. */

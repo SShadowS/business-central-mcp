@@ -102,7 +102,7 @@ describe('CueFieldNode property extraction', () => {
                 ObjectValue: 5,
                 HasAction: true,
                 Synopsis: 'Test tooltip',
-                ColumnBinder: { Name: 'binder1', Path: 'tab.field' },
+                ColumnBinder: { Name: 'binder1' },
               },
             ],
           },
@@ -140,6 +140,6 @@ describe('CueFieldNode property extraction', () => {
   });
 
   it('captures columnBinder name and path', () => {
-    expect(cueFields[0]!.columnBinder).toEqual({ name: 'binder1', path: 'tab.field' });
+    expect(cueFields[0]!.columnBinder).toEqual({ name: 'binder1' });
   });
 });

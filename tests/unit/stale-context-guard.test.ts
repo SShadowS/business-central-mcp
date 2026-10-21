@@ -28,7 +28,7 @@ function makeRepo(targetGeneration: number) {
       {
         t: 'sc',
         Caption: 'Name',
-        ColumnBinder: { Name: 'c1', Path: '18.2' },
+        ColumnBinder: { Name: 'c1' },
         Editable: true,
         Visible: true,
       },
