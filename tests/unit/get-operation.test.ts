@@ -20,8 +20,8 @@ function listRepo(rows: Array<[string, string, string]>): PageContextRepository 
     controlTree: {
       t: 'lf', ServerId: 'F1', PageType: 1, Caption: 'Customers',
       Children: [{ t: 'rc', Columns: [
-        { t: 'rcc', Caption: 'No.', ColumnBinder: { Name: 'c1', Path: '18.1' } },
-        { t: 'rcc', Caption: 'Name', ColumnBinder: { Name: 'c2', Path: '18.2' } },
+        { t: 'rcc', Caption: 'No.', ColumnBinder: { Name: 'c1' }, ColumnBinderPath: '18.1' },
+        { t: 'rcc', Caption: 'Name', ColumnBinder: { Name: 'c2' }, ColumnBinderPath: '18.2' },
       ] }],
     },
   } as BCEvent]);
@@ -188,7 +188,7 @@ describe('GetOperationOperation', () => {
       repo.applyToPage(DOC, [{
         type: 'FormCreated', formId: 'L1', parentFormId: 'H1', isReload: false,
         controlTree: { t: 'lf', ServerId: 'L1', PageType: 1, Caption: 'Lines', IsSubForm: true, IsPart: true,
-          Children: [{ t: 'rc', Columns: [{ t: 'rcc', Caption: 'Quantity Shipped', ColumnBinder: { Name: 'q', Path: '37.1' } }] }] },
+          Children: [{ t: 'rc', Columns: [{ t: 'rcc', Caption: 'Quantity Shipped', ColumnBinder: { Name: 'q' }, ColumnBinderPath: '37.1' }] }] },
       } as BCEvent]);
       repo.applyToPage(DOC, [{
         type: 'DataLoaded', formId: 'L1', controlPath: 'server:c[0]', currentRowOnly: false,

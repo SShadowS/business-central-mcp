@@ -21,8 +21,8 @@ function listRepo(): PageContextRepository {
     controlTree: {
       t: 'lf', ServerId: 'F1', PageType: 1, Caption: 'Customers',
       Children: [{ t: 'rc', Columns: [
-        { t: 'rcc', Caption: 'No.', ColumnBinder: { Name: 'c1', Path: '18.1' } },
-        { t: 'rcc', Caption: 'Name', ColumnBinder: { Name: 'c2', Path: '18.2' } },
+        { t: 'rcc', Caption: 'No.', ColumnBinder: { Name: 'c1' }, ColumnBinderPath: '18.1' },
+        { t: 'rcc', Caption: 'Name', ColumnBinder: { Name: 'c2' }, ColumnBinderPath: '18.2' },
       ] }],
     },
   } as BCEvent]);

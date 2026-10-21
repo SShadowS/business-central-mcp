@@ -121,7 +121,7 @@ function buildField(obj: Record<string, unknown>, t: FieldType, controlPath: str
     const expr = obj.ExpressionProperties as Record<string, unknown>;
     if (typeof expr.Visible === 'boolean') (props as Record<string, unknown>).visible = expr.Visible;
   }
-  const binder = obj.ColumnBinder as { Name?: string; Path?: string } | undefined;
+  const binder = obj.ColumnBinder as { Name?: string } | undefined;
   const hasLookup = !!(obj.AssistEditAction || obj.LookupAction);
   const lookupAction = obj.LookupAction as { CanShowSimpleLookup?: boolean } | undefined;
   const canShowSimpleLookup = lookupAction?.CanShowSimpleLookup;
@@ -132,7 +132,7 @@ function buildField(obj: Record<string, unknown>, t: FieldType, controlPath: str
     properties: props,
     // LogicalControlSerializer writes TableFieldNo with default -1, so presence = bound control.
     ...(typeof obj.TableFieldNo === 'number' ? { tableFieldNo: obj.TableFieldNo } : {}),
-    ...(binder?.Name ? { columnBinder: { name: binder.Name, ...(binder.Path ? { path: binder.Path } : {}) } } : {}),
+    ...(binder?.Name ? { columnBinder: { name: binder.Name } } : {}),
     ...(hasLookup ? { hasLookup: true } : {}),
     ...(canShowSimpleLookup === false ? { canShowSimpleLookup: false } : {}),
   };
@@ -173,8 +173,11 @@ function buildRepeater(obj: Record<string, unknown>, controlPath: string): Repea
       const c = col as Record<string, unknown>;
       if (c.t !== 'rcc') continue;
       if (c.MappingHint === 'PlaceholderField') continue;
-      const binder = c.ColumnBinder as { Name?: string; Path?: string } | undefined;
-      const path = binder?.Path ?? (c.ColumnBinderPath as string | undefined);
+      const binder = c.ColumnBinder as { Name?: string } | undefined;
+      // The filter column id is the top-level ColumnBinderPath (RepeaterColumnControlSerializer),
+      // not ColumnBinder.Path: LogicalControlSerializer.WriteColumnBinder writes that as
+      // [parent cell name] (page 42's attachment tree column sends Path: ["treenode"]).
+      const path = typeof c.ColumnBinderPath === 'string' ? c.ColumnBinderPath : undefined;
       columns.push({
         type: 'rcc',
         controlPath: `${controlPath}/co[${j}]`,
@@ -267,14 +270,14 @@ function buildStackGroup(obj: Record<string, unknown>, controlPath: string, insi
 
 function buildCueField(obj: Record<string, unknown>, controlPath: string): CueFieldNode {
   const props = readProperties(obj);
-  const binder = obj.ColumnBinder as { Name?: string; Path?: string } | undefined;
+  const binder = obj.ColumnBinder as { Name?: string } | undefined;
   const hasAction = obj.HasAction === true;
   const synopsis = typeof obj.Synopsis === 'string' ? obj.Synopsis : undefined;
   return {
     type: 'stackc',
     controlPath,
     properties: props,
-    ...(binder?.Name ? { columnBinder: { name: binder.Name, ...(binder.Path ? { path: binder.Path } : {}) } } : {}),
+    ...(binder?.Name ? { columnBinder: { name: binder.Name } } : {}),
     ...(hasAction ? { hasAction: true as const } : {}),
     ...(synopsis ? { synopsis } : {}),
   };

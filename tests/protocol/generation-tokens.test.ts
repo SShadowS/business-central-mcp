@@ -20,7 +20,7 @@ function makeTree(formId: string, caption = 'Test') {
       {
         t: 'sc',
         Caption: 'Name',
-        ColumnBinder: { Name: 'c1', Path: '18.2' },
+        ColumnBinder: { Name: 'c1' },
         Editable: true,
         Visible: true,
       },

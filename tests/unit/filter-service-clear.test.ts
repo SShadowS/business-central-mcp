@@ -30,8 +30,8 @@ function makeListPageContext(repo: PageContextRepository, pcId: string, formId: 
       Children: [{
         t: 'rc',
         Columns: [
-          { t: 'rcc', Caption: 'No.', ColumnBinder: { Name: 'c1', Path: '18.1' } },
-          { t: 'rcc', Caption: 'Name', ColumnBinder: { Name: 'c2', Path: '18.2' } },
+          { t: 'rcc', Caption: 'No.', ColumnBinder: { Name: 'c1' }, ColumnBinderPath: '18.1' },
+          { t: 'rcc', Caption: 'Name', ColumnBinder: { Name: 'c2' }, ColumnBinderPath: '18.2' },
         ],
       }],
     },
@@ -48,7 +48,7 @@ function makeCardPageContext(repo: PageContextRepository, pcId: string, formId: 
     controlTree: {
       t: 'lf', ServerId: formId, PageType: 2, Caption: 'Customer Card',
       Children: [
-        { t: 'sc', Caption: 'Name', ColumnBinder: { Name: 'c1', Path: '18.2' }, Editable: true, Visible: true },
+        { t: 'sc', Caption: 'Name', ColumnBinder: { Name: 'c1' }, Editable: true, Visible: true },
       ],
     },
   } as BCEvent]);
