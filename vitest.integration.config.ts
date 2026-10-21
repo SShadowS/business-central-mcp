@@ -10,6 +10,7 @@ export default defineConfig({
     // later file. The 10s default is too short for that.
     hookTimeout: 120000,
     include: ['tests/integration/**/*.test.ts'],
+    globalSetup: ['tests/integration/helpers/global-setup.ts'],
     // Record-modifying cases live in `*-destructive.test.ts` (vitest.destructive.config.ts),
     // so a normal-tier run never writes an existing record.
     exclude: ['tests/integration/**/*-destructive.test.ts', 'tests/integration/saas-web-session.test.ts'],

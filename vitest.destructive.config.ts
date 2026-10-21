@@ -9,6 +9,7 @@ export default defineConfig({
     // Every test that modifies an existing BC record (or posts/deletes) lives in a
     // `*-destructive.test.ts` file. Run only with the maintainer's permission.
     include: ['tests/integration/**/*-destructive.test.ts'],
+    globalSetup: ['tests/integration/helpers/global-setup.ts'],
     // Same as the integration tier: one process, serial, shared IntegrationSessionPool.
     fileParallelism: false,
     pool: 'forks',

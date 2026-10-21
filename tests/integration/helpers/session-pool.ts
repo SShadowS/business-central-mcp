@@ -145,6 +145,31 @@ async function buildCronus28Session(user: string, profile = ''): Promise<{ sessi
   return { session, auth };
 }
 
+/**
+ * Signs every pool user in once (HTTP only, no /csh session, so no NTLM slot
+ * hold). A missing user otherwise surfaces only as timeouts in whichever files
+ * the pool hands its slot.
+ */
+export async function verifyPoolUsers(): Promise<void> {
+  const failures: string[] = [];
+  for (const user of POOL_USERS) {
+    const auth = new NTLMAuthProvider({
+      baseUrl: CRONUS28.baseUrl,
+      username: user,
+      password: CRONUS28.password,
+      tenantId: CRONUS28.tenantId,
+    }, createNullLogger());
+    const result = await auth.authenticate();
+    if (!result.ok) failures.push(`${user}: ${result.error.message}`);
+  }
+  if (failures.length > 0) {
+    throw new Error(
+      `Integration pool users cannot sign in to ${CRONUS28.baseUrl}:\n  ${failures.join('\n  ')}\n` +
+      'Start the container, then run `pwsh ./scripts/provision-test-users.ps1`.',
+    );
+  }
+}
+
 export const integrationPool = new IntegrationSessionPool({
   users: POOL_USERS,
   cooldownMs: 16000, // > BC's ~15s NTLM hold
