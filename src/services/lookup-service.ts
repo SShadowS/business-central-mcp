@@ -29,7 +29,7 @@ import type { Logger } from '../core/logger.js';
 import { SystemAction } from '../protocol/types.js';
 import type { RepeaterRow } from '../protocol/types.js';
 import { fields as treeFields, repeaters as treeRepeaters } from '../protocol/form-views.js';
-import { mapRowCellKeys } from '../protocol/row-mapping.js';
+import { mapRowCellKeys, DEFAULT_KEY_BY, type KeyBy } from '../protocol/row-mapping.js';
 import { buildFormTree } from '../protocol/form-tree-builder.js';
 import type { FormNode } from '../protocol/form-node.js';
 import { walkTree } from '../protocol/form-tree-walk.js';
@@ -59,7 +59,7 @@ export class LookupService {
   async lookup(
     pageContextId: string,
     fieldCaption: string,
-    opts?: { search?: string; maxRows?: number },
+    opts?: { search?: string; maxRows?: number; keyBy?: KeyBy },
   ): Promise<Result<LookupResult, ProtocolError>> {
     const maxRows = opts?.maxRows ?? DEFAULT_MAX_ROWS;
 
@@ -71,14 +71,18 @@ export class LookupService {
     if (!rootForm) return err(new ProtocolError(`Root form not loaded for page: ${pageContextId}`));
 
     // 2. Find the field by caption (case-insensitive)
+    // (keyBy "designName": match the AL DesignName first, then the caption)
+    const keyBy = opts?.keyBy ?? DEFAULT_KEY_BY;
     const lower = fieldCaption.toLowerCase();
-    const fieldNode = treeFields(rootForm.root).find(
+    const fieldNode = (keyBy === 'designName'
+      ? treeFields(rootForm.root).find(f => !!f.properties.designName && f.properties.designName.toLowerCase() === lower)
+      : undefined) ?? treeFields(rootForm.root).find(
       f => (f.properties.caption ?? '').toLowerCase() === lower,
     );
     if (!fieldNode) {
       const available = treeFields(rootForm.root)
         .filter(f => f.hasLookup)
-        .map(f => f.properties.caption ?? '')
+        .map(f => (keyBy === 'designName' ? f.properties.designName || f.properties.caption : f.properties.caption) ?? '')
         .filter(Boolean);
       return err(new ProtocolError(`Field not found: "${fieldCaption}"`, { lookupableFields: available }));
     }
@@ -164,7 +168,7 @@ export class LookupService {
 
     // 10. Always cancel in finally (non-mutating cleanup)
     try {
-      return await this.doLookupWork(lookupFormId, lookupPcId, lookupRoot, fieldCaption, maxRows, opts?.search);
+      return await this.doLookupWork(lookupFormId, lookupPcId, lookupRoot, fieldCaption, maxRows, opts?.search, keyBy);
     } finally {
       try {
         await this.session.invoke(
@@ -188,6 +192,7 @@ export class LookupService {
     fieldCaption: string,
     maxRows: number,
     search?: string,
+    keyBy: KeyBy = DEFAULT_KEY_BY,
   ): Promise<Result<LookupResult, ProtocolError>> {
     // Rows are already seeded from inline rc.Data.Rows.LoadedRows (see caller).
     // No LoadForm call is needed: BC returns only InvokeCompleted with no DataLoaded
@@ -219,9 +224,10 @@ export class LookupService {
       caption: c.properties.caption ?? '',
       type: 'rcc' as const,
       columnBinderName: c.columnBinder?.name,
+      ...(c.properties.designName ? { designName: c.properties.designName } : {}),
     }));
 
-    const remapped = mapRowCellKeys([...rawRows], columns);
+    const remapped = mapRowCellKeys([...rawRows], columns, keyBy);
     const capped = remapped.slice(0, maxRows);
 
     const rows: LookupRow[] = capped.map(row => ({

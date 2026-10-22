@@ -1,9 +1,9 @@
 import { err, isErr, mapResult, type Result } from '../core/result.js';
 import { ProtocolError } from '../core/errors.js';
 import type { NavigationService } from '../services/navigation-service.js';
-import { buildAllSections, buildSection, type Section } from '../protocol/section-dto.js';
+import { buildAllSections, buildSection, sectionOptionsFrom, type KeyByInput, type Section } from '../protocol/section-dto.js';
 
-export interface NavigateInput {
+export interface NavigateInput extends KeyByInput {
   pageContextId: string;
   bookmark: string;
   action?: 'drill_down' | 'select';
@@ -37,7 +37,7 @@ export class NavigateOperation {
       return mapResult(result, (r) => ({
         targetPageContextId: r.targetPageContext.pageContextId,
         pageType: r.targetPageContext.pageType,
-        sections: buildAllSections(r.targetPageContext),
+        sections: buildAllSections(r.targetPageContext, sectionOptionsFrom(input)),
         changedSections: [],
         dialogsOpened: [],
         requiresDialogResponse: false,
@@ -48,7 +48,7 @@ export class NavigateOperation {
     if (isErr(result)) return result;
     return mapResult(result, (ctx) => {
       const sectionId = input.section ?? 'header';
-      const section = buildSection(ctx, sectionId);
+      const section = buildSection(ctx, sectionId, sectionOptionsFrom(input));
       return {
         sections: section ? [section] : [],
         changedSections: [],

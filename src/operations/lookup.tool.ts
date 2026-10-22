@@ -11,7 +11,9 @@ Use bc_lookup when the field has isLookup=true in the bc_open_page or bc_read_da
 
 Do NOT use bc_lookup for option/enum fields — those already expose their fixed choices in the options array of bc_open_page and bc_read_data responses. Do NOT use for fields where isLookup is false or absent. Do NOT use for fields that carry lookupCustom=true in the bc_open_page or bc_read_data response: isLookup=true together with lookupCustom=true means the field drives a custom AL OnLookup trigger that BC does not expose as an enumerable lookup form — bc_lookup returns a clear error for these. Use the field's own UI/AssistEdit instead.
 
-Workflow: bc_open_page → inspect field isLookup=true → bc_lookup to list candidates → bc_write_data with chosen value.`,
+Workflow: bc_open_page → inspect field isLookup=true → bc_lookup to list candidates → bc_write_data with chosen value.
+
+Optional keyBy: "designName" uses stable AL DesignNames instead of captions (omit for captions).`,
     inputSchema: toMcpJsonSchema(LookupSchema),
     outputSchema: toMcpJsonSchema(LookupOutputSchema),
     zodSchema: LookupSchema,

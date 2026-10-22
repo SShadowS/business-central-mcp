@@ -5,9 +5,11 @@ import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import { detectChangedSections, detectDialogs, extractValidationErrors } from '../protocol/mutation-result.js';
 import { classifyBusinessError } from '../protocol/error-classifier.js';
 import { writeDataReplaySafe } from '../protocol/replay-safety.js';
+import type { KeyByInput } from '../protocol/section-dto.js';
+import { resolveKeyBy } from '../protocol/row-mapping.js';
 import type { ValidationResultItem } from '../protocol/types.js';
 
-export interface WriteDataInput {
+export interface WriteDataInput extends Pick<KeyByInput, 'keyBy'> {
   pageContextId: string;
   fields: Record<string, string>;
   section?: string;
@@ -60,6 +62,8 @@ export class WriteDataOperation {
       sectionId: input.section,
       rowIndex: input.rowIndex,
       bookmark: input.bookmark,
+      // keyBy "designName": field names may be AL DesignNames (fallback caption).
+      ...(resolveKeyBy(input.keyBy) === 'designName' ? { keyBy: 'designName' as const } : {}),
     });
     if (!isOk(result)) return result;
 

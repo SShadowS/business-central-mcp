@@ -12,7 +12,7 @@ import { SystemAction } from '../protocol/types.js';
 import { findByControlPath } from '../protocol/form-tree-walk.js';
 import { isFieldNode, type NodeProperties, type RepeaterNode } from '../protocol/form-node.js';
 import { fieldNodeToControlField } from '../protocol/mcp-adapters.js';
-import { mapRowCellKeys } from '../protocol/row-mapping.js';
+import { mapRowCellKeys, repeaterColumnFromNode, findColumnNode, availableColumnNames, DEFAULT_KEY_BY, type KeyBy } from '../protocol/row-mapping.js';
 import { valueEchoed } from '../protocol/replay-safety.js';
 
 export interface FieldWriteResult {
@@ -92,20 +92,14 @@ export class DataService {
     private readonly logger: Logger,
   ) {}
 
-  readRows(pageContextId: string, sectionId?: string): Result<RepeaterRow[], ProtocolError> {
+  readRows(pageContextId: string, sectionId?: string, keyBy: KeyBy = DEFAULT_KEY_BY): Result<RepeaterRow[], ProtocolError> {
     const ctx = this.repo.get(pageContextId);
     if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
     const resolved = resolveSection(ctx, sectionId);
     if ('error' in resolved) return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
     if (!resolved.repeater) return ok([]);
-    const cols = resolved.repeater.columns.map(c => ({
-      controlPath: c.controlPath,
-      caption: c.properties.caption ?? '',
-      type: 'rcc' as const,
-      columnBinderName: c.columnBinder?.name,
-      columnBinderPath: c.columnBinder?.path,
-    }));
-    return ok(mapRowCellKeys([...resolved.rows], cols));
+    const cols = resolved.repeater.columns.map(repeaterColumnFromNode);
+    return ok(mapRowCellKeys([...resolved.rows], cols, keyBy));
   }
 
   getRepeaterTotalRowCount(pageContextId: string, sectionId?: string): number | null {
@@ -160,12 +154,12 @@ export class DataService {
     return this.readRows(pageContextId, sectionId);
   }
 
-  readField(pageContextId: string, fieldName: string, sectionId?: string): Result<ControlField | undefined, ProtocolError> {
+  readField(pageContextId: string, fieldName: string, sectionId?: string, keyBy: KeyBy = DEFAULT_KEY_BY): Result<ControlField | undefined, ProtocolError> {
     const ctx = this.repo.get(pageContextId);
     if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
     const resolved = resolveSection(ctx, sectionId, 'header');
     if ('error' in resolved) return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
-    const node = findField(resolved.form.root, fieldName);
+    const node = findField(resolved.form.root, fieldName, keyBy);
     return ok(node ? fieldNodeToControlField(resolved.form.root, node) : undefined);
   }
 
@@ -181,7 +175,7 @@ export class DataService {
     pageContextId: string,
     fieldName: string,
     value: string,
-    options?: { sectionId?: string; bookmark?: string; rowIndex?: number },
+    options?: { sectionId?: string; bookmark?: string; rowIndex?: number; keyBy?: KeyBy },
   ): Promise<Result<FieldWriteResult, ProtocolError>> {
     const ctx = this.repo.get(pageContextId);
     if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
@@ -189,6 +183,7 @@ export class DataService {
     if ('error' in resolved) return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
 
     const { form } = resolved;
+    const keyBy = options?.keyBy ?? DEFAULT_KEY_BY;
 
     // Line cell write: when targeting a specific row in a repeater section
     if (resolved.repeater && (options?.bookmark !== undefined || options?.rowIndex !== undefined)) {
@@ -200,10 +195,10 @@ export class DataService {
     }
 
     // Header/card field write
-    const fieldNode = findField(form.root, fieldName);
+    const fieldNode = findField(form.root, fieldName, keyBy);
     // A repeater column is not a form field: without a row target the lookup
     // above can only miss it. Say so instead of "Field not found".
-    const isColumn = resolved.repeater?.columns.some(c => (c.properties.caption ?? '').toLowerCase() === fieldName.toLowerCase());
+    const isColumn = resolved.repeater ? findColumnNode(resolved.repeater.columns, fieldName, keyBy) !== undefined : undefined;
     if (!fieldNode && isColumn) {
       return err(new ProtocolError(
         `'${fieldName}' is a column of a list of rows: pass rowIndex or bookmark to write it.${emptyRowsHint(ctx, resolved.rows.length)}`,
@@ -212,7 +207,7 @@ export class DataService {
     if (!fieldNode) {
       return err(new ProtocolError(`Field not found: ${fieldName}`, {
         pageContextId,
-        availableFields: treeFields(form.root).map(f => f.properties.caption ?? f.controlPath).filter(Boolean),
+        availableFields: treeFields(form.root).map(f => (keyBy === 'designName' ? f.properties.designName || f.properties.caption : f.properties.caption) ?? f.controlPath).filter(Boolean),
       }));
     }
 
@@ -258,7 +253,7 @@ export class DataService {
   async writeFields(
     pageContextId: string,
     fields: Record<string, string>,
-    options?: { sectionId?: string; bookmark?: string; rowIndex?: number },
+    options?: { sectionId?: string; bookmark?: string; rowIndex?: number; keyBy?: KeyBy },
   ): Promise<Result<WriteFieldsResult, ProtocolError>> {
     const results: FieldWriteResult[] = [];
     const allEvents: BCEvent[] = [];
@@ -284,7 +279,7 @@ export class DataService {
     rows: readonly RepeaterRow[],
     fieldName: string,
     value: string,
-    options: { bookmark?: string; rowIndex?: number },
+    options: { bookmark?: string; rowIndex?: number; keyBy?: KeyBy },
   ): Promise<Result<FieldWriteResult, ProtocolError>> {
     let bookmark = options.bookmark;
     if (!bookmark && options.rowIndex !== undefined) {
@@ -298,10 +293,10 @@ export class DataService {
     }
     if (!bookmark) return err(new ProtocolError('No bookmark or rowIndex provided for line cell write'));
 
-    const col = repeater.columns.find(c => (c.properties.caption ?? '').toLowerCase() === fieldName.toLowerCase());
+    const col = findColumnNode(repeater.columns, fieldName, options.keyBy);
     if (!col) {
       return err(new ProtocolError(`Column '${fieldName}' not found in repeater.`, {
-        availableColumns: repeater.columns.map(c => c.properties.caption ?? '').filter(Boolean),
+        availableColumns: availableColumnNames(repeater.columns, options.keyBy),
       }));
     }
     const reasons = unwritableReasons(col.properties);

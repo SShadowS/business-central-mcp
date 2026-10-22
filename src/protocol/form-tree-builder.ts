@@ -182,6 +182,7 @@ function buildRepeater(obj: Record<string, unknown>, controlPath: string): Repea
         type: 'rcc',
         controlPath: `${controlPath}/co[${j}]`,
         properties: readProperties(c),
+        ...(typeof c.TableFieldNo === 'number' ? { tableFieldNo: c.TableFieldNo } : {}),
         ...(binder?.Name ? { columnBinder: { name: binder.Name, ...(path ? { path } : {}) } } : {}),
       });
     }

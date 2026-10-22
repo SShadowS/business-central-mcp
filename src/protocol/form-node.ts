@@ -113,6 +113,8 @@ export interface RepeaterNode extends NodeBase<'rc'> {
 export interface RepeaterColumnNode extends NodeBase<'rcc'> {
   /** `path` is the filter column id (wire `ColumnBinderPath`, e.g. `18_Customer.1`). */
   readonly columnBinder?: { readonly name: string; readonly path?: string };
+  /** Source table field number (wire `TableFieldNo`); absent on unbound columns. */
+  readonly tableFieldNo?: number;
 }
 
 export interface FormHostNode extends NodeBase<'fhc'> {

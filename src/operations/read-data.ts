@@ -5,6 +5,7 @@ import type { FilterService } from '../services/filter-service.js';
 import type { SortService } from '../services/sort-service.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import { buildSection, type Section } from '../protocol/section-dto.js';
+import { resolveKeyBy } from '../protocol/row-mapping.js';
 
 export interface ReadDataInput {
   pageContextId: string;
@@ -15,6 +16,13 @@ export interface ReadDataInput {
   sort?: { column: string; direction: 'asc' | 'desc' };
   columns?: string[];
   range?: { offset: number; limit: number };
+  /**
+   * Key rows/fields by 'caption' (default) or by the stable AL 'designName'.
+   * Omitted or blank = current caption behaviour.
+   */
+  keyBy?: 'caption' | 'designName' | '';
+  /** When true, list sections also return columns[] metadata. */
+  includeColumnMetadata?: boolean;
 }
 
 export interface ReadDataOutput {
@@ -38,6 +46,8 @@ export class ReadDataOperation {
 
   async execute(input: ReadDataInput): Promise<Result<ReadDataOutput, ProtocolError>> {
     const sectionId = input.section ?? 'header';
+    const keyBy = resolveKeyBy(input.keyBy);
+    const byDesign = keyBy === 'designName';
 
     // Fast-fail for unknown pageContextId before any service calls.
     if (!this.repo.get(input.pageContextId)) {
@@ -50,7 +60,7 @@ export class ReadDataOperation {
     }
 
     if (input.filters && input.filters.length > 0) {
-      const filterResult = await this.filterService.applyFilters(input.pageContextId, input.filters, input.section);
+      const filterResult = await this.filterService.applyFilters(input.pageContextId, input.filters, input.section, ...(byDesign ? [keyBy] as const : []));
       if (isErr(filterResult)) return filterResult;
     }
 
@@ -59,7 +69,7 @@ export class ReadDataOperation {
     // result, so any prior scroll offset is discarded (which is correct: the
     // caller's range is applied to the freshly sorted result set).
     if (input.sort) {
-      const sortResult = await this.sortService.applySort(input.pageContextId, input.sort.column, input.sort.direction, input.section);
+      const sortResult = await this.sortService.applySort(input.pageContextId, input.sort.column, input.sort.direction, input.section, ...(byDesign ? [keyBy] as const : []));
       if (isErr(sortResult)) return sortResult;
     }
 
@@ -90,7 +100,16 @@ export class ReadDataOperation {
     const ctx = this.repo.get(input.pageContextId);
     if (!ctx) return err(new ProtocolError(`Page context not found: ${input.pageContextId}`));
 
-    const section = buildSection(ctx, sectionId);
+    // Column metadata is always built in designName mode (needed to match
+    // `columns` by caption as well as by key) and stripped below unless requested.
+    const builtSection = buildSection(ctx, sectionId, {
+      keyBy,
+      includeColumnMetadata: input.includeColumnMetadata === true || byDesign,
+    });
+    const columnMeta = builtSection?.columns;
+    const section = builtSection && builtSection.columns && input.includeColumnMetadata !== true
+      ? (({ columns: _omit, ...rest }) => rest)(builtSection)
+      : builtSection;
     if (!section) {
       return err(new ProtocolError(`Section '${sectionId}' not found.`, {
         availableSections: Array.from(ctx.sections.keys()),
@@ -111,13 +130,21 @@ export class ReadDataOperation {
         const tabFieldCaptions = new Set(matchingTab.fields.map(f => f.caption.toLowerCase()));
         materialized = {
           ...materialized,
-          fields: materialized.fields.filter(f => tabFieldCaptions.has(f.name.toLowerCase())),
+          fields: materialized.fields.filter(f => tabFieldCaptions.has((f.caption ?? f.name).toLowerCase())),
         };
       }
     }
 
     if (input.columns && input.columns.length > 0) {
       const wanted = new Set(input.columns.map(c => c.toLowerCase()));
+      if (byDesign && columnMeta) {
+        // Also accept captions / DesignNames: translate them to the row key.
+        for (const m of columnMeta) {
+          if (wanted.has(m.caption.toLowerCase()) || (m.designName && wanted.has(m.designName.toLowerCase()))) {
+            wanted.add(m.key.toLowerCase());
+          }
+        }
+      }
       if (materialized.rows) {
         materialized = {
           ...materialized,
@@ -130,7 +157,8 @@ export class ReadDataOperation {
       if (materialized.fields) {
         materialized = {
           ...materialized,
-          fields: materialized.fields.filter(f => wanted.has(f.name.toLowerCase())),
+          fields: materialized.fields.filter(f => wanted.has(f.name.toLowerCase())
+            || (byDesign && f.caption !== undefined && wanted.has(f.caption.toLowerCase()))),
         };
       }
     }
