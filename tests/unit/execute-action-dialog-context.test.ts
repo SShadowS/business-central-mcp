@@ -8,6 +8,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { ExecuteActionOperation } from '../../src/operations/execute-action.js';
 import { WriteDataOperation } from '../../src/operations/write-data.js';
 import { RespondDialogOperation } from '../../src/operations/respond-dialog.js';
+import { ClosePageOperation } from '../../src/operations/close-page.js';
 import { DataService } from '../../src/services/data-service.js';
 import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
 import { RespondDialogSchema } from '../../src/mcp/schemas.js';
@@ -200,5 +201,86 @@ describe('bc_respond_dialog is a plain button press', () => {
     expect(repo.get('pc:host')!.dialogs).toEqual([]);
     // The host's change in the same response was routed to the host, not dropped.
     expect(JSON.stringify(repo.get('pc:host')!.forms.get('HOST')!.root)).toContain('Copied');
+    // ...and reported as a change of the host's section.
+    expect(result.value.changedSections).toEqual(['header']);
+  });
+
+  async function respondThroughDialog(events: BCEvent[], pageContextId?: string) {
+    const repo = new PageContextRepository();
+    makeHost(repo);
+    const opened = await makeActionOp(repo, [dialogOpened('DLG1', copyDialogTree)])
+      .execute({ pageContextId: 'pc:host', action: 'Copy Document' });
+    if (!opened.ok) throw new Error('action failed');
+    const dialogPcId = opened.value.dialogsOpened[0]!.pageContextId;
+    const session = { invoke: vi.fn(async () => ok(events)) } as never;
+    const downloads = { capture: vi.fn(async () => ({ downloads: [], externalUris: [] })) } as never;
+    const result = await new RespondDialogOperation(session, repo, downloads)
+      .execute({ pageContextId: pageContextId ?? dialogPcId, dialogFormId: 'DLG1', response: 'ok' });
+    if (!result.ok) throw new Error(result.error.message);
+    return { repo, dialogPcId, out: result.value };
+  }
+
+  const closeDlg1: BCEvent[] = [
+    { type: 'PropertyChanged', formId: 'DLG1', controlPath: 'server:', changes: { State: 0 } },
+    { type: 'FormClosed', formId: 'DLG1' },
+    { type: 'InvokeCompleted', sequenceNumber: 2, completedInteractions: [] },
+  ] as BCEvent[];
+
+  it('reports no changed section when only the dialog changed, not the closed dialog\'s own', async () => {
+    const { out } = await respondThroughDialog(closeDlg1);
+    expect(out.changedSections).toEqual([]);
+  });
+
+  it('does not report the opener as a newly opened page when BC reloads it', async () => {
+    const reload = {
+      type: 'FormCreated', formId: 'HOST', isReload: true,
+      controlTree: { t: 'lf', ServerId: 'HOST', PageType: 1, Children: [] },
+    } as BCEvent;
+    const { out } = await respondThroughDialog([reload, ...closeDlg1]);
+    expect(out.openedPages).toEqual([]);
+  });
+
+  it('answering through the opener\'s page context still closes the dialog everywhere', async () => {
+    const { repo, out } = await respondThroughDialog(closeDlg1, 'pc:host');
+    expect(out.replaySafe).toBe(true);
+    expect(repo.get('pc:host')!.dialogs).toEqual([]);
+  });
+});
+
+describe('the dialog page context outlives its opener and cannot be closed as a page', () => {
+  async function openDialog() {
+    const repo = new PageContextRepository();
+    makeHost(repo);
+    const opened = await makeActionOp(repo, [dialogOpened('DLG1', copyDialogTree)])
+      .execute({ pageContextId: 'pc:host', action: 'Copy Document' });
+    if (!opened.ok) throw new Error('action failed');
+    return { repo, dialogPcId: opened.value.dialogsOpened[0]!.pageContextId };
+  }
+
+  it('removing the opener keeps the dialog\'s form index', async () => {
+    const { repo, dialogPcId } = await openDialog();
+    repo.remove('pc:host');
+    expect(repo.getByFormId('DLG1')?.pageContextId).toBe(dialogPcId);
+  });
+
+  it('bc_close_page refuses a dialog context without sending CloseForm', async () => {
+    // CloseForm on a modal sets DialogResult from its exit actions when unset, which can be OK
+    // (NavFormCloseHandler.ExecuteCloseCore / FindExitActionFormResult).
+    const { repo, dialogPcId } = await openDialog();
+    const closePage = vi.fn();
+    const result = await new ClosePageOperation({ closePage } as never, repo).execute({ pageContextId: dialogPcId });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('INPUT_VALIDATION_ERROR');
+    expect(result.error.message).toContain('bc_respond_dialog');
+    expect(closePage).not.toHaveBeenCalled();
+  });
+
+  it('bc_close_page still closes the opener', async () => {
+    const { repo } = await openDialog();
+    const closePage = vi.fn(async () => ok({ events: [] }));
+    const result = await new ClosePageOperation({ closePage } as never, repo).execute({ pageContextId: 'pc:host' });
+    expect(result.ok).toBe(true);
+    expect(closePage).toHaveBeenCalledWith('pc:host');
   });
 });

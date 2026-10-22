@@ -2,6 +2,7 @@ import { ok, err, isOk, type Result } from '../core/result.js';
 import { ProtocolError, InputValidationError, type BCError } from '../core/errors.js';
 import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
+import type { PageContext } from '../protocol/page-context.js';
 import { SystemAction } from '../protocol/types.js';
 import { detectChangedSections, detectDialogs } from '../protocol/mutation-result.js';
 import { classifyBusinessError } from '../protocol/error-classifier.js';
@@ -61,7 +62,7 @@ export class RespondDialogOperation {
       const closeBizErr = classifyBusinessError(closeResult.value);
       if (closeBizErr !== null) return err(closeBizErr);
 
-      const updatedCtx = this.repo.get(input.pageContextId);
+      const updatedCtx = this.repo.get(this.reportPcId(ctx, input));
       const changedSections = updatedCtx ? detectChangedSections(updatedCtx, closeResult.value) : [];
       const newDialogs = detectDialogs(closeResult.value);
       const closeCaptured = await this.downloadService.capture(closeResult.value);
@@ -110,7 +111,8 @@ export class RespondDialogOperation {
       return err(new InputValidationError([{ path: 'response', message: `BC ignored 'abort': dialog ${input.dialogFormId} has no Abort action and is still open. Answer it with ok, cancel, yes, no or close.` }]));
     }
 
-    const updatedCtx = this.repo.get(input.pageContextId);
+    const reportPcId = this.reportPcId(ctx, input);
+    const updatedCtx = this.repo.get(reportPcId);
     const changedSections = updatedCtx ? detectChangedSections(updatedCtx, events) : [];
     const newDialogs = detectDialogs(events);
 
@@ -119,7 +121,7 @@ export class RespondDialogOperation {
     for (const event of events) {
       if (event.type === 'FormCreated' && event.formId !== ctx.rootFormId) {
         const newCtx = this.repo.getByFormId(event.formId);
-        if (newCtx && newCtx.pageContextId !== input.pageContextId) {
+        if (newCtx && newCtx.pageContextId !== input.pageContextId && newCtx.pageContextId !== reportPcId) {
           openedPages.push({ pageContextId: newCtx.pageContextId, caption: newCtx.caption });
         }
       }
@@ -146,5 +148,13 @@ export class RespondDialogOperation {
   private applyResponseEvents(rootFormId: string, input: RespondDialogInput, events: BCEvent[]): void {
     if (rootFormId === input.dialogFormId) this.repo.applyEvents(events);
     else this.repo.applyToPage(input.pageContextId, events);
+  }
+
+  /**
+   * The page to report changedSections/openedPages on. Answered through its own context,
+   * the dialog is gone afterwards: report on the page that opened it.
+   */
+  private reportPcId(ctx: PageContext, input: RespondDialogInput): string {
+    return ctx.rootFormId === input.dialogFormId && ctx.ownerPageContextId ? ctx.ownerPageContextId : input.pageContextId;
   }
 }

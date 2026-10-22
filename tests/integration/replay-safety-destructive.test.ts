@@ -49,7 +49,7 @@ describe('replaySafe verdict of a real write (DESTRUCTIVE, writes a customer)', 
     actionService = new ActionService(session, repo, logger);
     openPageOp = new OpenPageOperation(pageService);
     writeDataOp = new WriteDataOperation(dataService, repo);
-    closePageOp = new ClosePageOperation(pageService);
+    closePageOp = new ClosePageOperation(pageService, repo);
   }, 60_000);
 
   afterAll(async () => {

@@ -12,7 +12,7 @@ After responding, check the changedSections array in the result to see which pag
 
 Do NOT call this without a preceding dialog -- there is no dialog to respond to unless dialogsOpened was returned by bc_execute_action / bc_write_data, or a requestPage was returned by bc_run_report. Do NOT guess the dialogFormId -- always use the exact value from the dialogsOpened array (or requestPage.formId).
 
-This tool only presses a button; it never sets values. To fill a dialog's input fields (e.g. a request page or a dialog with entry fields), call bc_write_data with the pageContextId from the dialogsOpened entry (bc_execute_action) or requestPage (bc_run_report) -- that is the dialog's own page context -- and then call this tool to press OK. If a write fails, fix it or cancel the dialog; do not press "ok" over a failed field.
+This tool only presses a button; it never sets values. To fill a dialog's input fields (e.g. a request page or a dialog with entry fields), call bc_write_data with the pageContextId from the dialogsOpened entry (bc_execute_action) or requestPage (bc_run_report) -- that is the dialog's own page context -- and then call this tool to press OK. If a write fails, fix it or cancel the dialog; do not press "ok" over a failed field. Pass either that dialog pageContextId or the opening page's; changedSections and openedPages always describe the opening page.
 
 Example: { "pageContextId": "abc", "dialogFormId": "dialog-123", "response": "yes" }
 

@@ -56,7 +56,7 @@ export class PageContextRepository {
   create(
     pageContextId: string,
     rootFormId: string,
-    options?: { isModal?: boolean; wizardState?: PageContext['wizardState'] },
+    options?: { isModal?: boolean; wizardState?: PageContext['wizardState']; ownerPageContextId?: string },
   ): PageContext {
     const rootForm = this.reducer.createInitial(rootFormId);
     const headerSection = this.sectionResolver.createHeaderSection(rootFormId);
@@ -72,6 +72,7 @@ export class PageContextRepository {
       ownedFormIds: [rootFormId],
       isModal: options?.isModal ?? false,
       wizardState: options?.wizardState ?? null,
+      ...(options?.ownerPageContextId ? { ownerPageContextId: options.ownerPageContextId } : {}),
       generation: 0,
     };
 

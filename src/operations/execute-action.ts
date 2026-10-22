@@ -215,7 +215,7 @@ export class ExecuteActionOperation {
 
     const ctx = this.repo.get(pageContextId);
     const changedSections = ctx ? detectChangedSections(ctx, ar.events) : [];
-    const dialogsOpened = this.registerDialogs(detectDialogs(ar.events), ar.events);
+    const dialogsOpened = this.registerDialogs(pageContextId, detectDialogs(ar.events), ar.events);
 
     // Detect opened pages from FormCreated events (excluding the source page's forms)
     const openedPages: Array<{ pageContextId: string; caption: string }> = [];
@@ -249,12 +249,13 @@ export class ExecuteActionOperation {
    * its context: a sibling dialog or a host-form event in the same batch must not leak in.
    */
   private registerDialogs(
+    ownerPageContextId: string,
     detected: ReturnType<typeof detectDialogs>,
     events: BCEvent[],
   ): OpenedDialog[] {
     return detected.map(d => {
       const pageContextId = `session:page:dialog:${uuid().substring(0, 8)}`;
-      this.repo.create(pageContextId, d.formId, { isModal: true });
+      this.repo.create(pageContextId, d.formId, { isModal: true, ownerPageContextId });
       this.repo.applyToPage(pageContextId, events.flatMap(e => this.eventForDialog(e, d.formId)));
       return { pageContextId, ...d };
     });

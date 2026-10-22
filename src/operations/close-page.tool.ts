@@ -8,6 +8,8 @@ export function createToolDefinition(ops: Operations): ToolDefinition {
 
 After closing, the pageContextId becomes invalid -- any subsequent bc_read_data, bc_write_data, bc_execute_action, or bc_navigate calls using it will fail. It is safe to call this even if prior operations on the page encountered errors. If you opened a drill-down page via bc_navigate (which returns a new pageContextId), close both the drill-down page and the original list page when done.
 
+Do NOT call this on a dialog's pageContextId (from dialogsOpened): answer the dialog with bc_respond_dialog instead, e.g. "cancel" to dismiss it. Closing a modal can accept it, so this tool refuses.
+
 Do NOT call this in the middle of a multi-step workflow -- finish all reads, writes, and actions on the page first. Do NOT call this to "reset" a page; use bc_read_data to refresh data instead.`,
     inputSchema: toMcpJsonSchema(ClosePageSchema),
     outputSchema: toMcpJsonSchema(ClosePageOutputSchema),
