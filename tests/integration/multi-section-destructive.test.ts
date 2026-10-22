@@ -6,6 +6,7 @@ import { PageService } from '../../src/services/page-service.js';
 import { DataService } from '../../src/services/data-service.js';
 import { ActionService } from '../../src/services/action-service.js';
 import { isOk, unwrap } from '../../src/core/result.js';
+import { SystemAction } from '../../src/protocol/types.js';
 import { RespondDialogOperation } from '../../src/operations/respond-dialog.js';
 import { repeaters as treeRepeaters } from '../../src/protocol/form-views.js';
 import { bookmarkTableId } from '../../src/protocol/form-state.js';
@@ -22,6 +23,26 @@ import { restoreField } from './helpers/restore.js';
  * Read-only multi-section coverage lives in drilldown-lines.test.ts and
  * advanced-workflows A1 / document-and-bc28 D2.
  */
+
+/**
+ * page 42 opens in view mode, where BC ignores every SaveValue and bc_write_data
+ * refuses it. Writes run on their own context of the same order, in Edit, so the
+ * shared view-mode context keeps the New/Delete cases away from the real lines.
+ */
+async function openOrderInEdit(pageService: PageService, actionService: ActionService, bookmark: string | undefined): Promise<string> {
+  expect(bookmark).toBeTruthy();
+  const opened = unwrap(await pageService.openPage('42', { bookmark }));
+  unwrap(await actionService.executeSystemAction(opened.pageContextId, SystemAction.Edit));
+  return opened.pageContextId;
+}
+
+const rootBookmarkOf = (repo: PageContextRepository, pcId: string): string | undefined => {
+  const page = repo.get(pcId)!;
+  return page.forms.get(page.rootFormId)!.root.properties.bookmark;
+};
+
+/** Edit appends empty DraftRecord rows: never write one, a validated draft row inserts a line. */
+const realLines = <T extends { bookmark: string }>(rows: readonly T[]): T[] => rows.filter(r => !r.bookmark.startsWith('DraftRecord'));
 
 describe.sequential('Multi-Section: Sales Order (page 42)', () => {
   let lease: PooledLease;
@@ -154,53 +175,55 @@ describe.sequential('Multi-Section: Sales Order (page 42)', () => {
   it('writes to a line cell (Line Discount %)', async () => {
     if (!ctx) { console.error('Skipping: no page context'); return; }
 
-    const linesSectionId = Array.from(ctx.sections.entries())
-      .find(([, s]) => s.kind === 'lines')?.[0];
-    if (!linesSectionId) { console.error('Skipping: no lines section'); return; }
-
-    // Read current rows to get a bookmark
-    const rowsResult = dataService.readRows(pageContextId, linesSectionId);
-    expect(isOk(rowsResult)).toBe(true);
-    if (!isOk(rowsResult) || rowsResult.value.length === 0) {
-      console.error('Skipping: no line rows');
-      return;
-    }
-
-    const firstRow = rowsResult.value[0]!;
-    const originalDiscount = firstRow.cells['Line Discount %'];
-    console.error(`Line Discount % before write: ${originalDiscount}`);
-
-    // Write Line Discount % = 5 using rowIndex
-    const writeResult = await dataService.writeField(
-      pageContextId, 'Line Discount %', '5',
-      { sectionId: linesSectionId, rowIndex: 0 },
-    );
-    const restoreValue = String(originalDiscount ?? '0');
+    const editPc = await openOrderInEdit(pageService, actionService, rootBookmarkOf(repo, pageContextId));
     try {
-      console.error('Write result:', isOk(writeResult) ? writeResult.value : writeResult.error);
-      expect(isOk(writeResult)).toBe(true);
-
-      // The write succeeded -- verify the FieldWriteResult
-      if (isOk(writeResult)) {
-        expect(writeResult.value.success).toBe(true);
-        expect(writeResult.value.fieldName).toBe('Line Discount %');
+      const rowsResult = dataService.readRows(editPc, 'lines');
+      expect(isOk(rowsResult)).toBe(true);
+      const realRows = isOk(rowsResult) ? realLines(rowsResult.value) : [];
+      if (realRows.length === 0) {
+        console.error('Skipping: no line rows');
+        return;
       }
-    } finally {
-      await restoreField(dataService, pageContextId, 'Line Discount %', restoreValue, { sectionId: linesSectionId, rowIndex: 0 });
-      console.error(`Line Discount % restored to: ${restoreValue}`);
-    }
 
-    // Moving the lines subpage's current row emits the PART's Bookmark on the
-    // host's server: path without ServerFormHandle; it must not become the
-    // header's record bookmark (bc_get_operation re-opens page 42 on it).
-    const last = rowsResult.value.length - 1;
-    if (last > 0) {
-      const moved = await dataService.writeField(pageContextId, 'Line Discount %', String(rowsResult.value[last]!.cells['Line Discount %'] ?? '0'),
-        { sectionId: linesSectionId, rowIndex: last });
-      expect(isOk(moved)).toBe(true);
+      const firstRow = realRows[0]!;
+      const originalDiscount = firstRow.cells['Line Discount %'];
+      console.error(`Line Discount % before write: ${originalDiscount}`);
+
+      const writeResult = await dataService.writeField(
+        editPc, 'Line Discount %', '5',
+        { sectionId: 'lines', bookmark: firstRow.bookmark },
+      );
+      const restoreValue = String(originalDiscount ?? '0');
+      try {
+        console.error('Write result:', isOk(writeResult) ? writeResult.value : writeResult.error);
+        expect(isOk(writeResult)).toBe(true);
+
+        // The write succeeded -- verify the FieldWriteResult
+        if (isOk(writeResult)) {
+          expect(writeResult.value.success).toBe(true);
+          expect(writeResult.value.fieldName).toBe('Line Discount %');
+          // success alone also covers a write BC ignored; the echo proves it landed.
+          expect(writeResult.value.echoed).toBe(true);
+        }
+      } finally {
+        await restoreField(dataService, editPc, 'Line Discount %', restoreValue, { sectionId: 'lines', bookmark: firstRow.bookmark });
+        console.error(`Line Discount % restored to: ${restoreValue}`);
+      }
+
+      // Moving the lines subpage's current row emits the PART's Bookmark on the
+      // host's server: path without ServerFormHandle; it must not become the
+      // header's record bookmark (bc_get_operation re-opens page 42 on it).
+      const lastRow = realRows[realRows.length - 1]!;
+      if (lastRow !== firstRow) {
+        const moved = await dataService.writeField(editPc, 'Line Discount %', String(lastRow.cells['Line Discount %'] ?? '0'),
+          { sectionId: 'lines', bookmark: lastRow.bookmark });
+        expect(isOk(moved)).toBe(true);
+      }
+      const rootBookmark = rootBookmarkOf(repo, editPc);
+      if (rootBookmark) expect(bookmarkTableId(rootBookmark)).toBe(36);
+    } finally {
+      await pageService.closePage(editPc, { discardChanges: true });
     }
-    const rootBookmark = repo.get(pageContextId)!.forms.get(repo.get(pageContextId)!.rootFormId)!.root.properties.bookmark;
-    if (rootBookmark) expect(bookmarkTableId(rootBookmark)).toBe(36);
   });
 
   it('drills down from a line cell (No. field)', async () => {
@@ -313,20 +336,26 @@ describe.sequential('Multi-Section: Sales Order (page 42)', () => {
     if (!ctx) { console.error('Skipping: no page context'); return; }
 
     // Write a header field; restore the ORIGINAL value (the old restore blanked it).
-    const original = unwrap(dataService.readField(pageContextId, 'External Document No.'))?.stringValue ?? '';
-    const probe = original === 'GATE4-TEST' ? 'GATE4-TEST2' : 'GATE4-TEST';
-    const writeResult = await dataService.writeField(pageContextId, 'External Document No.', probe);
+    const editPc = await openOrderInEdit(pageService, actionService, rootBookmarkOf(repo, pageContextId));
     try {
-      console.error('Header write result:', isOk(writeResult) ? writeResult.value : writeResult.error);
-      expect(isOk(writeResult)).toBe(true);
+      const original = unwrap(dataService.readField(editPc, 'External Document No.'))?.stringValue ?? '';
+      const probe = original === 'GATE4-TEST' ? 'GATE4-TEST2' : 'GATE4-TEST';
+      const writeResult = await dataService.writeField(editPc, 'External Document No.', probe);
+      try {
+        console.error('Header write result:', isOk(writeResult) ? writeResult.value : writeResult.error);
+        expect(isOk(writeResult)).toBe(true);
 
-      if (isOk(writeResult)) {
-        expect(writeResult.value.success).toBe(true);
-        expect(writeResult.value.fieldName).toBe('External Document No.');
+        if (isOk(writeResult)) {
+          expect(writeResult.value.success).toBe(true);
+          expect(writeResult.value.fieldName).toBe('External Document No.');
+          expect(writeResult.value.echoed).toBe(true);
+        }
+      } finally {
+        await restoreField(dataService, editPc, 'External Document No.', original);
+        console.error(`Restored External Document No. to "${original}"`);
       }
     } finally {
-      await restoreField(dataService, pageContextId, 'External Document No.', original);
-      console.error(`Restored External Document No. to "${original}"`);
+      await pageService.closePage(editPc, { discardChanges: true });
     }
   });
 
@@ -360,6 +389,7 @@ describe.sequential('Multi-Section: Sales Order on BC28', () => {
   let session: BCSession;
   let pageService: PageService;
   let dataService: DataService;
+  let actionService: ActionService;
   let pageContextId: string;
   const logger = createNullLogger();
 
@@ -370,6 +400,7 @@ describe.sequential('Multi-Section: Sales Order on BC28', () => {
     const repo = new PageContextRepository();
     pageService = new PageService(session, repo, logger);
     dataService = new DataService(session, repo, logger);
+    actionService = new ActionService(session, repo, logger);
   });
 
   afterAll(async () => {
@@ -426,21 +457,26 @@ describe.sequential('Multi-Section: Sales Order on BC28', () => {
       .find(([, s]) => s.kind === 'lines')?.[0];
     if (!linesSectionId) { console.error('BC28 - No lines section'); return; }
 
+    // This describe only writes, so its own page goes to Edit (see openOrderInEdit).
+    unwrap(await actionService.executeSystemAction(pageContextId, SystemAction.Edit));
     const rowsResult = dataService.readRows(pageContextId, linesSectionId);
-    if (!isOk(rowsResult) || rowsResult.value.length === 0) { console.error('BC28 - No rows'); return; }
+    const realRows = isOk(rowsResult) ? realLines(rowsResult.value) : [];
+    if (realRows.length === 0) { console.error('BC28 - No rows'); return; }
+    const bookmark = realRows[0]!.bookmark;
 
     // Restore the ORIGINAL discount (the old restore wrote '0' regardless).
-    const original = String(rowsResult.value[0]!.cells['Line Discount %'] ?? '0');
+    const original = String(realRows[0]!.cells['Line Discount %'] ?? '0');
     const probe = original === '3' ? '4' : '3';
     const writeResult = await dataService.writeField(
       pageContextId, 'Line Discount %', probe,
-      { sectionId: linesSectionId, rowIndex: 0 },
+      { sectionId: linesSectionId, bookmark },
     );
     try {
       console.error('BC28 - Line write result:', isOk(writeResult) ? 'SUCCESS' : writeResult.error.message);
       expect(isOk(writeResult)).toBe(true);
+      if (isOk(writeResult)) expect(writeResult.value.echoed).toBe(true);
     } finally {
-      await restoreField(dataService, pageContextId, 'Line Discount %', original, { sectionId: linesSectionId, rowIndex: 0 });
+      await restoreField(dataService, pageContextId, 'Line Discount %', original, { sectionId: linesSectionId, bookmark });
       console.error(`BC28 - Restored to ${original}`);
     }
   });

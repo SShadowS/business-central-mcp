@@ -28,7 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   them on the host page's form, naming the subpage only in the change's
   `ControlReference`, so they were applied to the header form and lost: after
   Edit on a Sales Order the line columns still read as not editable. They are
-  now applied to the subpage (or factbox) form they belong to.
+  now applied to the subpage (or factbox) form they belong to, including the
+  ones in the response that opens the page (a Sales Order opened without a
+  bookmark enables "Line Discount %" there).
 
 ### Added
 
