@@ -1,6 +1,7 @@
-import { mapResult, type Result } from '../core/result.js';
-import type { ProtocolError } from '../core/errors.js';
+import { err, mapResult, type Result } from '../core/result.js';
+import { InputValidationError, type BCError } from '../core/errors.js';
 import type { PageService } from '../services/page-service.js';
+import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import { detectDialogs } from '../protocol/mutation-result.js';
 
 export interface ClosePageInput {
@@ -20,9 +21,23 @@ export interface ClosePageOutput {
 }
 
 export class ClosePageOperation {
-  constructor(private readonly pageService: PageService) {}
+  constructor(
+    private readonly pageService: PageService,
+    private readonly repo: PageContextRepository,
+  ) {}
 
-  async execute(input: ClosePageInput): Promise<Result<ClosePageOutput, ProtocolError>> {
+  async execute(input: ClosePageInput): Promise<Result<ClosePageOutput, BCError>> {
+    // A dialog bc_execute_action opened is answered, not closed: CloseForm on a modal sets an
+    // unset DialogResult from its exit actions, which can be OK (decompiled
+    // NavFormCloseHandler.ExecuteCloseCore / FindExitActionFormResult).
+    const ctx = this.repo.get(input.pageContextId);
+    if (ctx?.ownerPageContextId) {
+      return err(new InputValidationError([{
+        path: 'pageContextId',
+        message: `${input.pageContextId} is a dialog, not a page: answer it with bc_respond_dialog (dialogFormId ${ctx.rootFormId}, e.g. response "cancel").`,
+      }]));
+    }
+
     const result = await this.pageService.closePage(input.pageContextId);
     return mapResult(result, (r) => {
       const dialogsOpened = detectDialogs(r.events);

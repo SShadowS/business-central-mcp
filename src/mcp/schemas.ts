@@ -36,7 +36,7 @@ export const ReadDataSchema = z.object({
 });
 
 export const WriteDataSchema = z.object({
-  pageContextId: z.string().min(1).describe('Page context ID returned by bc_open_page.'),
+  pageContextId: z.string().min(1).describe('Page context ID returned by bc_open_page. To fill a dialog or request page, use the pageContextId of its dialogsOpened entry (bc_execute_action) or requestPage (bc_run_report).'),
   fields: z.record(z.string(), z.string()).refine(f => Object.keys(f).length > 0, { message: 'fields must contain at least one field to write' }).describe('Key-value pairs of field caption names and string values to write (e.g., { "Name": "Contoso", "City": "London" }).'),
   section: z.string().optional().describe('Section to write to (e.g., "lines" for document line items). Omit for header fields.'),
   rowIndex: z.number().int().min(0).optional().describe('0-based row position in the repeater to write to. Use for line items. Prefer bookmark for stability.'),
@@ -177,6 +177,7 @@ export function toMcpJsonSchema(schema: z.ZodType): Record<string, unknown> {
 // ---------------------------------------------------------------------------
 
 const Dialog = z.looseObject({ formId: z.string(), message: z.string().optional() });
+const OpenedDialog = Dialog.extend({ pageContextId: z.string() });
 const Download = z.looseObject({
   fileName: z.string(),
   contentType: z.string(),
@@ -215,11 +216,11 @@ export const WriteDataOutputSchema = z.object({
 
 export const ExecuteActionOutputSchema = z.object({
   success: z.boolean(),
-  dialog: Dialog.optional(),
+  dialog: OpenedDialog.optional(),
   updatedFields: z.array(z.object({ name: z.string(), value: z.string().optional() })).optional(),
   changedSections: z.array(z.string()),
   openedPages: z.array(OpenedPage),
-  dialogsOpened: z.array(Dialog),
+  dialogsOpened: z.array(OpenedDialog),
   requiresDialogResponse: z.boolean(),
   downloads: z.array(Download),
   externalUris: z.array(ExternalUri),

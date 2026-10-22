@@ -124,7 +124,7 @@ async function main() {
       readData: new ReadDataOperation(dataService, filterService, sortService, pageContextRepo),
       writeData: new WriteDataOperation(dataService, pageContextRepo),
       executeAction: new ExecuteActionOperation(actionService, pageContextRepo, navigationService, downloadService, config.bc.maxSelection),
-      closePage: new ClosePageOperation(pageService),
+      closePage: new ClosePageOperation(pageService, pageContextRepo),
       searchPages: new SearchPagesOperation(searchService),
       navigate: new NavigateOperation(navigationService),
       respondDialog: new RespondDialogOperation(s, pageContextRepo, downloadService),

@@ -56,7 +56,7 @@ export class PageContextRepository {
   create(
     pageContextId: string,
     rootFormId: string,
-    options?: { isModal?: boolean; wizardState?: PageContext['wizardState'] },
+    options?: { isModal?: boolean; wizardState?: PageContext['wizardState']; ownerPageContextId?: string },
   ): PageContext {
     const rootForm = this.reducer.createInitial(rootFormId);
     const headerSection = this.sectionResolver.createHeaderSection(rootFormId);
@@ -72,6 +72,7 @@ export class PageContextRepository {
       ownedFormIds: [rootFormId],
       isModal: options?.isModal ?? false,
       wizardState: options?.wizardState ?? null,
+      ...(options?.ownerPageContextId ? { ownerPageContextId: options.ownerPageContextId } : {}),
       generation: 0,
     };
 
@@ -171,6 +172,7 @@ export class PageContextRepository {
 
       case 'FormClosed': {
         const changed = this.markFormClosed(decision.pcId, decision.formId);
+        this.dropClosedDialogFromOwners(decision.pcId, decision.formId);
         return changed ? decision.pcId : undefined;
       }
 
@@ -389,6 +391,25 @@ export class PageContextRepository {
 
     this.store.set(pcId, { ...page, sections, forms, dialogs, ownedFormIds });
     return true;
+  }
+
+  /**
+   * A dialog registered as its own page context re-indexes its formId, so its
+   * FormClosed routes there and never reaches the page that opened it. Drop the
+   * closed dialog from that opener's `dialogs` (and owned forms) as well, or
+   * lookups such as the upload dialog search would keep finding a closed form.
+   */
+  private dropClosedDialogFromOwners(closedPcId: string, formId: string): void {
+    for (const pcId of this.store.listPageContextIds()) {
+      if (pcId === closedPcId) continue;
+      const page = this.store.get(pcId);
+      if (!page || !page.dialogs.some(d => d.formId === formId)) continue;
+      this.store.set(pcId, {
+        ...page,
+        dialogs: page.dialogs.filter(d => d.formId !== formId),
+        ownedFormIds: page.ownedFormIds.filter(id => id !== formId),
+      });
+    }
   }
 
   private addDialog(pcId: string, event: BCEvent & { type: 'DialogOpened' }): void {

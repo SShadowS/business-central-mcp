@@ -1,10 +1,11 @@
+import { v4 as uuid } from 'uuid';
 import { err, ok, isOk, isErr, type Result } from '../core/result.js';
 import { ProtocolError, StaleContextError, InvalidBookmarkError, type BCError } from '../core/errors.js';
 import { classifyBusinessError } from '../protocol/error-classifier.js';
 import type { ActionService, ActionResult } from '../services/action-service.js';
 import type { NavigationService } from '../services/navigation-service.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
-import type { ControlField } from '../protocol/types.js';
+import type { BCEvent, ControlField } from '../protocol/types.js';
 import type { Download, DownloadService } from '../services/download-service.js';
 import { resolveSection } from '../protocol/section-resolver.js';
 import { detectChangedSections, detectDialogs } from '../protocol/mutation-result.js';
@@ -38,13 +39,24 @@ export interface ExecuteActionInput {
   expectedStateVersion?: number;
 }
 
+/**
+ * A dialog the action opened. `pageContextId` addresses it as a page context of its own:
+ * fill its fields with bc_write_data against it, then answer it with bc_respond_dialog.
+ */
+export interface OpenedDialog {
+  pageContextId: string;
+  formId: string;
+  message?: string;
+  fields?: ControlField[];
+}
+
 export interface ExecuteActionOutput {
   success: boolean;
-  dialog?: { formId: string; message?: string; fields?: ControlField[] };
+  dialog?: OpenedDialog;
   updatedFields?: Array<{ name: string; value?: string }>;
   changedSections: string[];
   openedPages: Array<{ pageContextId: string; caption: string }>;
-  dialogsOpened: Array<{ formId: string; message?: string; fields?: ControlField[] }>;
+  dialogsOpened: OpenedDialog[];
   requiresDialogResponse: boolean;
   /** Captured file downloads produced by this action (e.g. Open in Excel); empty when none. */
   downloads: Download[];
@@ -203,7 +215,7 @@ export class ExecuteActionOperation {
 
     const ctx = this.repo.get(pageContextId);
     const changedSections = ctx ? detectChangedSections(ctx, ar.events) : [];
-    const dialogsOpened = detectDialogs(ar.events);
+    const dialogsOpened = this.registerDialogs(pageContextId, detectDialogs(ar.events), ar.events);
 
     // Detect opened pages from FormCreated events (excluding the source page's forms)
     const openedPages: Array<{ pageContextId: string; caption: string }> = [];
@@ -219,11 +231,7 @@ export class ExecuteActionOperation {
 
     return {
       success: ar.success,
-      dialog: ar.dialog ? {
-        formId: ar.dialog.formId,
-        message: dialogsOpened.find(d => d.formId === ar.dialog!.formId)?.message,
-        fields: dialogsOpened.find(d => d.formId === ar.dialog!.formId)?.fields,
-      } : undefined,
+      dialog: ar.dialog ? dialogsOpened.find(d => d.formId === ar.dialog!.formId) : undefined,
       updatedFields,
       changedSections,
       openedPages,
@@ -231,5 +239,36 @@ export class ExecuteActionOperation {
       requiresDialogResponse: dialogsOpened.length > 0,
       replaySafe: actionReplaySafe(ar),
     };
+  }
+
+  /**
+   * Register every dialog the action opened as a page context of its own, the way
+   * bc_run_report registers its request page, so bc_write_data can fill the dialog's
+   * fields (it resolves the field, checks the write and classifies BC's answer) and
+   * bc_respond_dialog can press its button. Only the dialog's own events are applied to
+   * its context: a sibling dialog or a host-form event in the same batch must not leak in.
+   */
+  private registerDialogs(
+    ownerPageContextId: string,
+    detected: ReturnType<typeof detectDialogs>,
+    events: BCEvent[],
+  ): OpenedDialog[] {
+    return detected.map(d => {
+      const pageContextId = `session:page:dialog:${uuid().substring(0, 8)}`;
+      this.repo.create(pageContextId, d.formId, { isModal: true, ownerPageContextId });
+      this.repo.applyToPage(pageContextId, events.flatMap(e => this.eventForDialog(e, d.formId)));
+      return { pageContextId, ...d };
+    });
+  }
+
+  private eventForDialog(event: BCEvent, formId: string): BCEvent[] {
+    if (!('formId' in event) || event.formId !== formId) return [];
+    if (event.type !== 'DialogOpened') return [event];
+    // Same normalisation as detectDialogs: a dialog tree can arrive without the `lf` tag.
+    const raw = event.controlTree as Record<string, unknown> | undefined;
+    if (raw && raw.t !== 'lf' && typeof raw.Children !== 'undefined') {
+      return [{ ...event, controlTree: { ...raw, t: 'lf' } }];
+    }
+    return [event];
   }
 }

@@ -169,7 +169,7 @@ describe('ClosePageOperation: page context always removed on close error', () =>
     expect(repo.get(pcId)).toBeTruthy();
 
     // closePage will call session.invoke which throws
-    const op = new ClosePageOperation(pageService);
+    const op = new ClosePageOperation(pageService, repo);
     // The operation will propagate the error (thrown, not Result.err) -- that's OK;
     // what matters is the repo is cleaned up in the finally block.
     await expect(op.execute({ pageContextId: pcId })).rejects.toThrow('WS broken');

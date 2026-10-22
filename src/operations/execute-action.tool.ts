@@ -12,7 +12,7 @@ For a named action: validates the action is enabled, sends the InvokeAction RPC,
 
 Use exactly one of "action" or "cue" -- passing both is an error.
 
-If the action triggers a confirmation dialog or modal page, the response includes a dialogsOpened array with the dialog's formId and details. When requiresDialogResponse is true, you must follow up with bc_respond_dialog to confirm or cancel.
+If the action triggers a confirmation dialog or modal page, the response includes a dialogsOpened array with the dialog's formId and details. When requiresDialogResponse is true, you must follow up with bc_respond_dialog to confirm or cancel. Each dialogsOpened entry carries its own pageContextId: when the dialog has input fields (listed in its fields array), fill them with bc_write_data against that pageContextId before pressing OK with bc_respond_dialog.
 
 Row-scoped actions (Delete, Edit on a list row) require targeting a specific row. Use rowIndex (0-based) or bookmark to specify which row the action applies to. For Document pages, use section to disambiguate between header and line actions (e.g., "Delete" on header deletes the whole document, "Delete" on "lines" deletes one line).
 

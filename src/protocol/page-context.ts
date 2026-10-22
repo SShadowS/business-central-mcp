@@ -32,6 +32,11 @@ export interface PageContext {
    */
   readonly isModal: boolean;
   /**
+   * Set on a dialog bc_execute_action registered as its own context: the page that
+   * opened it. bc_respond_dialog reports on that page; bc_close_page refuses the dialog.
+   */
+  readonly ownerPageContextId?: string;
+  /**
    * Set on NavigatePage / wizard pages where the parser found ≥2 top-level gcs
    * with `ExpressionProperties.Visible`. ActionService.executeWizardNav advances
    * `currentStepIndex` after each successful Next/Back; the repo mirrors the
