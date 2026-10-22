@@ -9,7 +9,7 @@ import { fields as treeFields, tabs as treeTabs, actions as treeActions, findFie
 import type { PageContext } from '../protocol/page-context.js';
 import { SystemAction } from '../protocol/types.js';
 import { findByControlPath } from '../protocol/form-tree-walk.js';
-import { isFieldNode, type RepeaterNode } from '../protocol/form-node.js';
+import { isFieldNode, type NodeProperties, type RepeaterNode } from '../protocol/form-node.js';
 import { fieldNodeToControlField } from '../protocol/mcp-adapters.js';
 import { mapRowCellKeys } from '../protocol/row-mapping.js';
 import { valueEchoed } from '../protocol/replay-safety.js';
@@ -22,6 +22,8 @@ export interface FieldWriteResult {
   /** BC echoed the stored value (PropertyChanged on the written control): the write provably landed. */
   echoed?: boolean;
   error?: string;
+  /** Set when BC sent no echo for the written control: the write is not confirmed (success only means BC raised no error). */
+  warning?: string;
   events?: BCEvent[];
 }
 
@@ -42,6 +44,34 @@ function emptyRowsHint(ctx: PageContext, rowCount: number): string {
   return canEdit
     ? " The page is in view mode: run bc_execute_action 'Edit' first, then bc_read_data on this section to get the empty draft rows to write into."
     : ' Run bc_read_data on this section to load its rows.';
+}
+
+/**
+ * Why a control cannot take a SaveValue, from its own published state. BC
+ * serialises Visible / Enabled / Editable only when they are false (default
+ * true), so only an explicit false counts. A SaveValue on such a control is a
+ * silent no-op: `SaveValueInteraction.InvokeCore` returns early when the control
+ * is not editable, with no echo and no error. Group-level state is not consulted
+ * (shortcut: a field inside a hidden or disabled group is still sent, and the
+ * missing echo is reported as a warning).
+ */
+function unwritableReasons(props: NodeProperties): string[] {
+  const reasons: string[] = [];
+  if (props.visible === false) reasons.push('hidden (Visible=false, the page does not show it)');
+  if (props.enabled === false) reasons.push('disabled (Enabled=false)');
+  if (props.editable === false) reasons.push('not editable (Editable=false)');
+  return reasons;
+}
+
+function notWritableError(kind: 'Field' | 'Column', name: string, reasons: string[], context: Record<string, unknown>): ProtocolError {
+  return new ProtocolError(
+    `${kind} '${name}' is ${reasons.join(' and ')}, so it cannot be written. BC ignores a write to such a control without an error; nothing was sent.`,
+    { ...context, reasons },
+  );
+}
+
+function unconfirmedWarning(name: string): string {
+  return `BC did not echo a stored value for '${name}', so the write is not confirmed. BC echoes only a value that changed, so this is also what rewriting the current value looks like; read the field back to verify.`;
 }
 
 export class DataService {
@@ -175,6 +205,9 @@ export class DataService {
       }));
     }
 
+    const reasons = unwritableReasons(fieldNode.properties);
+    if (reasons.length > 0) return err(notWritableError('Field', fieldName, reasons, { pageContextId, controlPath: fieldNode.controlPath }));
+
     const interaction: SaveValueInteraction = {
       type: 'SaveValue',
       formId: form.formId,
@@ -198,12 +231,14 @@ export class DataService {
     const updatedNode = updatedForm ? findByControlPath(updatedForm.root, fieldNode.controlPath) : undefined;
     const newValue = updatedNode && isFieldNode(updatedNode) ? (updatedNode.properties.stringValue ?? value) : value;
 
+    const echoed = valueEchoed(events, [form.formId, ctx.rootFormId], fieldNode.controlPath);
     return ok({
       fieldName,
       controlPath: fieldNode.controlPath,
       success: true,
       newValue,
-      echoed: valueEchoed(events, [form.formId, ctx.rootFormId], fieldNode.controlPath),
+      echoed,
+      ...(echoed ? {} : { warning: unconfirmedWarning(fieldName) }),
       events,
     });
   }
@@ -248,6 +283,15 @@ export class DataService {
     }
     if (!bookmark) return err(new ProtocolError('No bookmark or rowIndex provided for line cell write'));
 
+    const col = repeater.columns.find(c => (c.properties.caption ?? '').toLowerCase() === fieldName.toLowerCase());
+    if (!col) {
+      return err(new ProtocolError(`Column '${fieldName}' not found in repeater.`, {
+        availableColumns: repeater.columns.map(c => c.properties.caption ?? '').filter(Boolean),
+      }));
+    }
+    const reasons = unwritableReasons(col.properties);
+    if (reasons.length > 0) return err(notWritableError('Column', fieldName, reasons, { pageContextId, controlPath: col.controlPath }));
+
     // Step 1: select the row
     const selectInteraction: SetCurrentRowInteraction = {
       type: 'SetCurrentRow', formId, controlPath: repeater.controlPath, key: bookmark,
@@ -259,13 +303,7 @@ export class DataService {
     if (isErr(selectResult)) return selectResult;
     this.repo.applyToPage(pageContextId, selectResult.value);
 
-    // Step 2: find column by caption
-    const col = repeater.columns.find(c => (c.properties.caption ?? '').toLowerCase() === fieldName.toLowerCase());
-    if (!col) {
-      return err(new ProtocolError(`Column '${fieldName}' not found in repeater.`, {
-        availableColumns: repeater.columns.map(c => c.properties.caption ?? '').filter(Boolean),
-      }));
-    }
+    // Step 2: address the column's cell in the current row
     const match = col.controlPath.match(/co\[(\d+)\]/);
     if (!match) return err(new ProtocolError(`Cannot determine column index from ${col.controlPath}`));
     const colIndex = parseInt(match[1]!, 10);
@@ -287,7 +325,8 @@ export class DataService {
     const updatedNode = updatedForm ? findByControlPath(updatedForm.root, cellPath) : undefined;
     const newValue = updatedNode && isFieldNode(updatedNode) ? (updatedNode.properties.stringValue ?? value) : value;
 
-    return ok({ fieldName, controlPath: cellPath, success: true, newValue, echoed: valueEchoed(saveResult.value, [formId, updatedCtx?.rootFormId ?? formId], cellPath), events: allEvents });
+    const echoed = valueEchoed(saveResult.value, [formId, updatedCtx?.rootFormId ?? formId], cellPath);
+    return ok({ fieldName, controlPath: cellPath, success: true, newValue, echoed, ...(echoed ? {} : { warning: unconfirmedWarning(fieldName) }), events: allEvents });
   }
 }
 

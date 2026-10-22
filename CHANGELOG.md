@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`bc_write_data` no longer reports success for a write BC ignores.** BC
+  silently drops a `SaveValue` on a control that is not visible, enabled or
+  editable (`SaveValueInteraction.InvokeCore` returns early: no echo, no error),
+  so such a write used to come back as `success: true`. Before sending, the field
+  (or list column) is checked against its published `Visible` / `Enabled` /
+  `Editable` state; one BC marked false fails with an error that names the
+  reason (a hidden list column says it is hidden) and nothing is sent for it.
+  The other fields in the call are still written. BC publishes these properties
+  only when false, so a control that does not carry them is written as before,
+  including request-page and dialog fields. A write BC accepts but does not echo
+  now carries `echoed: false` and a `warning` that it is not confirmed (BC echoes
+  only a changed value, so rewriting the current value looks the same). Point 2
+  of the review of #45.
+
 ### Added
 
 - **Dialogs opened by `bc_execute_action` are page contexts.** Each
