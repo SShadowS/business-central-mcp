@@ -7,30 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- **`bc_write_data` no longer reports success for a write BC ignores.** BC
-  silently drops a `SaveValue` on a control that is not visible, enabled or
-  editable (`SaveValueInteraction.InvokeCore` returns early: no echo, no error),
-  so such a write used to come back as `success: true`. Before sending, the field
-  (or list column) is checked against its published `Visible` / `Enabled` /
-  `Editable` state; one BC marked false fails with an error that names the
-  reason (a hidden list column says it is hidden) and nothing is sent for it.
-  The other fields in the call are still written. BC publishes these properties
-  only when false, so a control that does not carry them is written as before,
-  including request-page and dialog fields. A line cell BC marked not editable or
-  disabled on that row fails the same way. A field of the active wizard step is
-  still written: BC leaves those controls published as hidden. A write BC accepts but does not echo
-  now carries `echoed: false` and a `warning` that it is not confirmed (BC echoes
-  only a changed value, so rewriting the current value looks the same). Point 2
-  of the review of #45.
-- **Property changes on a document's lines subpage reach the lines.** BC reports
-  them on the host page's form, naming the subpage only in the change's
-  `ControlReference`, so they were applied to the header form and lost: after
-  Edit on a Sales Order the line columns still read as not editable. They are
-  now applied to the subpage (or factbox) form they belong to, including the
-  ones in the response that opens the page (a Sales Order opened without a
-  bookmark enables "Line Discount %" there).
+## [2.3.0] - 2026-10-22
 
 ### Added
 
@@ -47,6 +24,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`bc_write_data` no longer reports success for a write BC ignores.** BC
+  silently drops a `SaveValue` on a control that is not visible, enabled or
+  editable (`SaveValueInteraction.InvokeCore` returns early: no echo, no error),
+  so such a write used to come back as `success: true`. Before sending, the field
+  (or list column) is checked against its published `Visible` / `Enabled` /
+  `Editable` state; one BC marked false fails with an error that names the
+  reason (a hidden list column says it is hidden) and nothing is sent for it.
+  The other fields in the call are still written. BC publishes these properties
+  only when false, so a control that does not carry them is written as before,
+  including request-page and dialog fields. A line cell BC marked not editable or
+  disabled on that row fails the same way. A field of the active wizard step is
+  still written: BC leaves those controls published as hidden. A write BC
+  accepts but does not echo now carries `echoed: false` and a `warning` that it
+  is not confirmed (BC echoes
+  only a changed value, so rewriting the current value looks the same). Point 2
+  of the review of #45.
+- **Property changes on a document's lines subpage reach the lines.** BC reports
+  them on the host page's form, naming the subpage only in the change's
+  `ControlReference`, so they were applied to the header form and lost: after
+  Edit on a Sales Order the line columns still read as not editable. They are
+  now applied to the subpage (or factbox) form they belong to, including the
+  ones in the response that opens the page (a Sales Order opened without a
+  bookmark enables "Line Discount %" there).
 - **`bc_write_data` no longer reports a write that may have landed as a definite
   failure.** A timeout or lost socket during one field's SaveValue (or
   SetCurrentRow for a line cell) was folded into that field's result, and the
