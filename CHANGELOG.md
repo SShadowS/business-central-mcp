@@ -20,6 +20,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   accept it. A closed dialog also leaves the `dialogs` of the page that opened
   it, and closing that page no longer orphans the dialog's context.
 
+### Fixed
+
+- **`bc_write_data` no longer reports a write that may have landed as a definite
+  failure.** A timeout or lost socket during one field's SaveValue (or
+  SetCurrentRow for a line cell) was folded into that field's result, and the
+  call still returned ok. The replay ledger then recorded it as `completed`,
+  and the remaining fields were sent to a dead session. Now the call fails with
+  that error and sends nothing more, so an `operationId` lands as `unknown` and
+  `bc_get_operation` can read it back. A local failure such as "Field not found"
+  is still reported per field.
+
 ## [2.2.1] - 2026-10-21
 
 ### Fixed

@@ -31,6 +31,14 @@ export interface WriteFieldsResult {
 }
 
 /**
+ * An invoke failed during a write. BCSession reports a timeout or a lost socket as
+ * ProtocolError too, so the value may have reached BC (unlike a local "Field not found").
+ */
+class WriteInvokeError extends ProtocolError {}
+
+const invokeFailed = (e: ProtocolError) => err(new WriteInvokeError(e.message, e.context, e.code));
+
+/**
  * A document in view mode loads no empty rows; after Edit (SystemAction 40)
  * BC adds DraftRecord rows to write new lines into (live cronus28, Sales
  * Quote 41: 0 drafts in view mode, 15 after Edit). Issue #41.
@@ -189,7 +197,7 @@ export class DataService {
       (event) => event.type === 'InvokeCompleted' || event.type === 'PropertyChanged',
     );
 
-    if (isErr(result)) return result;
+    if (isErr(result)) return invokeFailed(result.error);
     const events = result.value;
     this.repo.applyToPage(pageContextId, events);
 
@@ -218,6 +226,9 @@ export class DataService {
     for (const [name, value] of Object.entries(fields)) {
       const result = await this.writeField(pageContextId, name, value, options);
       if (isErr(result)) {
+        // The value may have reached BC: fail the call (the replay ledger records it as
+        // unknown) instead of a definite per-field failure, and send nothing more.
+        if (result.error instanceof WriteInvokeError) return result;
         results.push({ fieldName: name, controlPath: '', success: false, error: result.error.message });
       } else {
         results.push(result.value);
@@ -256,7 +267,7 @@ export class DataService {
       selectInteraction,
       (event) => event.type === 'InvokeCompleted' || event.type === 'BookmarkChanged',
     );
-    if (isErr(selectResult)) return selectResult;
+    if (isErr(selectResult)) return invokeFailed(selectResult.error);
     this.repo.applyToPage(pageContextId, selectResult.value);
 
     // Step 2: find column by caption
@@ -278,7 +289,7 @@ export class DataService {
       saveInteraction,
       (event) => event.type === 'InvokeCompleted' || event.type === 'PropertyChanged',
     );
-    if (isErr(saveResult)) return saveResult;
+    if (isErr(saveResult)) return invokeFailed(saveResult.error);
     const allEvents = [...selectResult.value, ...saveResult.value];
     this.repo.applyToPage(pageContextId, saveResult.value);
 
