@@ -224,4 +224,76 @@ describe('DataService line cell writes', () => {
     if (!res.ok) expect(res.error.message).toContain("Column 'Nope' not found");
     expect(invoke).not.toHaveBeenCalled();
   });
+
+  it('a cell BC marked not editable on this row fails; another row of the same column writes', async () => {
+    const repo = lines();
+    repo.applyToPage('pc:lines', [{
+      type: 'DataLoaded', formId: 'F1', controlPath: 'server:c[0]', currentRowOnly: false,
+      rows: [
+        { DataRowInserted: [0, { bookmark: 'B1', cells: { bin: { stringValue: 'A', editable: false } } }] },
+        { DataRowInserted: [1, { bookmark: 'B2', cells: { bin: { stringValue: 'B' } } }] },
+      ],
+    } as BCEvent]);
+    const { data, invoke } = service(repo);
+    const locked = await data.writeField('pc:lines', 'Bin Code', 'X', { bookmark: 'B1' });
+    expect(locked.ok).toBe(false);
+    if (!locked.ok) expect(locked.error.message).toContain('not editable (Editable=false) on this row');
+    expect(invoke).not.toHaveBeenCalled();
+    expect((await data.writeField('pc:lines', 'Bin Code', 'X', { rowIndex: 1 })).ok).toBe(true);
+  });
+});
+
+describe('document lines subpage after Edit', () => {
+  // Live cronus28, Sales Order 42: the lines columns open as Editable=false (view
+  // mode); Edit flips them with PropertyChanged on the HOST formId whose
+  // refFormId names the lines form, at the lines-form-relative column path.
+  const doc = () => {
+    const repo = open('pc:so', 'R', { Children: [{ t: 'sc', Caption: 'No.' }] });
+    repo.applyToPage('pc:so', [{
+      type: 'FormCreated', formId: 'L', parentFormId: 'R',
+      controlTree: {
+        t: 'lf', ServerId: 'L', PageType: 0, Caption: 'Lines',
+        Children: [{ t: 'rc', Columns: [{ t: 'rcc', Caption: 'Quantity', Editable: false, ColumnBinder: { Name: 'qty' } }] }],
+      },
+    } as BCEvent]);
+    return repo;
+  };
+
+  it('refuses a line write in view mode, then writes once the host-routed Editable flip arrives', async () => {
+    const repo = doc();
+    const { data, invoke } = service(repo);
+    const before = await data.writeField('pc:so', 'Quantity', '2', { sectionId: 'lines', bookmark: 'B1' });
+    expect(before.ok).toBe(false);
+    if (!before.ok) expect(before.error.message).toContain('not editable');
+
+    repo.applyToPage('pc:so', [{
+      type: 'PropertyChanged', formId: 'R', refFormId: 'L', controlPath: 'server:c[0]/co[0]', changes: { Editable: true },
+    } as BCEvent]);
+    const after = await data.writeField('pc:so', 'Quantity', '2', { sectionId: 'lines', bookmark: 'B1' });
+    expect(after.ok).toBe(true);
+    expect(invoke.mock.calls.map(c => c[0].type)).toEqual(['SetCurrentRow', 'SaveValue']);
+    expect(invoke.mock.calls[0]![0]).toMatchObject({ formId: 'L' });
+  });
+});
+
+describe('wizard step fields', () => {
+  // BC publishes an inactive step's controls as Visible=false and does not
+  // re-publish them when our step machine activates the step (Continia 6175295).
+  it('writes a field of the active step despite its stale Visible=false', async () => {
+    const repo = new PageContextRepository();
+    repo.create('pc:wiz', 'W', { isModal: true, wizardState: { stepPaths: ['server:c[0]', 'server:c[1]'], currentStepIndex: 1 } });
+    repo.applyToPage('pc:wiz', [{
+      type: 'FormCreated', formId: 'W', isReload: false,
+      controlTree: {
+        t: 'lf', ServerId: 'W', PageType: 1,
+        Children: [
+          { t: 'gc', DesignName: 'Step1', Children: [{ t: 'sc', Caption: 'Intro' }] },
+          { t: 'gc', DesignName: 'Step2', Visible: false, Children: [{ t: 'sc', Caption: 'Company Name', Visible: false }] },
+        ],
+      },
+    } as BCEvent]);
+    const { data, invoke } = service(repo);
+    expect((await data.writeField('pc:wiz', 'Company Name', 'Acme')).ok).toBe(true);
+    expect(invoke).toHaveBeenCalledOnce();
+  });
 });

@@ -18,10 +18,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reason (a hidden list column says it is hidden) and nothing is sent for it.
   The other fields in the call are still written. BC publishes these properties
   only when false, so a control that does not carry them is written as before,
-  including request-page and dialog fields. A write BC accepts but does not echo
+  including request-page and dialog fields. A line cell BC marked not editable or
+  disabled on that row fails the same way. A field of the active wizard step is
+  still written: BC leaves those controls published as hidden. A write BC accepts but does not echo
   now carries `echoed: false` and a `warning` that it is not confirmed (BC echoes
   only a changed value, so rewriting the current value looks the same). Point 2
   of the review of #45.
+- **Property changes on a document's lines subpage reach the lines.** BC reports
+  them on the host page's form, naming the subpage only in the change's
+  `ControlReference`, so they were applied to the header form and lost: after
+  Edit on a Sales Order the line columns still read as not editable. They are
+  now applied to the subpage (or factbox) form they belong to.
 
 ### Added
 

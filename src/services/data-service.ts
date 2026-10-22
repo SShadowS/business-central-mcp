@@ -5,7 +5,8 @@ import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { BCEvent, RepeaterRow, ControlField, TabGroup, SaveValueInteraction, SetCurrentRowInteraction, ScrollRepeaterInteraction } from '../protocol/types.js';
 import type { Logger } from '../core/logger.js';
 import { resolveSection } from '../protocol/section-resolver.js';
-import { fields as treeFields, tabs as treeTabs, actions as treeActions, findField } from '../protocol/form-views.js';
+import { fields as treeFields, tabs as treeTabs, actions as treeActions, groupVisibility as treeGroupVisibility, findField } from '../protocol/form-views.js';
+import { isEffectivelyVisible } from '../protocol/visibility.js';
 import type { PageContext } from '../protocol/page-context.js';
 import { SystemAction } from '../protocol/types.js';
 import { findByControlPath } from '../protocol/form-tree-walk.js';
@@ -58,14 +59,16 @@ function emptyRowsHint(ctx: PageContext, rowCount: number): string {
  * Why a control cannot take a SaveValue, from its own published state. BC
  * serialises Visible / Enabled / Editable only when they are false (default
  * true), so only an explicit false counts. A SaveValue on such a control is a
- * silent no-op: `SaveValueInteraction.InvokeCore` returns early when the control
- * is not editable, with no echo and no error. Group-level state is not consulted
- * (shortcut: a field inside a hidden or disabled group is still sent, and the
- * missing echo is reported as a warning).
+ * silent no-op: `SaveValueInteraction.InvokeCore` returns early unless the
+ * control is Editable, Enabled and Visible, with no echo and no error. The
+ * published values are the effective ones (`LogicalControl` computes each from
+ * the control, its column, its row and its parents), so a field in a hidden or
+ * read-only group carries the false itself. `visible` overrides the node's own
+ * flag: inside an active wizard step BC leaves a stale Visible=false.
  */
-function unwritableReasons(props: NodeProperties): string[] {
+function unwritableReasons(props: NodeProperties, visible = props.visible !== false): string[] {
   const reasons: string[] = [];
-  if (props.visible === false) reasons.push('hidden (Visible=false, the page does not show it)');
+  if (!visible) reasons.push('hidden (Visible=false, the page does not show it)');
   if (props.enabled === false) reasons.push('disabled (Enabled=false)');
   if (props.editable === false) reasons.push('not editable (Editable=false)');
   return reasons;
@@ -213,7 +216,8 @@ export class DataService {
       }));
     }
 
-    const reasons = unwritableReasons(fieldNode.properties);
+    const visible = isEffectivelyVisible(form.root, fieldNode.controlPath, treeGroupVisibility(form.root), ctx.wizardState);
+    const reasons = unwritableReasons(fieldNode.properties, visible);
     if (reasons.length > 0) return err(notWritableError('Field', fieldName, reasons, { pageContextId, controlPath: fieldNode.controlPath }));
 
     const interaction: SaveValueInteraction = {
@@ -302,6 +306,15 @@ export class DataService {
     }
     const reasons = unwritableReasons(col.properties);
     if (reasons.length > 0) return err(notWritableError('Column', fieldName, reasons, { pageContextId, controlPath: col.controlPath }));
+    // A row's cells carry their own editable/enabled (DataLoaded, written only when
+    // false: LogicalControlSerializer.WriteDataValues), e.g. one locked line.
+    const cell = rows.find(r => r.bookmark === bookmark)?.cells[col.columnBinder?.name ?? ''] as { editable?: unknown; enabled?: unknown } | undefined;
+    const cellReasons = cell && typeof cell === 'object'
+      ? unwritableReasons({ editable: cell.editable === false ? false : undefined, enabled: cell.enabled === false ? false : undefined })
+      : [];
+    if (cellReasons.length > 0) {
+      return err(notWritableError('Column', fieldName, cellReasons.map(r => `${r} on this row`), { pageContextId, controlPath: col.controlPath, bookmark }));
+    }
 
     // Step 1: select the row
     const selectInteraction: SetCurrentRowInteraction = {
