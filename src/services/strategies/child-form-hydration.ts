@@ -73,6 +73,16 @@ export class ChildFormHydrationStrategy {
       }
     }
 
+    // A hosted part's control changes ride on the host's formId with refFormId = the
+    // part (PageEventRouter), but an embedded part's form is registered only above,
+    // after the caller applied the open events, so the open response's changes for it
+    // were dropped. Replay them. Live cronus28: page 42 opened without a bookmark builds
+    // the lines subpage before a record is current, then sends "Line Discount %"
+    // `co[33] {Enabled:true}` (refFormId = lines) in the same OpenForm response.
+    const childIds = new Set(childFormIds);
+    const partChanges = openEvents.filter(e => e.type === 'PropertyChanged' && e.refFormId !== undefined && childIds.has(e.refFormId));
+    if (partChanges.length > 0) this.repo.applyToPage(pageContextId, partChanges);
+
     // Load data for all child forms (only lines subpage and key parts, skip most factboxes)
     const updatedCtx = this.repo.get(pageContextId);
     if (!updatedCtx) return;

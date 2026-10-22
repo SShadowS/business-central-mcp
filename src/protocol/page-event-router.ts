@@ -205,6 +205,16 @@ export class PageEventRouter {
       ? (event as { controlPath: string }).controlPath
       : undefined;
 
+    // A hosted part's (lines subpage, factbox) controls report on the host's
+    // formId; ControlReference.formId (`refFormId`) names the part, and the path
+    // is relative to the part's form. Live cronus28: Edit on Sales Order 42 sends
+    // formId=root refFormId=lines `server:c[1]/co[N] {Editable:true}`. `server:`
+    // is the part's form-level state, which isHostedPartChange keeps off the host.
+    if (event.type === 'PropertyChanged' && event.refFormId && event.refFormId !== formId
+        && controlPath !== 'server:' && page.forms.has(event.refFormId)) {
+      return { kind: 'ApplyToForm', pcId, formId: event.refFormId };
+    }
+
     let childRepeaterFormId: string | undefined;
     let factboxFormId: string | undefined;
 
