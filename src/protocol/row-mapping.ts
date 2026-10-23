@@ -19,8 +19,7 @@ import type { RepeaterColumnNode } from './form-node.js';
 export type KeyBy = 'caption' | 'designName';
 
 /**
- * Default keying when the caller does not pass `keyBy` (or passes a blank value).
- * Change this to 'designName' to make DesignName keying the default everywhere.
+ * Default keying when the caller does not pass `keyBy`.
  */
 export const DEFAULT_KEY_BY: KeyBy = 'caption';
 
@@ -60,7 +59,9 @@ export function buildBinderToCaptionMap(
 ): Map<string, string> {
   const map = new Map<string, string>();
   const usedKeys = new Set<string>();
-  for (const col of columns) {
+  // DesignName-backed keys pick first, so a caption fallback never pushes a real DesignName to "#n".
+  const ordered = keyBy === 'designName' ? [...columns.filter(c => c.designName), ...columns.filter(c => !c.designName)] : columns;
+  for (const col of ordered) {
     if (!col.columnBinderName) continue;
     let key = baseKey(col, keyBy);
     // Disambiguate duplicate keys with an ordinal suffix, skipping any

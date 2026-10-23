@@ -22,8 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `bc_write_data` (field / line-cell names matched by DesignName first, then
   caption), `bc_lookup` (`field` and candidate value keys),
   `bc_execute_action` (`updatedFields[].name`) and `bc_get_operation`
-  (read-back; defaults to the recorded call's `keyBy`). Omitted or blank keeps
-  the caption behaviour.
+  (read-back; defaults to the recorded call's `keyBy`). Omitted keeps
+  the caption behaviour. Wizard step fields (`bc_wizard_navigate`),
+  `bc_respond_dialog`, the `bc_run_report` request page and
+  `bc_execute_action`'s `dialogsOpened[].fields` stay caption-keyed; writes to
+  them still match by caption.
 
 ## [2.3.0] - 2026-10-22
 

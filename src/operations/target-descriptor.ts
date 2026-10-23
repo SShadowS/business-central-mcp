@@ -2,7 +2,7 @@ import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { FilterNode, FormNode, LogicalFormNode } from '../protocol/form-node.js';
 import { walkTree } from '../protocol/form-tree-walk.js';
 import { primaryKeyFields } from '../protocol/form-views.js';
-import { buildSection } from '../protocol/section-dto.js';
+import { buildSection, sectionOptionsFrom } from '../protocol/section-dto.js';
 import { resolveSection } from '../protocol/section-resolver.js';
 import { decodeBookmark } from '../protocol/record-bookmark.js';
 
@@ -97,7 +97,7 @@ export function createTargetDescriber(repo: Pick<PageContextRepository, 'get'>, 
     const bookmark = root?.properties.bookmark;
     out.page = { pageContextId: pcId, ...(pageId ? { pageId } : {}), ...(bookmark ? { bookmark } : {}), caption: ctx.caption, pageType: String(ctx.pageType), isModal: ctx.isModal };
 
-    const section = buildSection(ctx, typeof raw['section'] === 'string' ? raw['section'] : 'header');
+    const section = buildSection(ctx, typeof raw['section'] === 'string' ? raw['section'] : 'header', sectionOptionsFrom(raw));
     if (section) {
       out.section = { sectionId: section.sectionId, kind: section.kind, caption: section.caption };
       const rows = section.rows ?? [];

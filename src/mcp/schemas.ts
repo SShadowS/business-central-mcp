@@ -9,12 +9,10 @@ const StringOrNumberInput = z.union([z.string(), z.number()]);
 // failures, and characters like `&` could inject extra OpenForm query params.
 const NumericId = StringOrNumber.refine(v => /^\d+$/.test(v), 'must be a numeric id');
 
-// Opt-in language-independent keys. Omitted / "" / "caption" = historical caption behaviour.
-// To make DesignName the default, change DEFAULT_KEY_BY in src/protocol/row-mapping.ts
-// and update these descriptions.
-const KEY_BY_VALUES = ['caption', 'designName', ''] as const;
+// Opt-in language-independent keys. Omitted / "caption" = historical caption behaviour.
+const KEY_BY_VALUES = ['caption', 'designName'] as const;
 const keyByField = (what: string) => z.enum(KEY_BY_VALUES).optional().describe(
-  `How fields/columns are named. "caption" (default when omitted or blank) uses the display caption (language-dependent). "designName" uses the stable AL control name (DesignName), falling back to the caption when BC sends none. ${what}`,
+  `How fields/columns are named. "caption" (default when omitted) uses the display caption (language-dependent). "designName" uses the stable AL control name (DesignName), falling back to the caption when BC sends none. ${what}`,
 );
 const KEY_BY_SECTIONS = 'Applies to returned row cells (duplicates get "#n") and card fields (which then also carry "caption" and "designName").';
 const KEY_BY_NAMES = 'Applies to the field/column names you pass: DesignName is matched first, then the caption.';

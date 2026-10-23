@@ -414,7 +414,7 @@ Each section carries its own content shape:
 | `bc_execute_action` | `updatedFields[].name` is the DesignName |
 | `bc_get_operation` | Read-back fields / rows keyed by DesignName (defaults to the `keyBy` the recorded call used; also `includeColumnMetadata`) |
 
-Omitting `keyBy` (or passing `""`) keeps the caption behaviour unchanged on every tool.
+Omitting `keyBy` keeps the caption behaviour unchanged on every tool.
 
 </details>
 

@@ -107,6 +107,23 @@ describe('GetOperationOperation', () => {
     expect(r.value.evidenceHash).toBeDefined();
   });
 
+  it('resolves recorded DesignNames with the recorded keyBy; the caller\'s keyBy only keys the output', async () => {
+    const repo = new PageContextRepository();
+    repo.create(CARD, 'C1', { isModal: false, wizardState: null });
+    repo.applyToPage(CARD, [{
+      type: 'FormCreated', formId: 'C1', isReload: false,
+      controlTree: { t: 'lf', ServerId: 'C1', PageType: 0, Caption: 'Klantenkaart', Bookmark: 'BM9',
+        Children: [{ t: 'sc', Caption: 'Adres 2', DesignName: 'Address 2', StringValue: 'X' }] },
+    } as BCEvent]);
+    const describe = createTargetDescriber(repo, () => 'CRONUS');
+    expect(describe({ pageContextId: CARD, action: 'Release', keyBy: 'designName' }).fields).toEqual({ 'Address 2': 'X' });
+    await ledger.claim('kb', 'bc_write_data', 'digest', describe({ pageContextId: CARD, fields: { 'Address 2': 'X' }, keyBy: 'designName' }));
+    await ledger.settle('kb', { status: 'unknown', replaySafe: false });
+    const r = await opWith(repo, 'CRONUS', false, CARD).op.execute({ operationId: 'kb', keyBy: 'caption' });
+    if (!r.ok) throw r.error;
+    expect(r.value.readBack?.fields).toEqual({ 'Adres 2': 'X' });
+  });
+
   it('keeps the leading-field fallback when the key comes only from the bookmark (no key control)', async () => {
     const repo = new PageContextRepository();
     repo.create(CARD, 'C1', { isModal: false, wizardState: null });

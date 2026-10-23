@@ -81,10 +81,10 @@ export class GetOperationOperation {
     }
 
     const sectionId = target.section?.sectionId ?? 'header';
-    // keyBy: the caller's choice, else the keyBy the recorded call used (so field
-    // names written as DesignNames resolve again). Neither = caption (historical).
-    const recordedKeyBy = typeof target.args?.['keyBy'] === 'string' ? target.args['keyBy'] as string : undefined;
-    const keyBy = resolveKeyBy(input.keyBy || recordedKeyBy);
+    // Recorded field names resolve with the recorded keyBy; output keys use the
+    // caller's keyBy, else the recorded one. Neither = caption (historical).
+    const recordedKeyBy = resolveKeyBy(typeof target.args?.['keyBy'] === 'string' ? target.args['keyBy'] as string : undefined);
+    const keyBy = resolveKeyBy(input.keyBy ?? recordedKeyBy);
     const sectionOpts = sectionOptionsFrom({ keyBy, includeColumnMetadata: input.includeColumnMetadata });
     const targetRow = target.rows?.[0];
     // A list page's target row is itself the record; a card/document re-opens on
@@ -139,7 +139,10 @@ export class GetOperationOperation {
         // Named fields are looked up in the whole form tree: a written field can be
         // hidden in a fresh (view-mode, collapsed) page and so be absent from section.fields.
         // Same name resolution as bc_write_data: caption case-insensitively, or controlPath.
-        if (names.size > 0) readBack.fields = Object.fromEntries([...names].map(n => [n, (root && findField(root, n, keyBy)?.properties.stringValue) ?? null]));
+        if (names.size > 0) readBack.fields = Object.fromEntries([...names].map(n => {
+          const p = root && findField(root, n, recordedKeyBy)?.properties;
+          return [(keyBy !== recordedKeyBy && p && (keyBy === 'designName' && p.designName || p.caption)) || n, p?.stringValue ?? null];
+        }));
         else if (!target.keyFields?.some(k => !k.source)) readBack.fields = Object.fromEntries((section.fields ?? []).map(f => [f.name, f.value ?? null]));
         if (sectionId === 'header') {
           const linesId = [...ctx.sections.values()].find(s => s.kind === 'lines')?.sectionId;

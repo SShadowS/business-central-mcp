@@ -46,9 +46,16 @@ describe('row-mapping keyBy', () => {
 
   it('designName keying falls back to caption, then binder name, and dedupes', () => {
     const m = buildBinderToCaptionMap(cols, 'designName');
-    expect([...m.entries()]).toEqual([
-      ['c1', 'No.'], ['c2', 'Name'], ['c3', 'Hoeveelheid'], ['c4', 'Name#2'], ['c5', 'c5'],
-    ]);
+    expect(Object.fromEntries(m)).toEqual({ c1: 'No.', c2: 'Name', c3: 'Hoeveelheid', c4: 'Name#2', c5: 'c5' });
+  });
+
+  it('designName keying gives DesignName-backed keys first pick before "#n"', () => {
+    const m = buildBinderToCaptionMap([
+      { controlPath: 'a', caption: 'Name', type: 'rcc', columnBinderName: 'c1' },                    // caption fallback
+      { controlPath: 'b', caption: 'Naam', type: 'rcc', columnBinderName: 'c2', designName: 'Name' },
+    ], 'designName');
+    expect(m.get('c2')).toBe('Name');
+    expect(m.get('c1')).toBe('Name#2');
   });
 
   it('mapRowCellKeys keys rows by designName', () => {
@@ -177,6 +184,7 @@ import { findField } from '../../src/protocol/form-views.js';
 import { buildAllSections, sectionOptionsFrom } from '../../src/protocol/section-dto.js';
 import { WriteDataOperation } from '../../src/operations/write-data.js';
 import { LookupOperation } from '../../src/operations/lookup.js';
+import { createTargetDescriber } from '../../src/operations/target-descriptor.js';
 import { OpenPageSchema, WriteDataSchema, LookupSchema, NavigateSchema, GetOperationSchema, ExecuteActionSchema, toMcpJsonSchema } from '../../src/mcp/schemas.js';
 
 describe('keyBy beyond bc_read_data', () => {
@@ -204,6 +212,12 @@ describe('keyBy beyond bc_read_data', () => {
     expect(s!.rows![0]!.cells).toEqual({ 'No.': '10000', Name: 'Contoso' });
     expect(s!.columns!.map(c => c.key)).toEqual(['No.', 'Name']);
     expect(buildAllSections(ctx)[0]!.columns).toBeUndefined();
+  });
+
+  it('describeTarget keys target rows by the call\'s keyBy', () => {
+    const repo = new PageContextRepository(); makeListCtx(repo);
+    const d = createTargetDescriber(repo, () => 'CRONUS')({ pageContextId: 'pc:1', bookmark: 'bk1', keyBy: 'designName' });
+    expect(d.rows).toEqual([{ bookmark: 'bk1', cells: { 'No.': '10000', Name: 'Contoso' } }]);
   });
 
   it('bc_write_data forwards keyBy only in designName mode', async () => {
@@ -238,7 +252,7 @@ describe('keyBy beyond bc_read_data', () => {
       [GetOperationSchema, { operationId: 'o' }], [ExecuteActionSchema, { pageContextId: 'p', action: 'a' }],
     ] as const) {
       expect((schema as any).safeParse({ ...extra, keyBy: 'designName' }).success).toBe(true);
-      expect((schema as any).safeParse({ ...extra, keyBy: '' }).success).toBe(true);
+      expect((schema as any).safeParse({ ...extra, keyBy: '' }).success).toBe(false);
       expect((schema as any).safeParse({ ...extra, keyBy: 'bogus' }).success).toBe(false);
       expect((toMcpJsonSchema(schema as any) as any).properties.keyBy).toBeDefined();
     }
