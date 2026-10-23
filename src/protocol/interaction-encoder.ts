@@ -24,7 +24,7 @@ export interface EncodedRpcCall {
 const BC_FEATURES = [
   'QueueInteractions', 'MetadataCache', 'CacheSession', 'DynamicsQuickEntry',
   'Multitasking', 'MultilineEdit', 'SaveValueToDatabasePromptly', 'CalcOnlyVisibleFlowFields',
-];
+].filter(f => !(f === 'CalcOnlyVisibleFlowFields' && process.env.BC_CALC_INVISIBLE_FLOWFIELDS === '1'));
 
 const BC_SUPPORTED_EXTENSIONS = JSON.stringify([
   { Name: 'Microsoft.Dynamics.Nav.Client.PageNotifier' },

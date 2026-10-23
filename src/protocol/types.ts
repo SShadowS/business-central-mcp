@@ -464,6 +464,7 @@ export interface RepeaterColumn {
   readonly designName?: string;         // stable AL control name (wire `DesignName`), language-independent
   readonly controlIdentifier?: string;  // wire `ControlIdentifier`
   readonly tableFieldNo?: number;       // source table field number (wire `TableFieldNo`)
+  readonly visible?: boolean;           // wire `Visible`; false = BC sends no cell values
 }
 
 export interface RepeaterRow {

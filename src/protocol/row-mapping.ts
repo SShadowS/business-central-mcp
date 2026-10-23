@@ -40,6 +40,7 @@ export function repeaterColumnFromNode(c: RepeaterColumnNode): RepeaterColumn {
     ...(c.properties.designName ? { designName: c.properties.designName } : {}),
     ...(c.properties.controlIdentifier ? { controlIdentifier: c.properties.controlIdentifier } : {}),
     ...(c.tableFieldNo !== undefined ? { tableFieldNo: c.tableFieldNo } : {}),
+    ...(c.properties.visible === false ? { visible: false } : {}),
   };
 }
 
@@ -86,6 +87,8 @@ export interface ColumnMetadata {
   readonly controlIdentifier?: string;
   readonly tableFieldNo?: number;
   readonly binderPath?: string;
+  /** Published Visible state; BC sends no cell values for hidden columns. */
+  readonly visible?: boolean;
 }
 
 /** Describe each keyed column: its output key plus caption / DesignName / ids. */
@@ -104,6 +107,7 @@ export function buildColumnMetadata(
       ...(col.controlIdentifier ? { controlIdentifier: col.controlIdentifier } : {}),
       ...(col.tableFieldNo !== undefined ? { tableFieldNo: col.tableFieldNo } : {}),
       ...(col.columnBinderPath ? { binderPath: col.columnBinderPath } : {}),
+      ...(col.visible === false ? { visible: false } : {}),
     });
   }
   return out;
