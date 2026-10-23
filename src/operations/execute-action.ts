@@ -1,3 +1,5 @@
+import type { KeyByInput } from '../protocol/section-dto.js';
+import { resolveKeyBy, DEFAULT_KEY_BY, type KeyBy } from '../protocol/row-mapping.js';
 import { v4 as uuid } from 'uuid';
 import { err, ok, isOk, isErr, type Result } from '../core/result.js';
 import { ProtocolError, StaleContextError, InvalidBookmarkError, type BCError } from '../core/errors.js';
@@ -14,7 +16,7 @@ import { fields as treeFields, groupVisibility as treeGroupVisibility } from '..
 import { isInvalidBookmarkError } from '../session/rpc-error-classifier.js';
 import { actionReplaySafe } from '../protocol/replay-safety.js';
 
-export interface ExecuteActionInput {
+export interface ExecuteActionInput extends Pick<KeyByInput, 'keyBy'> {
   pageContextId: string;
   action?: string;
   cue?: string;
@@ -130,7 +132,7 @@ export class ExecuteActionOperation {
       }
       const bizErr = classifyBusinessError(result.value.events);
       if (bizErr !== null) return err(bizErr);
-      const out = this.buildOutput(input.pageContextId, result.value);
+      const out = this.buildOutput(input.pageContextId, result.value, resolveKeyBy(input.keyBy));
       const captured = await this.downloadService.capture(result.value.events);
       return ok({ ...out, downloads: captured.downloads, externalUris: captured.externalUris });
     }
@@ -143,7 +145,7 @@ export class ExecuteActionOperation {
       if (!isOk(result)) return result;
       const bizErr = classifyBusinessError(result.value.events);
       if (bizErr !== null) return err(bizErr);
-      const out = this.buildOutput(input.pageContextId, result.value);
+      const out = this.buildOutput(input.pageContextId, result.value, resolveKeyBy(input.keyBy));
       const captured = await this.downloadService.capture(result.value.events);
       return ok({ ...out, downloads: captured.downloads, externalUris: captured.externalUris });
     }
@@ -163,7 +165,7 @@ export class ExecuteActionOperation {
     if (!isOk(result)) return result;
     const bizErr = classifyBusinessError(result.value.events);
     if (bizErr !== null) return err(bizErr);
-    const out = this.buildOutput(input.pageContextId, result.value);
+    const out = this.buildOutput(input.pageContextId, result.value, resolveKeyBy(input.keyBy));
     const captured = await this.downloadService.capture(result.value.events);
     return ok({ ...out, downloads: captured.downloads, externalUris: captured.externalUris });
   }
@@ -200,7 +202,7 @@ export class ExecuteActionOperation {
     return ok(undefined);
   }
 
-  private buildOutput(pageContextId: string, ar: ActionResult): Omit<ExecuteActionOutput, 'downloads' | 'externalUris'> {
+  private buildOutput(pageContextId: string, ar: ActionResult, keyBy: KeyBy = DEFAULT_KEY_BY): Omit<ExecuteActionOutput, 'downloads' | 'externalUris'> {
     let updatedFields: Array<{ name: string; value?: string }> | undefined;
     if (ar.updatedState) {
       const resolved = resolveSection(ar.updatedState, 'header');
@@ -209,7 +211,11 @@ export class ExecuteActionOperation {
         const groupVis = treeGroupVisibility(root);
         updatedFields = treeFields(root)
           .filter(f => f.properties.caption && isEffectivelyVisible(root, f.controlPath, groupVis, ar.updatedState!.wizardState))
-          .map(f => ({ name: f.properties.caption!, value: f.properties.stringValue }));
+          .map(f => ({
+            // keyBy "designName": name is the AL DesignName (fallback caption).
+            name: keyBy === 'designName' ? (f.properties.designName || f.properties.caption!) : f.properties.caption!,
+            value: f.properties.stringValue,
+          }));
       }
     }
 

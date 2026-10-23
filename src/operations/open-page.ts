@@ -1,10 +1,10 @@
 import { isOk, ok, err, type Result } from '../core/result.js';
 import { CardPartStubError, type ProtocolError } from '../core/errors.js';
 import type { PageService } from '../services/page-service.js';
-import { buildAllSections, type Section } from '../protocol/section-dto.js';
+import { buildAllSections, sectionOptionsFrom, type KeyByInput, type Section } from '../protocol/section-dto.js';
 import { fields as treeFields, cues as treeCues } from '../protocol/form-views.js';
 
-export interface OpenPageInput {
+export interface OpenPageInput extends KeyByInput {
   pageId: string;
   bookmark?: string;
   tenantId?: string;
@@ -71,7 +71,7 @@ export class OpenPageOperation {
       pageType: ctx.pageType,
       caption: ctx.caption || ctx.rootFormId,
       isModal: ctx.isModal,
-      sections: buildAllSections(ctx),
+      sections: buildAllSections(ctx, sectionOptionsFrom(input)),
       stateVersion: ctx.generation,
     });
   }

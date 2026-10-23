@@ -1,3 +1,4 @@
+import { findColumnNode, availableColumnNames, DEFAULT_KEY_BY, type KeyBy } from '../protocol/row-mapping.js';
 import { ok, err, isErr, type Result } from '../core/result.js';
 import { ProtocolError } from '../core/errors.js';
 import type { BCSession } from '../session/bc-session.js';
@@ -25,7 +26,7 @@ export class FilterService {
     return this.applyFilters(pageContextId, [{ column: columnName, value }], sectionId);
   }
 
-  async applyFilters(pageContextId: string, filters: Filter[], sectionId?: string): Promise<Result<PageContext, ProtocolError>> {
+  async applyFilters(pageContextId: string, filters: Filter[], sectionId?: string, keyBy: KeyBy = DEFAULT_KEY_BY): Promise<Result<PageContext, ProtocolError>> {
     const ctx = this.repo.get(pageContextId);
     if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
 
@@ -50,12 +51,11 @@ export class FilterService {
       if (!fpath) return err(new ProtocolError('FilterControlPath lost during filter application'));
 
       // Resolve column on the RepeaterNode by caption
-      const column = currentResolved.repeater.columns.find(c =>
-        (c.properties.caption ?? '').toLowerCase() === filter.column.toLowerCase()
-      );
+      // (with keyBy "designName" the AL DesignName is accepted as well)
+      const column = findColumnNode(currentResolved.repeater.columns, filter.column, keyBy);
       if (!column) {
         return err(new ProtocolError(`Filter column not found: ${filter.column}`, {
-          availableColumns: currentResolved.repeater.columns.map(c => c.properties.caption ?? '').filter(Boolean),
+          availableColumns: availableColumnNames(currentResolved.repeater.columns, keyBy),
         }));
       }
       const columnBinderPath = column.columnBinder?.path;

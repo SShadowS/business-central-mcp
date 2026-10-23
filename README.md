@@ -319,6 +319,7 @@ Known wart: when the browser sign-in fails (65002, blocked consent), Entra keeps
 | `bc_lookup` | List the valid values for a lookup field (e.g. Salesperson Code) |
 | `bc_query` | Bulk read-only OData queries against the BC Standard API v2.0 |
 | `bc_upload_file` | Upload a local file into a BC file-upload dialog (e.g. Import Layout) |
+| `bc_wizard_navigate` | `fields[].name` is the DesignName |
 | `bc_get_operation` | Look up an earlier `operationId` and, when its outcome is in doubt, read the record back |
 | `bc_run_tests` | Run AL test codeunits through the AL Test Runner (page 130455), so the Permissions Mock and test personas apply; one row per test method |
 
@@ -403,6 +404,18 @@ Each section carries its own content shape:
 - **Cue tiles** (Role Center hosted CardParts): `cues[]` with each tile's `name`, `value`, `groupCaption`, `synopsis`, `hasAction`. Drill down with `bc_execute_action { section, cue }`.
 
 `bc_read_data` returns a single `Section` for the requested `sectionId` (defaults to `"header"`). The section ID for a FactBox or subpage comes from the `bc_open_page` response.
+
+**Language-independent keys (`keyBy`).** By default row cells and card fields are keyed by their display caption, which depends on the user's language (`"Nr."` vs `"No."`). Pass `keyBy: "designName"` to `bc_read_data` to key them by the stable AL control name (`DesignName`) instead. Columns without a DesignName fall back to the caption (then the internal binder name); duplicate keys get a `#n` suffix. In this mode `filters`, `sort` and `columns` accept either the DesignName or the caption, and card fields additionally carry `caption` and `designName`. Pass `includeColumnMetadata: true` to also receive `columns: [{ key, caption, designName?, controlIdentifier?, tableFieldNo?, binderPath? }]` for list sections. The same optional `keyBy` is accepted consistently by the other tools:
+
+| Tool | Effect of `keyBy: "designName"` |
+|---|---|
+| `bc_open_page`, `bc_navigate` | Returned sections keyed by DesignName (also `includeColumnMetadata`) |
+| `bc_write_data` | `fields` keys (header fields and line cells) are matched by DesignName first, then caption |
+| `bc_lookup` | `field` matched by DesignName first, then caption; candidate values keyed by DesignName |
+| `bc_execute_action` | `updatedFields[].name` is the DesignName |
+| `bc_get_operation` | Read-back fields / rows keyed by DesignName (defaults to the `keyBy` the recorded call used; also `includeColumnMetadata`) |
+
+Omitting `keyBy` keeps the caption behaviour unchanged on every tool. Dialog and request-page fields (`dialogsOpened[].fields`, `requestPage.fields`) always carry `designName` when BC sends one.
 
 </details>
 

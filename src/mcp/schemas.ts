@@ -9,10 +9,21 @@ const StringOrNumberInput = z.union([z.string(), z.number()]);
 // failures, and characters like `&` could inject extra OpenForm query params.
 const NumericId = StringOrNumber.refine(v => /^\d+$/.test(v), 'must be a numeric id');
 
+// Opt-in language-independent keys. Omitted / "caption" = historical caption behaviour.
+const KEY_BY_VALUES = ['caption', 'designName'] as const;
+const keyByField = (what: string) => z.enum(KEY_BY_VALUES).optional().describe(
+  `How fields/columns are named. "caption" (default when omitted) uses the display caption (language-dependent). "designName" uses the stable AL control name (DesignName), falling back to the caption when BC sends none. ${what}`,
+);
+const KEY_BY_SECTIONS = 'Applies to returned row cells (duplicates get "#n") and card fields (which then also carry "caption" and "designName").';
+const KEY_BY_NAMES = 'Applies to the field/column names you pass: DesignName is matched first, then the caption.';
+const includeColumnMetadataField = z.boolean().optional().describe('When true, list-shape sections also return columns: [{ key, caption, designName?, controlIdentifier?, tableFieldNo?, binderPath? }] describing each row cell key.');
+
 export const OpenPageSchema = z.object({
   pageId: NumericId.describe('Numeric BC page ID (e.g., 22 for Customer List, 21 for Customer Card). Use bc_search_pages to find IDs.'),
   bookmark: z.string().optional().describe('Open the page to a specific record. Bookmarks come from list row results in bc_open_page or bc_read_data.'),
   tenantId: z.string().optional().describe('BC tenant ID. Defaults to the server-configured tenant. Only needed in multi-tenant deployments.'),
+  keyBy: keyByField(KEY_BY_SECTIONS),
+  includeColumnMetadata: includeColumnMetadataField,
 });
 
 export const ReadDataSchema = z.object({
@@ -33,6 +44,8 @@ export const ReadDataSchema = z.object({
     offset: z.number().int().min(0).describe('0-based starting row index.'),
     limit: z.number().int().min(1).describe('Maximum number of rows to return.'),
   }).optional().describe('Slice a subset of repeater rows. Returns rows[offset..offset+limit]. Use with totalRowCount for pagination.'),
+  keyBy: keyByField(`${KEY_BY_SECTIONS} Filters, sort and columns then accept the DesignName or the caption.`),
+  includeColumnMetadata: includeColumnMetadataField,
 });
 
 export const WriteDataSchema = z.object({
@@ -42,6 +55,7 @@ export const WriteDataSchema = z.object({
   rowIndex: z.number().int().min(0).optional().describe('0-based row position in the repeater to write to. Use for line items. Prefer bookmark for stability.'),
   bookmark: z.string().optional().describe('Stable row identifier from bc_read_data results. Preferred over rowIndex when rows may be reordered.'),
   expectedStateVersion: z.number().optional().describe('Opt-in staleness guard. Pass the stateVersion from a prior bc_read_data or bc_open_page response. If the page state has changed since that read (async events or sibling writes mutated it), the call is rejected immediately with code STALE_CONTEXT before touching BC. Omit to skip the check.'),
+  keyBy: keyByField(KEY_BY_NAMES + ' Use it to write fields / line cells by AL DesignName.'),
 });
 
 export const ExecuteActionSchema = z.object({
@@ -53,6 +67,7 @@ export const ExecuteActionSchema = z.object({
   bookmark: z.string().optional().describe('Stable row identifier for row-scoped actions.'),
   bookmarks: z.array(z.string().min(1)).optional().describe('Stable row identifiers for a MULTI-ROW action (batch delete, apply-entries). The first bookmark is the anchor/current row. Mutually exclusive with bookmark, rowIndex, and cue. Bookmarks must come from a bc_read_data of the same section and must still be loaded. Only actions that consume a selection (e.g. Delete) act on all rows; Edit/View/DrillDown/New use the anchor only and are rejected with bookmarks[].'),
   expectedStateVersion: z.number().optional().describe('Opt-in staleness guard. Pass the stateVersion from a prior bc_read_data or bc_open_page response. If the page state has changed since that read (async events or sibling writes mutated it), the call is rejected immediately with code STALE_CONTEXT before touching BC. Omit to skip the check.'),
+  keyBy: keyByField('Applies to updatedFields[].name in the response.'),
 }).superRefine((d, ctx) => {
   if (!!d.action === !!d.cue) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Provide exactly one of: action, cue' });
@@ -75,6 +90,8 @@ export const NavigateSchema = z.object({
   bookmark: z.string().min(1).describe('Row bookmark from bc_open_page or bc_read_data results identifying which record to navigate to.'),
   action: z.enum(['drill_down', 'select']).optional().describe('"select" moves cursor to row (default). "drill_down" opens the record detail page (returns new pageContextId). For field lookups use the bc_lookup tool.'),
   section: z.string().optional().describe('Section containing the row (e.g., "lines" for document line items). Omit for header/default repeater.'),
+  keyBy: keyByField(KEY_BY_SECTIONS),
+  includeColumnMetadata: includeColumnMetadataField,
 });
 
 export const RespondDialogSchema = z.object({
@@ -107,11 +124,14 @@ export const ListCompaniesSchema = z.object({});
 
 export const GetOperationSchema = z.object({
   operationId: z.string().min(1).max(200).describe('The operationId you passed to a mutating tool (bc_write_data, bc_execute_action, ...).'),
+  keyBy: keyByField('Applies to readBack field names and row cells. Defaults to the keyBy the recorded call used, else caption.'),
+  includeColumnMetadata: includeColumnMetadataField,
 });
 
 export const WizardNavigateSchema = z.object({
   pageContextId: z.string().min(1).describe('Page context ID returned by bc_open_page for a NavigatePage / wizard.'),
   action: z.enum(['back', 'next', 'finish', 'cancel']).describe('Wizard step navigation. "next" advances, "back" returns to previous step, "finish" completes the wizard, "cancel" aborts.'),
+  keyBy: keyByField('Applies to fields[].name in the response.'),
 });
 
 export const LookupSchema = z.object({
@@ -119,6 +139,7 @@ export const LookupSchema = z.object({
   field: z.string().min(1).describe('Caption of the field to enumerate lookup candidates for (e.g., "Salesperson Code", "Gen. Bus. Posting Group"). Must be an editable FK/related-table field that has a lookup (isLookup=true in bc_open_page or bc_read_data response).'),
   search: z.string().optional().describe('Optional search string to filter candidates (e.g., "AR" to narrow to codes starting with AR). Applied via BC\'s native search on the lookup list. Omit to return all rows up to maxRows.'),
   maxRows: z.number().int().min(1).max(500).optional().describe('Maximum number of candidate rows to return. Defaults to 50. Max 500. BC may return fewer if the table has fewer records.'),
+  keyBy: keyByField('Applies to `field` (DesignName matched first, then caption) and to the candidate row value keys.'),
 });
 
 export const QuerySchema = z.object({
@@ -153,6 +174,8 @@ export function toMcpJsonSchema(schema: z.ZodType): Record<string, unknown> {
       pageId: StringOrNumberInput.describe('Numeric BC page ID (e.g., 22 for Customer List, 21 for Customer Card). Use bc_search_pages to find IDs.'),
       bookmark: z.string().optional().describe('Open the page to a specific record. Bookmarks come from list row results in bc_open_page or bc_read_data.'),
       tenantId: z.string().optional().describe('BC tenant ID. Defaults to the server-configured tenant. Only needed in multi-tenant deployments.'),
+      keyBy: keyByField(KEY_BY_SECTIONS),
+      includeColumnMetadata: includeColumnMetadataField,
     });
     return z.toJSONSchema(safe) as Record<string, unknown>;
   }

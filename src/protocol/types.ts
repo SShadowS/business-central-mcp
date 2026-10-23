@@ -433,6 +433,9 @@ export interface ControlField {
   readonly value?: unknown;
   readonly stringValue?: string;
   readonly columnBinderName?: string; // e.g., "1165569367_c2" — key in row cells
+  readonly designName?: string;       // stable AL control name (wire `DesignName`), language-independent
+  readonly controlIdentifier?: string; // wire `ControlIdentifier`
+  readonly tableFieldNo?: number;     // source table field number (wire `TableFieldNo`)
   readonly isLookup?: boolean;        // true if field has AssistEditAction or LookupAction
   readonly lookupCustom?: boolean;    // true if isLookup but the lookup is a custom AL OnLookup trigger (CanShowSimpleLookup=false) — NOT browseable via bc_lookup
   readonly showMandatory?: boolean;   // true if field is marked as mandatory in BC
@@ -458,6 +461,10 @@ export interface RepeaterColumn {
   readonly type: string;
   readonly columnBinderName?: string;   // key that matches row.cells keys
   readonly columnBinderPath?: string;   // for filter column IDs
+  readonly designName?: string;         // stable AL control name (wire `DesignName`), language-independent
+  readonly controlIdentifier?: string;  // wire `ControlIdentifier`
+  readonly tableFieldNo?: number;       // source table field number (wire `TableFieldNo`)
+  readonly visible?: boolean;           // wire `Visible`; false = BC sends no cell values
 }
 
 export interface RepeaterRow {
@@ -533,6 +540,7 @@ export interface DialogInfo {
 
 // -- Backward compatibility --
 
+import { repeaterColumnFromNode } from './row-mapping.js';
 import type { PageContext } from './page-context.js';
 import type { FormState } from './form-state.js';
 import {
@@ -560,6 +568,9 @@ export function derivePageState(ctx: PageContext): PageState {
       stringValue: f.properties.stringValue,
       value: f.properties.objectValue ?? f.properties.stringValue,
       columnBinderName: f.columnBinder?.name,
+      ...(f.properties.designName ? { designName: f.properties.designName } : {}),
+      ...(f.properties.controlIdentifier ? { controlIdentifier: f.properties.controlIdentifier } : {}),
+      ...(f.tableFieldNo !== undefined ? { tableFieldNo: f.tableFieldNo } : {}),
       ancestorGroupPaths: [],
     })) : [],
     repeater: rep,
@@ -588,13 +599,7 @@ function primaryRepeaterFromCtx(form: FormState): RepeaterState | null {
   const rows = form.rows.get(node.controlPath) ?? [];
   return {
     controlPath: node.controlPath,
-    columns: node.columns.map(c => ({
-      controlPath: c.controlPath,
-      caption: c.properties.caption ?? '',
-      type: 'rcc',
-      columnBinderName: c.columnBinder?.name,
-      columnBinderPath: c.columnBinder?.path,
-    })),
+    columns: node.columns.map(repeaterColumnFromNode),
     rows: [...rows],
     totalRowCount: node.properties.totalRowCount ?? null,
     currentBookmark: node.properties.bookmark ?? null,

@@ -1,13 +1,14 @@
 import { isErr, ok, err, type Result } from '../core/result.js';
 import { InputValidationError, type BCError } from '../core/errors.js';
 import type { PageService } from '../services/page-service.js';
-import { buildSection } from '../protocol/section-dto.js';
+import { buildSection, sectionOptionsFrom, type KeyByInput } from '../protocol/section-dto.js';
 import { resolveSection } from '../protocol/section-resolver.js';
+import { resolveKeyBy } from '../protocol/row-mapping.js';
 import { findField } from '../protocol/form-views.js';
 import { readKeyFields } from './target-descriptor.js';
 import { digestInput, type OperationEntry, type OperationLedger } from '../mcp/operation-ledger.js';
 
-export interface GetOperationInput {
+export interface GetOperationInput extends KeyByInput {
   operationId: string;
 }
 
@@ -80,6 +81,11 @@ export class GetOperationOperation {
     }
 
     const sectionId = target.section?.sectionId ?? 'header';
+    // Recorded field names resolve with the recorded keyBy; output keys use the
+    // caller's keyBy, else the recorded one. Neither = caption (historical).
+    const recordedKeyBy = resolveKeyBy(typeof target.args?.['keyBy'] === 'string' ? target.args['keyBy'] as string : undefined);
+    const keyBy = resolveKeyBy(input.keyBy ?? recordedKeyBy);
+    const sectionOpts = sectionOptionsFrom({ keyBy, includeColumnMetadata: input.includeColumnMetadata });
     const targetRow = target.rows?.[0];
     // A list page's target row is itself the record; a card/document re-opens on
     // its root record. Never open unkeyed: BC would land on an arbitrary record.
@@ -102,7 +108,7 @@ export class GetOperationOperation {
       if (bookmark === target.page!.bookmark && landed !== undefined && landed !== bookmark) {
         return ok({ entry, readBackError: { code: 'RECORD_NOT_OPENED', message: `Page ${pageId} opened a different record (bookmark ${landed}) than the recorded one (${bookmark}); the recorded record no longer exists. A posting that fully ships and invoices a document deletes it.` } });
       }
-      const section = buildSection(ctx, sectionId);
+      const section = buildSection(ctx, sectionId, sectionOpts);
       if (!section) {
         return ok({ entry, readBackError: { code: 'SECTION_NOT_FOUND', message: `Section '${sectionId}' is not on page ${pageId}.` } });
       }
@@ -133,11 +139,14 @@ export class GetOperationOperation {
         // Named fields are looked up in the whole form tree: a written field can be
         // hidden in a fresh (view-mode, collapsed) page and so be absent from section.fields.
         // Same name resolution as bc_write_data: caption case-insensitively, or controlPath.
-        if (names.size > 0) readBack.fields = Object.fromEntries([...names].map(n => [n, (root && findField(root, n)?.properties.stringValue) ?? null]));
+        if (names.size > 0) readBack.fields = Object.fromEntries([...names].map(n => {
+          const p = root && findField(root, n, recordedKeyBy)?.properties;
+          return [(keyBy !== recordedKeyBy && p && (keyBy === 'designName' && p.designName || p.caption)) || n, p?.stringValue ?? null];
+        }));
         else if (!target.keyFields?.some(k => !k.source)) readBack.fields = Object.fromEntries((section.fields ?? []).map(f => [f.name, f.value ?? null]));
         if (sectionId === 'header') {
           const linesId = [...ctx.sections.values()].find(s => s.kind === 'lines')?.sectionId;
-          const rows = linesId ? buildSection(ctx, linesId)?.rows : undefined;
+          const rows = linesId ? buildSection(ctx, linesId, sectionOpts)?.rows : undefined;
           if (rows) readBack.lines = rows.map(r => ({ bookmark: r.bookmark, cells: { ...r.cells } }));
         }
       }

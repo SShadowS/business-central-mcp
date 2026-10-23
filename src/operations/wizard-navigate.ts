@@ -7,6 +7,7 @@ import { resolveSection } from '../protocol/section-resolver.js';
 import { detectChangedSections, detectDialogs } from '../protocol/mutation-result.js';
 import { isEffectivelyVisible } from '../protocol/visibility.js';
 import type { ControlField } from '../protocol/types.js';
+import type { KeyByInput } from '../protocol/section-dto.js';
 import { fields as treeFields, actions as treeActions, groupVisibility as treeGroupVisibility } from '../protocol/form-views.js';
 import { classifyWizardNav, type WizardNav } from '../protocol/wizard-classify.js';
 import { actionReplaySafe } from '../protocol/replay-safety.js';
@@ -14,7 +15,7 @@ import type { Download, DownloadService } from '../services/download-service.js'
 
 export type { WizardNav };
 
-export interface WizardNavigateInput {
+export interface WizardNavigateInput extends Pick<KeyByInput, 'keyBy'> {
   pageContextId: string;
   action: WizardNav;
 }
@@ -77,7 +78,7 @@ export class WizardNavigateOperation {
         fieldsOut = treeFields(root)
           .filter(f => f.properties.caption && isEffectivelyVisible(root, f.controlPath, groupVis, ws))
           .map(f => ({
-            name: f.properties.caption!,
+            name: input.keyBy === 'designName' ? (f.properties.designName || f.properties.caption!) : f.properties.caption!,
             value: f.properties.stringValue,
             editable: f.properties.editable ?? false,
           }));

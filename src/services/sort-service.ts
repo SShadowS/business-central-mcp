@@ -14,6 +14,7 @@ import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { PageContext } from '../protocol/page-context.js';
 import type { SortColumnInteraction } from '../protocol/types.js';
 import { resolveSection } from '../protocol/section-resolver.js';
+import { findColumnNode, availableColumnNames, DEFAULT_KEY_BY, type KeyBy } from '../protocol/row-mapping.js';
 import type { Logger } from '../core/logger.js';
 
 export type SortDirection = 'asc' | 'desc';
@@ -41,6 +42,7 @@ export class SortService {
     columnName: string,
     direction: SortDirection,
     sectionId?: string,
+    keyBy: KeyBy = DEFAULT_KEY_BY,
   ): Promise<Result<PageContext, ProtocolError>> {
     const ctx = this.repo.get(pageContextId);
     if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
@@ -50,12 +52,11 @@ export class SortService {
     if (!resolved.repeater) return err(new ProtocolError('Page has no repeater -- cannot sort'));
 
     // Resolve the rcc column node by caption (case-insensitive), same as FilterService.
-    const column = resolved.repeater.columns.find(c =>
-      (c.properties.caption ?? '').toLowerCase() === columnName.toLowerCase()
-    );
+    // With keyBy "designName" the AL DesignName is accepted as well.
+    const column = findColumnNode(resolved.repeater.columns, columnName, keyBy);
     if (!column) {
       return err(new ProtocolError(`Sort column not found: ${columnName}`, {
-        availableColumns: resolved.repeater.columns.map(c => c.properties.caption ?? '').filter(Boolean),
+        availableColumns: availableColumnNames(resolved.repeater.columns, keyBy),
       }));
     }
 

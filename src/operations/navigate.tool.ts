@@ -17,7 +17,9 @@ Do NOT use this for Card pages -- it only works on pages with repeater rows. Do 
 Examples:
 - Select a row: { "pageContextId": "abc", "bookmark": "XXXX", "action": "select" }
 - Drill down to Card: { "pageContextId": "abc", "bookmark": "XXXX", "action": "drill_down" }
-- Drill down from a document line: { "pageContextId": "abc", "bookmark": "XXXX", "action": "drill_down", "section": "lines" }`,
+- Drill down from a document line: { "pageContextId": "abc", "bookmark": "XXXX", "action": "drill_down", "section": "lines" }
+
+Optional keyBy: "designName" uses stable AL DesignNames instead of captions (omit for captions).`,
     inputSchema: toMcpJsonSchema(NavigateSchema),
     outputSchema: toMcpJsonSchema(NavigateOutputSchema),
     zodSchema: NavigateSchema,

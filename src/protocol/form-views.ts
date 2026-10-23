@@ -3,6 +3,7 @@
 // Memoised derived views over a FormNode tree. Cached per-root via WeakMap;
 // any tree mutation produces a new root, so cache invalidation is automatic.
 
+import { DEFAULT_KEY_BY, type KeyBy } from './row-mapping.js';
 import {
   isFieldNode, isActionNode, isRepeaterNode, isGroupNode, isLogicalFormNode,
   isStackGroupNode, isCueFieldNode,
@@ -35,8 +36,13 @@ export function fields(root: FormNode): readonly FieldNode[] {
 }
 
 /** The field a tool's field name addresses: caption (case-insensitive) or exact controlPath. */
-export function findField(root: FormNode, fieldName: string): FieldNode | undefined {
+export function findField(root: FormNode, fieldName: string, keyBy: KeyBy = DEFAULT_KEY_BY): FieldNode | undefined {
   const lower = fieldName.toLowerCase();
+  // DesignName mode: match the AL DesignName first, then fall back to caption / controlPath.
+  if (keyBy === 'designName') {
+    const byDesign = fields(root).find(f => !!f.properties.designName && f.properties.designName.toLowerCase() === lower);
+    if (byDesign) return byDesign;
+  }
   return fields(root).find(f => (f.properties.caption ?? '').toLowerCase() === lower || f.controlPath === fieldName);
 }
 

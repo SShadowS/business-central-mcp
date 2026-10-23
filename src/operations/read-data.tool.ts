@@ -20,6 +20,8 @@ Sorting: pass sort: { column, direction } to sort the repeater before reading. A
 
 Column selection: pass columns: ["No.", "Name"] to limit the cells in each row, or the fields[] entries on a card section.
 
+Language-independent keys: pass keyBy: "designName" to key row cells and card field names by the stable AL control name (DesignName) instead of the language-dependent caption (falls back to the caption when BC sends no DesignName; duplicates get "#n"). In that mode filters/sort/columns accept the DesignName or the caption, and card fields also carry "caption" and "designName". Omit keyBy (or pass "") for the default caption keys. includeColumnMetadata: true adds columns: [{ key, caption, designName?, controlIdentifier?, tableFieldNo?, binderPath? }] for list sections.
+
 Range slicing: { offset, limit } returns rows[offset..offset+limit] for list sections. Use with totalRowCount for pagination.
 
 Examples:
@@ -30,6 +32,7 @@ Examples:
 - Filter and sort: { "pageContextId": "abc", "filters": [{ "column": "City", "value": "London" }], "sort": { "column": "Name", "direction": "asc" } }
 - Clear filters and re-read: { "pageContextId": "abc", "clearFilters": true }
 - Clear and re-filter: { "pageContextId": "abc", "clearFilters": true, "filters": [{ "column": "City", "value": "London" }] }
+- Key rows by AL DesignName: { "pageContextId": "abc", "keyBy": "designName", "includeColumnMetadata": true }
 - Read sales order lines: { "pageContextId": "abc", "section": "lines" }
 - Refresh a FactBox: { "pageContextId": "abc", "section": "factbox:Customer Statistics" }`,
     inputSchema: toMcpJsonSchema(ReadDataSchema),

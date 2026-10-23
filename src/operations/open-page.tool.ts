@@ -16,7 +16,9 @@ Optional bookmark parameter opens a Card page to a specific record. Bookmarks co
 
 Examples:
 - { "pageId": 22 } opens Customer List. Sections: [{ "sectionId": "header", "kind": "header", "rows": [...], "actions": [...] }] (no fields[] on a list-shape header).
-- { "pageId": 21, "bookmark": "..." } opens Customer Card. Sections include the header card plus FactBoxes (e.g. { "sectionId": "factbox:Customer Statistics", "kind": "factbox", "fields": [...] }).`,
+- { "pageId": 21, "bookmark": "..." } opens Customer Card. Sections include the header card plus FactBoxes (e.g. { "sectionId": "factbox:Customer Statistics", "kind": "factbox", "fields": [...] }).
+
+Optional keyBy: "designName" uses stable AL DesignNames instead of captions (omit for captions).`,
     inputSchema: toMcpJsonSchema(OpenPageSchema),
     outputSchema: toMcpJsonSchema(OpenPageOutputSchema),
     zodSchema: OpenPageSchema,

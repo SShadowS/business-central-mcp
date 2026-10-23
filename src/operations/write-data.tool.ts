@@ -18,7 +18,9 @@ Examples:
 - Write to Card header: { "pageContextId": "abc", "fields": { "Name": "Contoso Ltd", "Address": "123 Main St" } }
 - Write to Sales Order line: { "pageContextId": "abc", "section": "lines", "rowIndex": 0, "fields": { "Quantity": "5", "Unit Price": "100" } }
 - Write with bookmark targeting: { "pageContextId": "abc", "section": "lines", "bookmark": "XXXX", "fields": { "Description": "Consulting Services" } }
-- Write with staleness guard: { "pageContextId": "abc", "fields": { "Name": "Contoso" }, "expectedStateVersion": 3 }`,
+- Write with staleness guard: { "pageContextId": "abc", "fields": { "Name": "Contoso" }, "expectedStateVersion": 3 }
+
+Optional keyBy: "designName" uses stable AL DesignNames instead of captions (omit for captions).`,
     inputSchema: toMcpJsonSchema(WriteDataSchema),
     outputSchema: toMcpJsonSchema(WriteDataOutputSchema),
     zodSchema: WriteDataSchema,

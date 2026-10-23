@@ -18,13 +18,20 @@ import {
   cues as treeCues,
 } from './form-views.js';
 import { isEffectivelyVisible } from './visibility.js';
-import { mapRowCellKeys } from './row-mapping.js';
+import { resolveKeyBy, mapRowCellKeys, repeaterColumnFromNode, buildColumnMetadata, DEFAULT_KEY_BY, type KeyBy, type ColumnMetadata } from './row-mapping.js';
 import { classifyWizardNav } from './wizard-classify.js';
 import type { PageContext } from './page-context.js';
 
 export interface SectionField {
-  /** Field caption as shown in the BC client. Display label only. */
+  /**
+   * Field caption as shown in the BC client (default). With keyBy "designName"
+   * this is the AL DesignName (falling back to the caption when absent).
+   */
   readonly name: string;
+  /** Display caption. Only emitted when keyBy is "designName" (name then holds the DesignName). */
+  readonly caption?: string;
+  /** AL control name (wire DesignName). Only emitted when keyBy is "designName". */
+  readonly designName?: string;
   /** Display string. Undefined for fields that have no string projection (e.g. boolean tristate). */
   readonly value?: string;
   readonly editable: boolean;
@@ -104,6 +111,8 @@ export interface Section {
    * `totalRowCount` reflects BC's TotalRowCount property; null when unknown.
    */
   readonly rows?: readonly SectionRow[];
+  /** Column metadata for rows[]; only present when includeColumnMetadata was requested. */
+  readonly columns?: readonly ColumnMetadata[];
   readonly totalRowCount?: number | null;
   readonly actions?: readonly SectionAction[];
   /** Populated when the section's form contains cuegroup tiles. */
@@ -119,7 +128,32 @@ export interface Section {
  * always include `actions[]` because actions are reachable only from the root
  * form.
  */
-export function buildSection(ctx: PageContext, sectionId: string): Section | null {
+export interface BuildSectionOptions {
+  /** How to key row cells / field names. Defaults to DEFAULT_KEY_BY ('caption'). */
+  readonly keyBy?: KeyBy;
+  /** When true, list-shape sections also carry `columns[]` metadata. */
+  readonly includeColumnMetadata?: boolean;
+}
+
+/** Tool inputs shared by every tool that returns sections / accepts field names. */
+export interface KeyByInput {
+  /** 'caption' (default when omitted or blank) or 'designName'. */
+  keyBy?: 'caption' | 'designName' | '';
+  /** When true, list-shape sections also carry `columns[]` metadata. */
+  includeColumnMetadata?: boolean;
+}
+
+/** Map tool inputs to BuildSectionOptions (empty object = historical behaviour). */
+export function sectionOptionsFrom(input: KeyByInput): BuildSectionOptions {
+  const keyBy = resolveKeyBy(input.keyBy);
+  return {
+    ...(keyBy !== DEFAULT_KEY_BY ? { keyBy } : {}),
+    ...(input.includeColumnMetadata === true ? { includeColumnMetadata: true } : {}),
+  };
+}
+
+export function buildSection(ctx: PageContext, sectionId: string, options: BuildSectionOptions = {}): Section | null {
+  const keyBy = options.keyBy ?? DEFAULT_KEY_BY;
   const resolved = resolveSection(ctx, sectionId);
   if ('error' in resolved) return null;
   const { section, form, repeater, rows } = resolved;
@@ -136,6 +170,7 @@ export function buildSection(ctx: PageContext, sectionId: string): Section | nul
     caption: string;
     fields?: SectionField[];
     rows?: SectionRow[];
+    columns?: ColumnMetadata[];
     totalRowCount?: number | null;
     actions?: SectionAction[];
     cues?: SectionCue[];
@@ -147,16 +182,10 @@ export function buildSection(ctx: PageContext, sectionId: string): Section | nul
 
   if (repeater) {
     // TODO(tier-2/T25): replace mapRowCellKeys adapter with direct tree-node reads
-    out.rows = mapRowCellKeys(
-      [...rows],
-      repeater.columns.map(c => ({
-        controlPath: c.controlPath,
-        caption: c.properties.caption ?? '',
-        type: 'rcc' as const,
-        columnBinderName: c.columnBinder?.name,
-        columnBinderPath: c.columnBinder?.path,
-      })),
-    ).map(r => ({ bookmark: r.bookmark, cells: r.cells }));
+    const cols = repeater.columns.map(repeaterColumnFromNode);
+    out.rows = mapRowCellKeys([...rows], cols, keyBy)
+      .map(r => ({ bookmark: r.bookmark, cells: r.cells }));
+    if (options.includeColumnMetadata) out.columns = buildColumnMetadata(cols, keyBy);
     out.totalRowCount = repeater.properties.totalRowCount ?? null;
   } else {
     out.fields = treeFields(root)
@@ -175,8 +204,11 @@ export function buildSection(ctx: PageContext, sectionId: string): Section | nul
             if (match) selectedOption = match;
           }
         }
+        const byDesign = keyBy === 'designName';
         return {
-          name: f.properties.caption!,
+          name: byDesign ? (f.properties.designName || f.properties.caption!) : f.properties.caption!,
+          ...(byDesign ? { caption: f.properties.caption! } : {}),
+          ...(byDesign && f.properties.designName ? { designName: f.properties.designName } : {}),
           value: f.properties.stringValue,
           editable: f.properties.editable ?? false,
           type: f.type,
@@ -231,13 +263,13 @@ const SECTION_KIND_ORDER: Record<SectionKind, number> = {
  * subpages, factboxes, requestPage. Returns an empty array for a context
  * with no sections (defensive — should not occur in practice).
  */
-export function buildAllSections(ctx: PageContext): Section[] {
+export function buildAllSections(ctx: PageContext, options: BuildSectionOptions = {}): Section[] {
   const out: Section[] = [];
   const ordered = Array.from(ctx.sections.values())
     .filter(s => s.valid)
     .sort((a, b) => SECTION_KIND_ORDER[a.kind] - SECTION_KIND_ORDER[b.kind]);
   for (const desc of ordered) {
-    const built = buildSection(ctx, desc.sectionId);
+    const built = buildSection(ctx, desc.sectionId, options);
     if (built !== null) out.push(built);
   }
   return out;

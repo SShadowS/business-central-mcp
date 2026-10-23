@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`bc_read_data` can key rows and fields by AL `DesignName`.** New optional
+  `keyBy: "caption" | "designName"` (default `"caption"`, unchanged behaviour)
+  keys row cells and card field names by the stable, language-independent AL
+  control name, falling back to the caption when BC sends none. `filters`,
+  `sort` and `columns` accept the DesignName in that mode. New optional
+  `includeColumnMetadata: true` returns `columns[]` with caption, DesignName,
+  ControlIdentifier, TableFieldNo and binder path per row key. Repeater columns
+  now also record `TableFieldNo`.
+- **`keyBy` on the other page tools.** The same optional `keyBy` is accepted by
+  `bc_open_page` and `bc_navigate` (sections, plus `includeColumnMetadata`),
+  `bc_write_data` (field / line-cell names matched by DesignName first, then
+  caption), `bc_lookup` (`field` and candidate value keys),
+  `bc_execute_action` (`updatedFields[].name`), `bc_wizard_navigate`
+  (`fields[].name`) and `bc_get_operation`
+  (read-back; defaults to the recorded call's `keyBy`). Omitted keeps
+  the caption behaviour. Dialog and request-page fields (`dialogsOpened[].fields`,
+  `requestPage.fields`) now also carry `designName` when BC sends one.
+
 ## [2.3.0] - 2026-10-22
 
 ### Added

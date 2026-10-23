@@ -31,7 +31,9 @@ Examples:
 - Delete multiple rows in one call: { "pageContextId": "list1", "action": "Delete", "bookmarks": ["bk1", "bk2"] } -- only selection-consuming actions like Delete act on all listed rows
 - Execute with staleness guard: { "pageContextId": "abc", "action": "Post", "expectedStateVersion": 5 }
 
-If the action produces a file (Open in Excel, Print, export), its bytes appear in \`downloads[]\` (an operationId replay returns the metadata with error code NOT_REPLAYED instead of the bytes); links BC would open externally appear in \`externalUris[]\` and are never fetched by the server.`,
+If the action produces a file (Open in Excel, Print, export), its bytes appear in \`downloads[]\` (an operationId replay returns the metadata with error code NOT_REPLAYED instead of the bytes); links BC would open externally appear in \`externalUris[]\` and are never fetched by the server.
+
+Optional keyBy: "designName" uses stable AL DesignNames instead of captions (omit for captions).`,
     inputSchema: toMcpJsonSchema(ExecuteActionSchema),
     outputSchema: toMcpJsonSchema(ExecuteActionOutputSchema),
     zodSchema: ExecuteActionSchema,
