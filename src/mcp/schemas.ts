@@ -131,6 +131,7 @@ export const GetOperationSchema = z.object({
 export const WizardNavigateSchema = z.object({
   pageContextId: z.string().min(1).describe('Page context ID returned by bc_open_page for a NavigatePage / wizard.'),
   action: z.enum(['back', 'next', 'finish', 'cancel']).describe('Wizard step navigation. "next" advances, "back" returns to previous step, "finish" completes the wizard, "cancel" aborts.'),
+  keyBy: keyByField('Applies to fields[].name in the response.'),
 });
 
 export const LookupSchema = z.object({

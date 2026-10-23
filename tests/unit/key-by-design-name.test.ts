@@ -185,7 +185,9 @@ import { buildAllSections, sectionOptionsFrom } from '../../src/protocol/section
 import { WriteDataOperation } from '../../src/operations/write-data.js';
 import { LookupOperation } from '../../src/operations/lookup.js';
 import { createTargetDescriber } from '../../src/operations/target-descriptor.js';
-import { OpenPageSchema, WriteDataSchema, LookupSchema, NavigateSchema, GetOperationSchema, ExecuteActionSchema, toMcpJsonSchema } from '../../src/mcp/schemas.js';
+import { WizardNavigateOperation } from '../../src/operations/wizard-navigate.js';
+import { detectDialogs } from '../../src/protocol/mutation-result.js';
+import { OpenPageSchema, WriteDataSchema, LookupSchema, NavigateSchema, GetOperationSchema, ExecuteActionSchema, WizardNavigateSchema, toMcpJsonSchema } from '../../src/mcp/schemas.js';
 
 describe('keyBy beyond bc_read_data', () => {
   it('sectionOptionsFrom: omitted / blank / caption produce no options', () => {
@@ -220,6 +222,21 @@ describe('keyBy beyond bc_read_data', () => {
     expect(d.rows).toEqual([{ bookmark: 'bk1', cells: { 'No.': '10000', Name: 'Contoso' } }]);
   });
 
+  it('bc_wizard_navigate keys fields[].name by DesignName; dialog fields carry designName', async () => {
+    const repo = new PageContextRepository(); makeCardCtx(repo);
+    const actions = { executeWizardNav: vi.fn(async () => ok({ success: true, events: [] })) } as any;
+    const op = new WizardNavigateOperation(actions, repo, { capture: vi.fn(async () => ({ downloads: [], externalUris: [] })) } as any);
+    const names = async (keyBy?: 'designName') => {
+      const r = await op.execute({ pageContextId: 'pc:2', action: 'next', keyBy });
+      if (!r.ok) throw r.error;
+      return r.value.fields.map(f => f.name);
+    };
+    expect(await names()).toEqual(['Naam', 'Plaats']);
+    expect(await names('designName')).toEqual(['Name', 'Plaats']);
+    const [d] = detectDialogs([{ type: 'DialogOpened', formId: 'D1', controlTree: { Children: [{ t: 'sc', Caption: 'Naam', DesignName: 'Name' }] } } as BCEvent]);
+    expect(d!.fields![0]).toMatchObject({ caption: 'Naam', designName: 'Name' });
+  });
+
   it('bc_write_data forwards keyBy only in designName mode', async () => {
     const writeFields = vi.fn(async () => ok({ results: [], events: [] }));
     const repo = new PageContextRepository(); makeCardCtx(repo);
@@ -250,6 +267,7 @@ describe('keyBy beyond bc_read_data', () => {
       [OpenPageSchema, { pageId: '21' }], [WriteDataSchema, { pageContextId: 'p', fields: { a: 'b' } }],
       [LookupSchema, { pageContextId: 'p', field: 'f' }], [NavigateSchema, { pageContextId: 'p', bookmark: 'b' }],
       [GetOperationSchema, { operationId: 'o' }], [ExecuteActionSchema, { pageContextId: 'p', action: 'a' }],
+      [WizardNavigateSchema, { pageContextId: 'p', action: 'next' }],
     ] as const) {
       expect((schema as any).safeParse({ ...extra, keyBy: 'designName' }).success).toBe(true);
       expect((schema as any).safeParse({ ...extra, keyBy: '' }).success).toBe(false);

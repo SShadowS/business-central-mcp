@@ -21,12 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `bc_open_page` and `bc_navigate` (sections, plus `includeColumnMetadata`),
   `bc_write_data` (field / line-cell names matched by DesignName first, then
   caption), `bc_lookup` (`field` and candidate value keys),
-  `bc_execute_action` (`updatedFields[].name`) and `bc_get_operation`
+  `bc_execute_action` (`updatedFields[].name`), `bc_wizard_navigate`
+  (`fields[].name`) and `bc_get_operation`
   (read-back; defaults to the recorded call's `keyBy`). Omitted keeps
-  the caption behaviour. Wizard step fields (`bc_wizard_navigate`),
-  `bc_respond_dialog`, the `bc_run_report` request page and
-  `bc_execute_action`'s `dialogsOpened[].fields` stay caption-keyed; writes to
-  them still match by caption.
+  the caption behaviour. Dialog and request-page fields (`dialogsOpened[].fields`,
+  `requestPage.fields`) now also carry `designName` when BC sends one.
 
 ## [2.3.0] - 2026-10-22
 

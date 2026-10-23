@@ -12,6 +12,7 @@ export function fieldNodeToControlField(root: FormNode, f: FieldNode): ControlFi
   return {
     controlPath: f.controlPath,
     caption: f.properties.caption ?? '',
+    ...(f.properties.designName ? { designName: f.properties.designName } : {}),
     type: f.type,
     editable: f.properties.editable ?? false,
     visible: f.properties.visible ?? true,
