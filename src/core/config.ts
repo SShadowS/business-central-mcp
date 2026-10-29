@@ -42,6 +42,9 @@ export interface BCConfig {
   odataUrl: string;
   /** Company name for OData queries. Omit to use the first available company. */
   odataCompanyName: string | undefined;
+  /** BC's native MCP server (BC 29+), served by the OData host as `{odataUrl}/mcp`
+   *  (decompiled `McpHostFactory`; verified live on BC 29.1). `BC_MCP_URL` overrides. */
+  mcpUrl: string;
   downloadLimits: {
     maxBytes: number;
     maxTotalBytes: number;
@@ -131,6 +134,7 @@ export function loadConfig(): AppConfig {
   const rawBaseUrl = requireEnv('BC_BASE_URL').replace(/\/+$/, '');
   const saas = parseSaasUrl(rawBaseUrl);
   const resolved = resolveAuth(saas);
+  const odataUrl = deriveODataUrl(saas ? saas.portalUrl : rawBaseUrl);
 
   return {
     bc: {
@@ -152,8 +156,9 @@ export function loadConfig(): AppConfig {
       invokeMaxDurationMs,
       reconnectMaxRetries: optionalEnvInt('BC_RECONNECT_MAX_RETRIES', 4),
       reconnectBaseDelayMs: optionalEnvInt('BC_RECONNECT_BASE_DELAY', 1000),
-      odataUrl: deriveODataUrl(saas ? saas.portalUrl : rawBaseUrl),
+      odataUrl,
       odataCompanyName: process.env.BC_ODATA_COMPANY || undefined,
+      mcpUrl: (process.env.BC_MCP_URL || `${odataUrl}/mcp`).replace(/\/+$/, ''),
       downloadLimits: {
         maxBytes: optionalEnvInt('BC_MAX_DOWNLOAD_BYTES', 5_242_880),
         maxTotalBytes: optionalEnvInt('BC_MAX_DOWNLOAD_TOTAL_BYTES', 10_485_760),

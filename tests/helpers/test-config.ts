@@ -29,6 +29,7 @@ export function makeTestBCConfig(overrides: Partial<BCConfig> = {}): BCConfig {
     reconnectBaseDelayMs: 1000,
     odataUrl: deriveODataUrl(baseUrl),
     odataCompanyName: undefined,
+    mcpUrl: `${deriveODataUrl(baseUrl)}/mcp`,
     downloadLimits: { maxBytes: 5_242_880, maxTotalBytes: 10_485_760, maxDownloads: 5, dir: undefined },
     maxSelection: 100,
     ...overrides,
