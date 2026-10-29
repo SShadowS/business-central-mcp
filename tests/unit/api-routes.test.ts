@@ -53,6 +53,7 @@ function makeMockOps(): Operations {
     uploadFile: makeOp() as never,
     getOperation: makeOp() as never,
     runTests: makeOp() as never,
+    dataQuery: makeOp() as never,
   };
 }
 

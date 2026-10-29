@@ -17,10 +17,11 @@ import {
   SignInRequiredError,
   DeviceLoginRequiredError,
   ConnectionError,
+  DataQueryUnavailableError,
 } from '../core/errors.js';
 
 /**
- * The 14 BC-specific error codes that are NOT folded into a Toolbox core code.
+ * The BC-specific error codes that are NOT folded into a Toolbox core code.
  * This is the exact argument to `errorBodySchema(...)` in the contract test:
  * the body the server EMITS must carry a code in `core ∪ BC_EXTENSION_CODES`.
  */
@@ -40,6 +41,8 @@ export const BC_EXTENSION_CODES = [
   'OPERATION_ID_REUSED',
   'OPERATION_IN_DOUBT',
   'TEST_RUNNER_NOT_INSTALLED',
+  'DATA_QUERY_UNAVAILABLE',
+  'DATA_QUERY_ERROR',
 ] as const;
 
 interface Rule {
@@ -78,6 +81,9 @@ const RULES: Record<string, Rule> = {
   OPERATION_ID_REUSED: { code: 'OPERATION_ID_REUSED', category: 'validation', retryable: false },
   OPERATION_IN_DOUBT: { code: 'OPERATION_IN_DOUBT', category: 'state', retryable: false },
   TEST_RUNNER_NOT_INSTALLED: { code: 'TEST_RUNNER_NOT_INSTALLED', category: 'configuration', retryable: false },
+  DATA_QUERY_UNAVAILABLE: { code: 'DATA_QUERY_UNAVAILABLE', category: 'configuration', retryable: false },
+  // BC rejected the request (AL compile error, unknown table, ...): fix the input.
+  DATA_QUERY_ERROR: { code: 'DATA_QUERY_ERROR', category: 'validation', retryable: false },
 };
 
 const FALLBACK: Rule = { code: 'INTERNAL_ERROR', category: 'internal', retryable: false };
@@ -125,6 +131,8 @@ function detailsFor(e: unknown, originalCode?: string): ErrorDetails {
     d.verificationUri = e.verificationUri;
     d.userCode = e.userCode;
     d.expiresAt = e.expiresAt;
+  } else if (e instanceof DataQueryUnavailableError) {
+    d.reason = e.reason;
   } else if (e instanceof ConnectionError && e.status != null) {
     d.status = e.status;
   }

@@ -13,6 +13,8 @@ import {
   AuthenticationError,
   SignInRequiredError,
   OAuthNotConfiguredError,
+  DataQueryUnavailableError,
+  DataQueryError,
   SessionLostError,
   TimeoutError,
 } from '../../src/core/errors.js';
@@ -31,6 +33,10 @@ import {
   WizardNavigateOutputSchema,
   LookupOutputSchema,
   QueryOutputSchema,
+  DataFindTablesOutputSchema,
+  DataTableSchemaOutputSchema,
+  DataTableRelationsOutputSchema,
+  DataQueryOutputSchema,
   UploadFileOutputSchema,
   GetOperationOutputSchema,
   RunTestsOutputSchema,
@@ -118,6 +124,28 @@ describe('tool envelope contract — the four required failure classes', () => {
     expect(body.error.category).toBe('configuration');
   });
 
+  it('3b. data query tools switched off -> DATA_QUERY_UNAVAILABLE (configuration) with the reason', async () => {
+    const h = new MCPHandler([makeTool('bc_data_query',
+      vi.fn().mockResolvedValue({ ok: false, error: new DataQueryUnavailableError('not offered', 'tools-disabled') }))], logger());
+    const res = await call(h, 'bc_data_query');
+    assertEnvelope(res);
+    const body = res.structuredContent as { error: { code: string; category: string; details: Record<string, unknown> } };
+    expect(body.error.code).toBe('DATA_QUERY_UNAVAILABLE');
+    expect(body.error.category).toBe('configuration');
+    expect(body.error.details.reason).toBe('tools-disabled');
+  });
+
+  it('3c. AL compile error -> DATA_QUERY_ERROR (validation) keeping BC\'s diagnostics', async () => {
+    const h = new MCPHandler([makeTool('bc_data_query',
+      vi.fn().mockResolvedValue({ ok: false, error: new DataQueryError('Compilation failed:\n\n(1,67): error AL0345: ...') }))], logger());
+    const res = await call(h, 'bc_data_query');
+    assertEnvelope(res);
+    const body = res.structuredContent as { error: { code: string; category: string; message: string } };
+    expect(body.error.code).toBe('DATA_QUERY_ERROR');
+    expect(body.error.category).toBe('validation');
+    expect(body.error.message).toContain('AL0345');
+  });
+
   it('4. server disconnect (thrown SessionLostError) -> SESSION_LOST (network), ids as JSON detail', async () => {
     const h = new MCPHandler([makeTool('bc_execute_action',
       vi.fn().mockRejectedValue(new SessionLostError('reconnected', ['pc1', 'pc2'])))], logger());
@@ -172,10 +200,14 @@ describe('tool envelope contract — every tool success validates against its ou
     ['bc_upload_file', UploadFileOutputSchema, { success: true, fileName: 'f', sizeBytes: 0, formId: 'form', dialogsOpened: [], replaySafe: false }],
     ['bc_get_operation', GetOperationOutputSchema, { entry: {} }],
     ['bc_run_tests', RunTestsOutputSchema, { outcome: 'failed', summary: { total: 1, passed: 0, failed: 1, skipped: 0, notRun: 0, durationMs: 4 }, results: [{ codeunitId: 50491, codeunitName: 'I49 SelfStart Tests', method: 'MockStoppedAfterSelfStart', status: 'failed', durationMs: 4, output: 'Assert.IsFalse failed.', callStack: 'Library Assert(CodeUnit 130002).IsFalse line 3' }], failedTests: [{ codeunitId: 50491, method: 'MockStoppedAfterSelfStart' }], suiteName: 'MCP', testRunnerCodeunitId: 130450, replaySafe: false }],
+    ['bc_data_find_tables', DataFindTablesOutputSchema, { company: 'CRONUS Danmark A/S', tables: [{ tableId: 18, tableName: 'Customer' }] }],
+    ['bc_data_get_table_schema', DataTableSchemaOutputSchema, { company: 'CRONUS Danmark A/S', tableId: 18, schema: 'Table: Customer (ID: 18)\nPrimary Key: No.\n' }],
+    ['bc_data_get_table_relations', DataTableRelationsOutputSchema, { company: 'CRONUS Danmark A/S', tableId: 18, tableName: 'Customer', outgoing: [{ targetTableId: 9, targetTableName: 'Country/Region', viaFields: [{ fieldNo: 35, fieldName: 'Country/Region Code' }] }] }],
+    ['bc_data_query', DataQueryOutputSchema, { company: 'CRONUS Danmark A/S', status: 'executed', columns: ['No', 'Name'], rows: [['10000', 'Kontorcentralen A/S']], rowCount: 1, skip: 0, top: 1, totalCount: 5, hasMore: true }],
   ];
 
-  it('covers all 17 tools', () => {
-    expect(cases).toHaveLength(17);
+  it('covers all 21 tools', () => {
+    expect(cases).toHaveLength(21);
   });
 
   it.each(cases)('%s success carries schema-valid structuredContent', async (name, schema, value) => {

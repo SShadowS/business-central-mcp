@@ -38,9 +38,11 @@ describe('tool descriptions', () => {
     }
   });
 
-  it('marks bc_query as the only session-independent tool', () => {
-    const independent = tools.filter(t => t.sessionIndependent).map(t => t.name);
-    expect(independent).toEqual(['bc_query']);
+  it('marks bc_query and the bc_data_* tools as the only session-independent tools', () => {
+    const independent = tools.filter(t => t.sessionIndependent).map(t => t.name).sort();
+    expect(independent).toEqual([
+      'bc_data_find_tables', 'bc_data_get_table_relations', 'bc_data_get_table_schema', 'bc_data_query', 'bc_query',
+    ]);
   });
 
   it('every tool declares explicit read-only/destructive/idempotent annotations', () => {
@@ -58,6 +60,7 @@ describe('tool descriptions', () => {
   it('classifies read-only tools exactly', () => {
     const readOnly = tools.filter(t => t.annotations.readOnlyHint).map(t => t.name).sort();
     expect(readOnly).toEqual([
+      'bc_data_find_tables', 'bc_data_get_table_relations', 'bc_data_get_table_schema', 'bc_data_query',
       'bc_get_operation', 'bc_list_companies', 'bc_lookup', 'bc_navigate', 'bc_open_page',
       'bc_query', 'bc_read_data', 'bc_search_pages',
     ]);

@@ -39,6 +39,7 @@ import { UploadFileOperation } from './operations/upload-file.js';
 import { LookupService } from './services/lookup-service.js';
 import { LookupOperation } from './operations/lookup.js';
 import { createQueryOperation } from './operations/query.js';
+import { createDataQueryOperation } from './operations/data-query.js';
 import { buildToolRegistry, type Operations } from './mcp/tool-registry.js';
 import { MCPHandler } from './mcp/handler.js';
 import { OperationLedger } from './mcp/operation-ledger.js';
@@ -95,6 +96,8 @@ async function main() {
   const { uiAuth, apiAuth } = composeAuthProviders(config, logger, elicitationPort);
   const connectionFactory = new ConnectionFactory(uiAuth, config.bc, logger);
   const queryOperation = createQueryOperation(config, apiAuth);
+  // The getter runs per call, after sessionManager exists.
+  const dataQuery = createDataQueryOperation(config, apiAuth, logger, () => sessionManager.currentSession?.companyName);
 
   // Protocol
   const decoder = new EventDecoder();
@@ -153,6 +156,7 @@ async function main() {
       uploadFile: new UploadFileOperation(uploadService),
       getOperation: new GetOperationOperation(ledger, pageService, () => s.companyName, () => s.modalStackSnapshot().length > 0),
       runTests: new RunTestsOperation(pageService, dataService, actionService, pageContextRepo, logger),
+      dataQuery: dataQuery.operation,
     };
 
     return { operations, tools: buildToolRegistry(operations) };
@@ -317,10 +321,11 @@ async function main() {
     logger.info(`REST API: POST http://${config.server.bindAddress}:${config.port}/api/v1/...`);
   });
 
-  function shutdown(): void {
+  async function shutdown(): Promise<void> {
     logger.info('Shutting down...');
     sessionManager.close();
     server.close();
+    await dataQuery.client.close();
     process.exit(0);
   }
 

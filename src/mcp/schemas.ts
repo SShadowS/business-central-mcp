@@ -131,6 +131,38 @@ export const QuerySchema = z.object({
   company: z.string().optional().describe('Override the BC company name for this query. Defaults to the server-configured company (BC_ODATA_COMPANY or first available company). Use when querying a specific company in a multi-company BC environment.'),
 });
 
+const DataCompany = z.string().min(1).optional().describe('Company to run in (exact, case-sensitive name from bc_list_companies). Defaults to the current session company, then BC_ODATA_COMPANY, then the user\'s default company in BC.');
+const TableId = z.number().int().positive().describe('Numeric BC table ID (e.g., 18 Customer, 17 G/L Entry, 37 Sales Line). Find IDs with bc_data_find_tables.');
+
+export const DataFindTablesSchema = z.object({
+  searchText: z.string().min(1).describe('For searchMode "keyword": one or more comma-separated table name fragments (e.g., "customer, ledger entry"). For "semantic": a natural-language description of the data you need (e.g., "unpaid invoices from vendors").'),
+  searchMode: z.enum(['keyword', 'semantic']).describe('"keyword" matches table names by substring; "semantic" searches page metadata by meaning and returns the source tables of the best-matching pages.'),
+  top: z.number().int().min(1).max(50).optional().describe('Maximum number of tables to return (default 20, max 50).'),
+  company: DataCompany,
+});
+
+export const DataTableSchemaSchema = z.object({
+  tableId: TableId,
+  fieldClass: z.enum(['Normal', 'FlowField', 'FlowFilter']).optional().describe('Only fields of this class. FlowFields are calculated (e.g., Customer "Balance (LCY)"); FlowFilters only narrow FlowField calculations.'),
+  nameContains: z.array(z.string().min(1)).min(1).optional().describe('Only fields whose name contains any of these fragments (case-insensitive), e.g. ["No.", "Amount"]. Use it on wide tables to keep the answer small.'),
+  company: DataCompany,
+});
+
+export const DataTableRelationsSchema = z.object({
+  tableId: TableId,
+  direction: z.enum(['outgoing', 'incoming']).describe('"outgoing": tables this table points to through TableRelation fields (e.g., Customer -> Country/Region). "incoming": tables that point to this one (capped at 50 source tables).'),
+  relatedToTableIds: z.array(z.number().int().positive()).min(1).optional().describe('Only relations to/from these table IDs. Use it to find the join path between two known tables, or when an incoming answer was truncated.'),
+  company: DataCompany,
+});
+
+export const DataQuerySchema = z.object({
+  queryText: z.string().min(1).describe('Complete source of ONE AL query object, e.g. `query 50100 TopCustomers { elements { dataitem(Cust; Customer) { column(No; "No.") { } column(Name; Name) { } } } }`. Object ID and name are free (any ID works; nothing is published). Supports AL query features: joined dataitems (DataItemLink), filters (DataItemTableFilter, ColumnFilter), aggregations (Method = Sum/Count/Average/Min/Max), OrderBy, TopNumberOfRows. Field names must match bc_data_get_table_schema exactly.'),
+  returnData: z.boolean().optional().describe('false (default): only compile and return the column/dataitem schema — use it to check a query cheaply. true: also run it and return a page of rows.'),
+  top: z.number().int().min(1).max(50).optional().describe('Rows per page when returnData is true (default 10, max 50).'),
+  skip: z.number().int().min(0).max(100000).optional().describe('Rows to skip for paging (max 100000). totalCount is only returned on the first page (skip 0). Paging needs a deterministic order: add OrderBy if BC says pagination is not supported.'),
+  company: DataCompany,
+});
+
 export const RunTestsSchema = z.object({
   codeunits: z.string().min(1).optional().describe('Test codeunit ID filter in BC filter syntax: a range "50490..50494", a list "50490|50492", or one ID "50490". Provide exactly one of `codeunits` or `extensionId`.'),
   extensionId: z.string().min(1).optional().describe('App ID (GUID) of the extension whose test codeunits to run. Provide exactly one of `codeunits` or `extensionId`.'),
@@ -307,6 +339,44 @@ export const QueryOutputSchema = z.object({
   count: z.number().optional(),
   cappedAt: z.number().optional(),
   hasMore: z.boolean(),
+});
+
+export const DataFindTablesOutputSchema = z.object({
+  company: z.string(),
+  tables: z.array(z.object({ tableId: z.number(), tableName: z.string(), score: z.number().optional() })),
+});
+
+export const DataTableSchemaOutputSchema = z.object({
+  company: z.string(),
+  tableId: z.number(),
+  schema: z.string(),
+});
+
+export const DataTableRelationsOutputSchema = z.looseObject({
+  company: z.string(),
+  tableId: z.number(),
+  tableName: z.string(),
+  outgoing: z.array(Loose).optional(),
+  incoming: z.array(Loose).optional(),
+  incomingTruncated: z.boolean().optional(),
+  incomingTotalCount: z.number().optional(),
+  hint: z.string().optional(),
+});
+
+// One object shape for both answers (an MCP outputSchema must be an object):
+// status 'compiled' carries column metadata + dataItems; 'executed' carries
+// column names + rows.
+export const DataQueryOutputSchema = z.object({
+  company: z.string(),
+  status: z.enum(['compiled', 'executed']),
+  columns: z.array(z.unknown()),
+  dataItems: z.array(Loose).optional(),
+  rows: z.array(z.array(z.unknown())).optional(),
+  rowCount: z.number().optional(),
+  skip: z.number().optional(),
+  top: z.number().optional(),
+  totalCount: z.number().optional(),
+  hasMore: z.boolean().optional(),
 });
 
 export const UploadFileOutputSchema = z.object({
