@@ -148,6 +148,7 @@ Restart Claude Desktop.
 | `BC_CLIENT_ID` | `bc_query` on SaaS | — | Multi-tenant public Entra app for device-code sign-in (see [bc_query on SaaS](#which-client-id-signs-in-bc_client_id)). UI tools do not need it |
 | `BC_OAUTH_SCOPE` | No | `user_impersonation` + `offline_access` | Override the Entra scope for `bc_query` device-code |
 | `BC_PROFILE` | No | server default | Profile id, e.g. `BUSINESS MANAGER`. Affects which Role Center loads and which pages Tell Me indexes. |
+| `BC_MCP_URL` | No | `{OData URL}/mcp` | BC's own MCP endpoint, used by the `bc_data_*` tools (BC 29+) |
 | `BC_TENANT_ID` | No | `default` | On-prem multi-tenant id. SaaS uses the Entra tenant from the URL. |
 | `BC_CLIENT_VERSION` | No | `27.0.0.0` | Version reported to BC during session open. |
 | `BC_APPLICATION_ID` | No | detected | `navigationContext.applicationId` sent at session open. Unset: read from the server's web client config (`FIN` on SaaS and cronus images, `NAV` on on-prem containers), falling back to `FIN` (see below). |
@@ -318,6 +319,10 @@ Known wart: when the browser sign-in fails (65002, blocked consent), Entra keeps
 | `bc_wizard_navigate` | Drive NavigatePage / wizard flows (back / next / finish / cancel) |
 | `bc_lookup` | List the valid values for a lookup field (e.g. Salesperson Code) |
 | `bc_query` | Bulk read-only OData queries against the BC Standard API v2.0 |
+| `bc_data_find_tables` | Find tables by name fragment or by meaning (BC 29+ data query tools, see below) |
+| `bc_data_get_table_schema` | A table's fields, types, FlowField formulas and relations, as compact text |
+| `bc_data_get_table_relations` | Outgoing or incoming TableRelation links, for joins |
+| `bc_data_query` | Compile and run an AL query object over any table the user can read, read-only, paged |
 | `bc_upload_file` | Upload a local file into a BC file-upload dialog (e.g. Import Layout) |
 | `bc_get_operation` | Look up an earlier `operationId` and, when its outcome is in doubt, read the record back |
 | `bc_run_tests` | Run AL test codeunits through the AL Test Runner (page 130455), so the Permissions Mock and test personas apply; one row per test method |
@@ -359,6 +364,12 @@ The HTTP transport's REST API (`POST /api/v1/...`) uses the same ledger. Its thr
 | unclassified error | `500` |
 
 Ambiguous failures (`503`/`504`/`500`) of a mutating route carry `replaySafe: false`, with or without a key. Read-only routes ignore the header.
+
+### Data query tools (BC 29+)
+
+The four `bc_data_*` tools front the data query tools in Business Central's own MCP server, which BC 29 serves on the OData port at `/BC/mcp`. They let the model write an AL `query` object and run it against any table the user can read, including tables with no API page. BC compiles it on the fly, runs it read-only under the user's permissions, and returns up to 50 rows per page. The usual flow is `bc_data_find_tables`, then `bc_data_get_table_schema` for exact field names, then `bc_data_get_table_relations` for joins, then `bc_data_query`. Compile errors come back as `DATA_QUERY_ERROR` with BC's AL diagnostics, so the model can fix the query and retry.
+
+To turn them on in BC: enable the MCP Server on the Copilot & agent capabilities page, then switch on "Data Query Tools (Preview)" under Server Features in MCP Server Configuration. Until then the tools return `DATA_QUERY_UNAVAILABLE` with a `reason` (`endpoint-missing`, `mcp-disabled` or `tools-disabled`). Auth is the same as `bc_query` (Basic on-prem, Bearer on BC Online). Without a `company` argument they use the current session company, then `BC_ODATA_COMPANY`, then the user's default company in BC. Semantic table search depends on BC's Copilot metadata search and can return nothing on-prem; keyword search always works. Microsoft has announced billing for these tools at general availability.
 
 ## How it works
 

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Data query tools for BC 29+.** `bc_data_find_tables`, `bc_data_get_table_schema`,
+  `bc_data_get_table_relations` and `bc_data_query` front the data query tools of
+  Business Central's own MCP server (`{OData URL}/mcp`, `BC_MCP_URL` overrides).
+  `bc_data_query` compiles an AL query object and runs it read-only over any table
+  the user can read, including tables without an API page, returning pages of up to
+  50 rows. bc-mcp connects with the official MCP TypeScript SDK (Streamable HTTP,
+  protocol `2025-11-25`), keeps one BC MCP session, and passes the company per call,
+  so `bc_switch_company` carries over. They need no web-client session. New error
+  codes: `DATA_QUERY_UNAVAILABLE` (with `reason`) and `DATA_QUERY_ERROR` (BC's text,
+  including AL compile diagnostics).
+
 ## [2.3.0] - 2026-10-22
 
 ### Added
