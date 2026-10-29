@@ -48,6 +48,7 @@
     "url": "https://github.com/SShadowS/business-central-mcp"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@sshadows/bc-toolbox-envelope": "^0.1.0",
     "cheerio": "^1.2.0",
     "dotenv": "^17.4.1",
