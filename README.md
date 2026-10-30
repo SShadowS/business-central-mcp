@@ -1,84 +1,31 @@
-<p align="center">
-  <h1 align="center">business-central-mcp</h1>
-  <p align="center">
-    Give AI assistants direct access to Microsoft Dynamics 365 Business Central.<br/>
-    Native WebSocket protocol -- no OData, no APIs, no browser automation.
-  </p>
-</p>
+# business-central-mcp
 
-<p align="center">
-  <a href="https://www.npmjs.com/package/business-central-mcp"><img src="https://img.shields.io/npm/v/business-central-mcp" alt="npm version"></a>
-  <a href="https://www.npmjs.com/package/business-central-mcp"><img src="https://img.shields.io/npm/dm/business-central-mcp" alt="npm downloads"></a>
-  <a href="https://github.com/SShadowS/business-central-mcp/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/business-central-mcp" alt="license"></a>
-  <a href="vscode:mcp/install?%7B%22name%22%3A%22business-central%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22business-central-mcp%22%5D%2C%22inputs%22%3A%5B%7B%22id%22%3A%22bc_base_url%22%2C%22type%22%3A%22promptString%22%2C%22description%22%3A%22BC%20base%20URL%20%28e.g.%20http%3A%2F%2Fyour-bc-server%2FBC%29%22%7D%2C%7B%22id%22%3A%22bc_username%22%2C%22type%22%3A%22promptString%22%2C%22description%22%3A%22BC%20username%22%7D%2C%7B%22id%22%3A%22bc_password%22%2C%22type%22%3A%22promptString%22%2C%22description%22%3A%22BC%20password%22%2C%22password%22%3Atrue%7D%5D%2C%22env%22%3A%7B%22BC_BASE_URL%22%3A%22%24%7Binput%3Abc_base_url%7D%22%2C%22BC_USERNAME%22%3A%22%24%7Binput%3Abc_username%7D%22%2C%22BC_PASSWORD%22%3A%22%24%7Binput%3Abc_password%7D%22%7D%7D"><img src="https://img.shields.io/badge/VSCode-Install-007ACC?logo=visualstudiocode" alt="Install in VSCode"></a>
-  <a href="https://github.com/SShadowS/business-central-mcp/releases/latest"><img src="https://img.shields.io/badge/Claude%20Desktop-Download%20.dxt-d97757" alt="Download .dxt for Claude Desktop"></a>
-</p>
+An MCP server that lets AI agents work in Microsoft Dynamics 365 Business Central the way a user does: open pages, fill fields, post documents, run reports.
 
----
+[![npm](https://img.shields.io/npm/v/business-central-mcp)](https://www.npmjs.com/package/business-central-mcp)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Install in VSCode](https://img.shields.io/badge/VSCode-Install-007ACC)](vscode:mcp/install?%7B%22name%22%3A%22business-central%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22business-central-mcp%22%5D%2C%22inputs%22%3A%5B%7B%22id%22%3A%22bc_base_url%22%2C%22type%22%3A%22promptString%22%2C%22description%22%3A%22BC%20base%20URL%20%28e.g.%20http%3A%2F%2Fyour-bc-server%2FBC%29%22%7D%2C%7B%22id%22%3A%22bc_username%22%2C%22type%22%3A%22promptString%22%2C%22description%22%3A%22BC%20username%22%7D%2C%7B%22id%22%3A%22bc_password%22%2C%22type%22%3A%22promptString%22%2C%22description%22%3A%22BC%20password%22%2C%22password%22%3Atrue%7D%5D%2C%22env%22%3A%7B%22BC_BASE_URL%22%3A%22%24%7Binput%3Abc_base_url%7D%22%2C%22BC_USERNAME%22%3A%22%24%7Binput%3Abc_username%7D%22%2C%22BC_PASSWORD%22%3A%22%24%7Binput%3Abc_password%7D%22%7D%7D)
+[![Claude Desktop](https://img.shields.io/badge/Claude%20Desktop-Download%20.dxt-d97757)](https://github.com/SShadowS/business-central-mcp/releases/latest)
+
+The UI tools speak the web client's own WebSocket protocol, which I reverse-engineered from the decompiled BC server. Anything a user can do on a page, the agent can do, under that user's permissions and with BC's validation. For bulk reads there is OData, and on BC 29+ the tools in BC's own MCP server: AL queries over any table, and any installed API.
 
 ## Overview
 
-| Property | Value |
-|----------|-------|
-| Language | TypeScript / Node 20+ |
-| npm package | [`business-central-mcp`](https://www.npmjs.com/package/business-central-mcp) |
-| BC versions | BC26 to BC29 (UI tools); `bc_data_*` and `bc_api_*` need BC 29+ |
-| Auth | On-prem NavUserPassword. BC Online: ESTS cookie session for `/csh` (no password in env) + device-code for `bc_query`, `bc_data_*` and `bc_api_*`. |
-| Tools | 25 |
-| Tests | 1328 unit/protocol + 194 integration |
-| License | MIT |
+| | |
+|---|---|
+| BC versions | BC26 to BC29. `bc_data_*` and `bc_api_*` need BC 29+ |
+| Hosting | On-prem and BC Online |
+| Auth | On-prem NavUserPassword. BC Online: browser sign-in for the UI, device code for OData and BC's MCP server |
+| Tools | 25, plus 10 prompts and 3 skills |
+| Transports | stdio, Streamable HTTP, REST |
+| Runtime | Node 20+ |
+| Tests | 1328 unit/protocol, 194 integration against live BC (as of 2.4.0) |
 
 ## Install
 
-**BC Online (sandbox / production):** do not put a password in env. Copy the portal URL from your browser and follow [SaaS sandbox setup](#saas-sandbox-setup). The snippets below are for on-prem NavUserPassword.
+On-prem, NavUserPassword. For BC Online, read [docs/saas.md](docs/saas.md) first: no password goes in env there.
 
-### VSCode
-
-[![Install in VSCode](https://img.shields.io/badge/VSCode-Install-007ACC?logo=visualstudiocode)](vscode:mcp/install?%7B%22name%22%3A%22business-central%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22business-central-mcp%22%5D%2C%22inputs%22%3A%5B%7B%22id%22%3A%22bc_base_url%22%2C%22type%22%3A%22promptString%22%2C%22description%22%3A%22BC%20base%20URL%20%28e.g.%20http%3A%2F%2Fyour-bc-server%2FBC%29%22%7D%2C%7B%22id%22%3A%22bc_username%22%2C%22type%22%3A%22promptString%22%2C%22description%22%3A%22BC%20username%22%7D%2C%7B%22id%22%3A%22bc_password%22%2C%22type%22%3A%22promptString%22%2C%22description%22%3A%22BC%20password%22%2C%22password%22%3Atrue%7D%5D%2C%22env%22%3A%7B%22BC_BASE_URL%22%3A%22%24%7Binput%3Abc_base_url%7D%22%2C%22BC_USERNAME%22%3A%22%24%7Binput%3Abc_username%7D%22%2C%22BC_PASSWORD%22%3A%22%24%7Binput%3Abc_password%7D%22%7D%7D)
-
-Click the badge. VSCode opens and prompts for your BC URL, username, and password (on-prem), then writes the configured entry to your user `mcp.json`. For BC Online, skip the badge and use the [SaaS sandbox](#saas-sandbox-setup) env (URL + optional email only).
-
-<details>
-<summary><strong>Manual install</strong></summary>
-
-Workspace: create `.vscode/mcp.json`:
-
-```json
-{
-  "servers": {
-    "business-central": {
-      "command": "npx",
-      "args": ["-y", "business-central-mcp"],
-      "env": {
-        "BC_BASE_URL": "http://your-bc-server/BC",
-        "BC_USERNAME": "your-user",
-        "BC_PASSWORD": "your-password"
-      }
-    }
-  }
-}
-```
-
-BC Online — same file, no password:
-
-```json
-{
-  "servers": {
-    "business-central": {
-      "command": "npx",
-      "args": ["-y", "business-central-mcp"],
-      "env": {
-        "BC_BASE_URL": "https://businesscentral.dynamics.com/<aad-tenant-id>/DEV",
-        "BC_USERNAME": "you@tenant.com"
-      }
-    }
-  }
-}
-```
-
-</details>
-
-### Claude Code
+**Claude Code**
 
 ```bash
 claude mcp add business-central \
@@ -88,32 +35,17 @@ claude mcp add business-central \
   -- npx -y business-central-mcp
 ```
 
-Scope it to the current project with `--scope project`. See `claude mcp --help` for scoping options.
+Add `--scope project` to keep it to one repo.
 
-BC Online (no password):
+**VS Code**
 
-```bash
-claude mcp add business-central \
-  -e BC_BASE_URL=https://businesscentral.dynamics.com/<aad-tenant-id>/DEV \
-  -e BC_USERNAME=you@tenant.com \
-  --scope project \
-  -- npx -y business-central-mcp
-```
+Click the Install badge above. VS Code asks for URL, username and password and writes the entry to your user `mcp.json`.
 
-### Claude Desktop
+**Claude Desktop**
 
-1. Download the latest `.dxt` from [Releases](https://github.com/SShadowS/business-central-mcp/releases/latest).
-2. Double-click. Claude Desktop opens Settings → Extensions and prompts for BC URL, username, and password (on-prem). For BC Online, use the [manual snippet](#saas-sandbox-setup) instead — do not store a SaaS password.
-3. Restart Claude Desktop.
+Download the `.dxt` from [Releases](https://github.com/SShadowS/business-central-mcp/releases/latest), double-click it, fill in URL, username and password, restart Claude Desktop.
 
-<details>
-<summary><strong>Manual install</strong></summary>
-
-Edit `claude_desktop_config.json`:
-
-- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
-- Linux: `~/.config/Claude/claude_desktop_config.json`
+**Anything else** (Cursor, Grok, a workspace `.vscode/mcp.json`):
 
 ```json
 {
@@ -131,328 +63,138 @@ Edit `claude_desktop_config.json`:
 }
 ```
 
-Restart Claude Desktop.
+VS Code's file uses `"servers"` instead of `"mcpServers"`. That's it.
 
-</details>
+## Try it
+
+Ask the agent things like:
+
+- "Open the customer list and show me everyone in London with a balance over 1000."
+- "Create a sales order for customer 10000 with 5 of item 1896-S, then post it as Ship."
+- "Run the Trial Balance report for last month and save the PDF."
+- "Which items have not sold in 90 days?" (an AL query on BC 29+)
+
+## Tools
+
+**Pages, the way a user works**
+
+| Tool | What it does |
+|------|--------------|
+| `bc_search_pages` | Tell Me search for pages and reports |
+| `bc_open_page` | Open any page by id: list, card, document, Role Center. Returns header, lines, factboxes and cue tiles as `sections[]` |
+| `bc_read_data` | Re-read one section with filters, paging and column selection |
+| `bc_write_data` | Write fields; BC validates and echoes what it stored |
+| `bc_execute_action` | Run a page, row or cue action (New, Delete, Post, Release, ...). Multi-row selection where the page allows it |
+| `bc_navigate` | Select rows and drill down |
+| `bc_lookup` | List the valid values for a lookup field |
+| `bc_respond_dialog` | Answer confirms, messages and request pages |
+| `bc_wizard_navigate` | Back / Next / Finish through a wizard |
+| `bc_close_page` | Close a page |
+| `bc_upload_file` | Upload a local file into a BC upload dialog |
+
+**Company, reports, tests**
+
+| Tool | What it does |
+|------|--------------|
+| `bc_list_companies` / `bc_switch_company` | List companies, switch the session |
+| `bc_run_report` | Run a report, fill its request page, capture the PDF/Excel/Word |
+| `bc_run_tests` | Run AL test codeunits through the Test Runner (page 130455) |
+| `bc_get_operation` | Look up an earlier call by `operationId` and read the record back |
+
+**Bulk reads**
+
+| Tool | What it does |
+|------|--------------|
+| `bc_query` | Read-only OData over the Standard API v2.0 |
+| `bc_data_find_tables` | Find tables by name or meaning (BC 29+) |
+| `bc_data_get_table_schema` | Fields, types, FlowField formulas and relations of a table |
+| `bc_data_get_table_relations` | TableRelation links, for joins |
+| `bc_data_query` | Compile and run an AL `query` object, read-only, 50 rows per page |
+
+**Any installed API (BC 29+)**
+
+| Tool | What it does |
+|------|--------------|
+| `bc_api_search` | Find actions on any API page or query: Microsoft's, ISV and your own |
+| `bc_api_describe` | An action's fields, filters and parameters |
+| `bc_api_list` | Read through an API with OData filter, select, orderby and paging |
+| `bc_api_invoke` | Create, modify, delete or run a bound action, where an admin enabled it |
+
+Every tool carries MCP annotations, so a client can auto-approve the 15 read-only ones and ask before the rest.
+
+## Safe retries
+
+A timeout in the middle of a posting is the worst case: did it post or not? The ten tools that change state take an optional `operationId`. Retrying with the same id returns the stored result instead of posting twice. If the first call's outcome is unknown, you get `OPERATION_IN_DOUBT` with a snapshot of the target, and `bc_get_operation` reads the record back with an evidence hash. Each result also says `replaySafe: true` only when BC's response proved a re-run cannot double-apply.
+
+Details, including the REST mapping: [docs/replay-safety.md](docs/replay-safety.md).
+
+## BC 29: BC's own MCP server
+
+BC 29 ships its own MCP server on the OData port (`/BC/mcp`). bc-mcp connects to it and puts its tools next to the UI tools, so one agent gets both.
+
+**Data query (`bc_data_*`).** The model writes an AL `query` object, BC compiles it on the fly and runs it read-only under the user's permissions. Works on any table the user can read, API page or not. Compile errors come back as `DATA_QUERY_ERROR` with BC's AL diagnostics, so the model fixes the query and retries. The `bc-data-query` skill holds the AL syntax that actually compiles (checked on BC 29.1).
+
+**APIs (`bc_api_*`).** Every installed API page and query the user can read shows up as a `List_*` action (`List_Customers_PAG30009`). Writes appear only for API objects an admin added to the MCP Server Configuration. BC's OData errors come back as `API_ACTION_ERROR` with `details.odataCode` (`Request_EntityChanged` for a stale etag).
+
+To turn them on: enable "MCP Server" on the Copilot & agent capabilities page, then in MCP Server Configuration switch on "Data Query Tools (Preview)" and/or the API tools. Until then the tools return `BC_MCP_UNAVAILABLE` with a `reason` (`endpoint-missing`, `mcp-disabled`, `tools-disabled`).
+
+Honest limits, as of BC 29.1 (October 2026): semantic table and API search returned nothing on-prem, so keyword search is what works there. Microsoft has announced billing for the data query tools at general availability.
 
 ## Configuration
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `BC_BASE_URL` | Yes | — | BC server base URL, e.g. `http://your-bc-server/BC`, or a SaaS portal URL `https://businesscentral.dynamics.com/{aadTenant}/{environment}` |
-| `BC_USERNAME` | NavUserPassword | — | On-prem username. On SaaS this is only an email prefill for the local sign-in window. |
-| `BC_PASSWORD` | NavUserPassword | — | On-prem password. **Ignored on SaaS** (never put a SaaS password in env). |
-| `BC_AUTH` | No | `auto` | `auto` (SaaS URL → `SaasWeb`, otherwise NavUserPassword), `OAuth`, `SaasWeb`, or `NavUserPassword` |
-| `BC_AAD_TENANT_ID` | OAuth (if not in URL) | — | Entra tenant GUID. Taken from a SaaS `BC_BASE_URL` when present |
-| `BC_ENVIRONMENT` | No | from URL | SaaS environment name (`DEV`, `sandbox`, `production`) |
-| `BC_CLIENT_ID` | `bc_query` on SaaS | — | Multi-tenant public Entra app for device-code sign-in (see [bc_query on SaaS](#which-client-id-signs-in-bc_client_id)). UI tools do not need it |
-| `BC_OAUTH_SCOPE` | No | `user_impersonation` + `offline_access` | Override the Entra scope for `bc_query` device-code |
-| `BC_PROFILE` | No | server default | Profile id, e.g. `BUSINESS MANAGER`. Affects which Role Center loads and which pages Tell Me indexes. |
-| `BC_MCP_URL` | No | `{OData URL}/mcp` | BC's own MCP endpoint, used by the `bc_data_*` and `bc_api_*` tools (BC 29+) |
-| `BC_TENANT_ID` | No | `default` | On-prem multi-tenant id. SaaS uses the Entra tenant from the URL. |
-| `BC_CLIENT_VERSION` | No | `27.0.0.0` | Version reported to BC during session open. |
-| `BC_APPLICATION_ID` | No | detected | `navigationContext.applicationId` sent at session open. Unset: read from the server's web client config (`FIN` on SaaS and cronus images, `NAV` on on-prem containers), falling back to `FIN` (see below). |
-| `PORT` | No | `3000` | HTTP transport port (stdio transport ignores this). |
-| `LOG_LEVEL` | No | `info` | `debug` / `info` / `warn` / `error`. |
-| `LOG_DIR` | No | `./logs` | Directory for log files. |
-| `STATE_DIR` | No | `{cwd}/.state` | Per-repo directory for `saas-web-cookies.json` and `oauth-tokens.json` (mode 0600), and the `operations/` replay ledger. Relative paths resolve against the MCP process working directory (the project you started the agent in). Sessions in the same repo share the file; different repos never share a login. |
-| `BC_OPERATION_TTL` | No | `86400000` (24h) | How long (ms) a completed `operationId` stays replayable. After that the entry is deleted and the same id runs the call again. Must be > 0. |
-| `BC_OPERATION_INDOUBT_TTL` | No | `2592000000` (30 days) | How long (ms) `sent`/`unknown` ledger entries (in-flight or in-doubt calls) are kept before they are deleted. Must be at least 24h and at least 2x `BC_INVOKE_MAX_DURATION`, so an in-flight call's entry is never pruned. |
-| `BC_INVOKE_TIMEOUT` | No | `30000` | RPC timeout in ms for OpenSession and modal-recovery calls. |
-| `BC_ISEXECUTING_POLL_INTERVAL` | No | `10000` | While a call runs, ask BC every N ms whether it is still processing. A long post or report stays alive as long as BC says yes; a hung call is killed once BC says no. |
-| `BC_INVOKE_MAX_DURATION` | No | `600000` | Hard cap in ms for one call, even while BC is still processing. |
-| `BC_RECONNECT_MAX_RETRIES` | No | `4` | Reconnect attempts after session death. |
-| `BC_RECONNECT_BASE_DELAY` | No | `1000` | Base delay (ms) for exponential reconnect backoff. |
+The ones you are likely to touch:
 
-## Central connection config
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BC_BASE_URL` | required | `http://your-bc-server/BC`, or a BC Online portal URL |
+| `BC_USERNAME` / `BC_PASSWORD` | | On-prem credentials. Never set a password for BC Online |
+| `BC_CLIENT_ID` | | Entra app for OData and BC's MCP server on BC Online ([docs/saas.md](docs/saas.md)) |
+| `BC_PROFILE` | server default | Profile id, e.g. `BUSINESS MANAGER` |
+| `BC_ODATA_COMPANY` | first company | Company for `bc_query`, fallback for `bc_data_*` / `bc_api_*` |
+| `BC_DOWNLOAD_DIR` | | Also save report and export downloads to disk |
+| `STATE_DIR` | `{cwd}/.state` | Cookies, tokens and the retry ledger |
 
-Running several Claude Code sessions against several BC instances no longer
-requires a full `BC_*` env block in every repo's `.mcp.json`. Register the
-server once at user scope and define the connections in one file.
-
-1. Register the server globally:
-
-   ```bash
-   claude mcp add business-central -s user -- node U:/git/bc-mcp/node_modules/tsx/dist/cli.mjs U:/git/bc-mcp/src/stdio-server.ts
-   ```
-
-2. Create `~/.bc-mcp/config.jsonc` (see `config.jsonc.example`): a set of named
-   `connections`, an optional `default`, and an optional `map[]` from repo path
-   to connection.
-
-3. Each session picks its connection, highest priority first:
-
-   - an explicit `BC_*` env var (e.g. `BC_BASE_URL`) always wins for that field;
-   - `BC_CONNECTION=<name>` selects a named connection;
-   - a `map[]` entry whose `path` matches the session's working directory;
-   - the `default` connection.
-
-Keep secrets out of the file with `${ENV}` references (expanded from the
-process environment); on macOS/Linux the file should be mode `0600`. SaaS
-connections carry no password — sign in via the local window or
-`npx business-central-mcp login`. With no config file present, the server runs
-exactly as before from plain `BC_*` environment variables.
-
-A `<cwd>/.env` (or the file at `BC_ENV_FILE`) is also auto-loaded at startup,
-before connection resolution — real environment variables set outside the
-file still win (`override:false`).
-
-### On-prem containers: `applicationId` (`FIN` vs `NAV`)
-
-`OpenSession` must carry the `applicationId` the server expects. SaaS and cronus images expect
-`FIN`; on-prem BcContainerHelper containers (the `onprem` artifact type) generally expect `NAV`.
-With `BC_APPLICATION_ID` unset, bc-mcp reads the value the web client would use from
-`{BC_BASE_URL}/boot/browser/desktop?tenant=…` (served without sign-in) before the first session,
-and falls back to `FIN` if that fails (logged as a warning).
-
-If the session still dies at `OpenSession` with `NavCancelCredentialPromptException` although
-sign-in and the WebSocket upgrade both succeeded, set it explicitly:
-
-```
-BC_APPLICATION_ID=NAV
-```
-
-The failure is misleading because authentication and the `/csh` upgrade complete first (you get a
-101); BC only rejects the `applicationId` inside the `OpenSession` RPC body. Verified against BC
-27.1 `onprem` (see issue #10).
-
-### SaaS sandbox setup
-
-You only need the URL from the browser address bar — the same one you use to open Business Central Online:
-
-```
-https://businesscentral.dynamics.com/<aad-tenant-id>/<environment>
-```
-
-`<environment>` is usually `DEV`, `sandbox`, or `production`. **Do not set `BC_PASSWORD`.** Company policy and this server both treat a SaaS password in env as wrong.
-
-1. Copy that portal URL into `BC_BASE_URL` (no extra path, no query string).
-2. Optionally set `BC_USERNAME` to your work email — that only prefills the sign-in form.
-3. Point the MCP at this project (stdio, Grok `.grok/config.toml`, Claude `--scope project`, or a workspace `mcp.json`). Leave `STATE_DIR` unset so cookies land in `{project}/.state/`.
-4. Start the agent on a machine **with a display** (Linux needs `DISPLAY` or `WAYLAND_DISPLAY`). Headless CI cannot complete MFA.
-5. Ask the agent to open a page (`bc_open_page`, e.g. Customer List = 22). A local window (`127.0.0.1`) opens. Sign in with Microsoft and complete Authenticator there. Do not paste the password into chat or tool arguments.
-6. Retry the tool. Cookies are saved as `{project}/.state/saas-web-cookies.json` (mode 0600). Later sessions in the **same repo** reuse them; another repo needs its own sign-in.
-
-Human shortcut (same working directory as the MCP):
-
-```bash
-npx business-central-mcp login
-# from a source checkout:
-npx tsx src/stdio-server.ts login
-```
-
-**Grok** (project-scoped, no password):
-
-```toml
-# .grok/config.toml  — not committed if it holds a tenant URL you do not want shared
-[mcp_servers.business-central]
-command = "npx"
-args = ["-y", "business-central-mcp"]
-
-[mcp_servers.business-central.env]
-BC_BASE_URL = "https://businesscentral.dynamics.com/<aad-tenant-id>/DEV"
-BC_USERNAME = "you@tenant.com"
-```
-
-From a source checkout, point `command` / `args` at `node` + `node_modules/tsx/dist/cli.mjs` + `src/stdio-server.ts` instead of `npx`.
-
-**Claude Desktop / VS Code** (no `BC_PASSWORD`):
-
-```json
-{
-  "mcpServers": {
-    "business-central": {
-      "command": "npx",
-      "args": ["-y", "business-central-mcp"],
-      "env": {
-        "BC_BASE_URL": "https://businesscentral.dynamics.com/<aad-tenant-id>/DEV",
-        "BC_USERNAME": "you@tenant.com"
-      }
-    }
-  }
-}
-```
-
-The WebSocket is not on the portal host. After sign-in the server discovers the cluster and uses `Origin: https://businesscentral.dynamics.com`. You never put a cluster URL in config.
-
-### `bc_query` (OData) on SaaS
-
-`bc_query` does **not** use the `/csh` cookie session. When sign-in is needed the first call returns `DEVICE_LOGIN_REQUIRED` with a `https://microsoft.com/devicelogin` URL and user code — complete it in a browser and retry; the retry picks up the pending sign-in and runs the query. The refresh token is stored in `STATE_DIR/oauth-tokens.json` (mode 0600).
-
-`bc_query` talks to `https://api.businesscentral.dynamics.com/v2.0/{tenant}/{environment}/api/v2.0` with the Bearer token. If `BC_CLIENT_ID` is not configured it returns `OAUTH_NOT_CONFIGURED` (device-code that has not been completed returns `DEVICE_LOGIN_REQUIRED`, above); it never sends Basic.
-
-#### Which client id signs in (`BC_CLIENT_ID`)
-
-`BC_CLIENT_ID` is required for `bc_query` on BC Online: a **multi-tenant public** Entra app with delegated `Dynamics 365 Business Central / user_impersonation`. The publisher registers it ONE time in their **own** tenant; customer tenants register nothing — each user consents at first sign-in (`user_impersonation` is user-consentable), and tenants that disable user consent need a one-time admin-consent click.
-
-Do not borrow a Microsoft first-party client (Azure PowerShell `1950a258-…` as `New-BcAuthContext` does, Azure CLI, …): on tenants with Entra first-party hardening the sign-in fails **in the browser** with `AADSTS65002` ("consent between first party application and first party resource must be configured via preauthorization"), which no tenant admin can consent around. Verified live 2026-08-16 — the same sign-in succeeds on one tenant and fails with 65002 on another. A third-party multi-tenant app is structurally immune (65002 only gates Microsoft-owned client/resource pairs).
-
-Create the app (once, in the publisher tenant):
-
-```bash
-az ad app create --display-name "business-central-mcp" \
-  --is-fallback-public-client true \
-  --sign-in-audience AzureADMultipleOrgs \
-  --required-resource-accesses '[{"resourceAppId":"996def3d-b36c-4153-8607-a6fd3c01b89f","resourceAccess":[{"id":"bce0976a-cb0b-473b-8800-84eda9f8e447","type":"Scope"}]}]' \
-  --query appId -o tsv
-```
-
-(`996def3d…` is the Dynamics 365 Business Central resource; `bce0976a…` is its delegated `user_impersonation` scope.) Put the printed appId in `BC_CLIENT_ID`.
-
-Known wart: when the browser sign-in fails (65002, blocked consent), Entra keeps the device code `authorization_pending`, so retries re-serve the same doomed code until it expires (~15 min). Fix the client id / consent, wait out or ignore the old code, and retry for a fresh one.
-
-## What can it do?
-
-| Tool | What it does |
-|---|---|
-| `bc_open_page` | Open any page by ID -- lists, cards, documents, role centers. Returns the page as `sections[]` with header, lines, factboxes, and Role Center cuegroup tiles. |
-| `bc_read_data` | Refresh a single section: filter, paginate, slice, project tab/columns. Returns the same `Section` shape as `bc_open_page`. |
-| `bc_write_data` | Write field values; BC validates and echoes confirmed values. Section-aware (lines, factboxes, header). |
-| `bc_execute_action` | Run header / row / wizard actions, OR drill down on Role Center cue tiles via `cue` input. |
-| `bc_respond_dialog` | Handle confirmation prompts and request pages |
-| `bc_navigate` | Select rows and drill down into records |
-| `bc_search_pages` | Tell Me search. Returns `{ name, objectType, runTarget, departmentPath, category, score }` per result. |
-| `bc_close_page` | Close a page and free server resources |
-| `bc_switch_company` | Switch to a different company mid-session |
-| `bc_list_companies` | Discover available companies |
-| `bc_run_report` | Execute reports and fill request page parameters |
-| `bc_wizard_navigate` | Drive NavigatePage / wizard flows (back / next / finish / cancel) |
-| `bc_lookup` | List the valid values for a lookup field (e.g. Salesperson Code) |
-| `bc_query` | Bulk read-only OData queries against the BC Standard API v2.0 |
-| `bc_data_find_tables` | Find tables by name fragment or by meaning (BC 29+ data query tools, see below) |
-| `bc_data_get_table_schema` | A table's fields, types, FlowField formulas and relations, as compact text |
-| `bc_data_get_table_relations` | Outgoing or incoming TableRelation links, for joins |
-| `bc_data_query` | Compile and run an AL query object over any table the user can read, read-only, paged |
-| `bc_api_search` | Find actions on any installed API page or query: standard, ISV and custom APIs (BC 29+) |
-| `bc_api_describe` | An API action's fields, filters and parameters |
-| `bc_api_list` | Read through any API List action with OData filter, select, orderby and paging |
-| `bc_api_invoke` | Create, modify or delete through an API, or run a bound action, where an admin enabled it |
-| `bc_upload_file` | Upload a local file into a BC file-upload dialog (e.g. Import Layout) |
-| `bc_get_operation` | Look up an earlier `operationId` and, when its outcome is in doubt, read the record back |
-| `bc_run_tests` | Run AL test codeunits through the AL Test Runner (page 130455), so the Permissions Mock and test personas apply; one row per test method |
-
-Every tool carries MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`), so clients can auto-approve the read-only ones and ask before writes, actions, dialogs, reports, uploads and test runs.
-
-The nine tools that change state accept an optional `operationId` (an idempotency key you generate). A retry with the same id and arguments returns the first call's stored result instead of running the change again, so retrying after a timeout or dropped connection cannot double-post. The same id with different arguments returns `OPERATION_ID_REUSED`. If the first call's outcome is unknown (timeout, session loss), the retry returns `OPERATION_IN_DOUBT`: check the record before acting under a new id. That response carries a `target` snapshot taken before the first call ran (company, page id and caption, section, the targeted rows' cell values, dialog), so you can find the record again even though the original `pageContextId` died with the session. Calls are recorded in `STATE_DIR/operations/`, so this survives a server restart.
-
-Replay is time-limited. The server prunes the ledger at start and hourly: a completed entry is deleted after `BC_OPERATION_TTL` (default 24 hours), after which a retry with the same id runs the call again, so check with `bc_get_operation` before a late retry. `sent`/`unknown` entries are kept for `BC_OPERATION_INDOUBT_TTL` (default 30 days). Download bytes are not stored: a replayed result lists each download's `fileName`, `contentType`, `sizeBytes` and `savedPath` (set when `BC_DOWNLOAD_DIR` is configured), but not its `bytes`; each such entry carries `error.code: "NOT_REPLAYED"` so it is never mistaken for a successful capture.
-
-Every result from those nine tools (and its ledger entry) carries `replaySafe`. `true` means BC's response proved that re-running the same call, even under a new `operationId` after an unknown outcome, cannot apply the change twice. `false` means a re-run may double-apply, or nothing in the response proved otherwise: read the record back first. The server only says `true` when it can prove it:
-
-| Tool | `replaySafe: true` when |
-|------|-------------------------|
-| `bc_write_data` | BC echoed every written value (it echoes only a value that changed, and a write to a read-only field is silently dropped), and no dialog is pending |
-| `bc_execute_action` | the action was Refresh, or BC closed the form the action ran on (a re-run on a closed form is rejected with `FormNotFoundException`) |
-| `bc_respond_dialog` | BC closed the dialog form |
-| `bc_wizard_navigate` | BC closed the wizard form (finish/cancel); next/back never |
-| `bc_close_page` | no save/discard dialog blocked the close (closing a closed form is a no-op) |
-| `bc_switch_company` | the session ends on the requested company (a switch to the current company is a no-op that keeps open pages) |
-| `bc_run_report`, `bc_upload_file`, `bc_run_tests` | never: a re-run reruns the report, the import or the tests |
-
-An `OPERATION_IN_DOUBT` response is always `replaySafe: false`, and so is the first error response to an ambiguous failure (`TIMEOUT_ERROR`, `SESSION_LOST`, `CONNECTION_ERROR`, `PROTOCOL_ERROR`, `ABORTED_ERROR`, or an unclassified error), with or without an `operationId`: it is in `structuredContent` next to the error code. Definite failures (validation, business errors) carry no verdict, because nothing was applied.
-
-`bc_get_operation { operationId }` (read-only) returns the ledger entry: status, tool, timestamps, `replaySafe`, the stored result and the `target` snapshot. When the status is not `completed` or `replaySafe` is false, it also re-reads the target in the current session: it re-opens the page by page id on the recorded record bookmark, reads the record's primary-key fields (by table field number, from the page's own key metadata; a key field with no control on the page, such as a Sales Order's "Document Type", is decoded from the record bookmark and marked `source: "bookmark"`, with an option as its ordinal; a key that no longer matches returns `readBackError: KEY_MISMATCH` without an `evidenceHash`) plus any written fields (or the targeted list row, `null` if it is gone; a document header also gets its loaded `lines`, since a posting changes line state such as "Quantity Shipped" but not the header key fields), closes the page, and returns that as `readBack` with `evidenceHash`, the SHA-256 of its sorted-key JSON. It does not switch company for you (`readBackError: COMPANY_MISMATCH`), does not open a page while a dialog is open (`MODAL_OPEN`: opening would cancel it; answer it first), and never re-opens a page without a recorded record bookmark (`NO_TARGET`). A card in edit mode keeps a written value until the page is closed or leaves the record, so a read-back taken while the original page is still open can show the old value.
-
-The HTTP transport's REST API (`POST /api/v1/...`) uses the same ledger. Its three mutating routes take the key in an `Idempotency-Key` header and record it under their MCP tool name (`pages/write` = `bc_write_data`, `pages/action` = `bc_execute_action`, `pages/close` = `bc_close_page`), so a key means the same operation on both transports and `bc_get_operation` can look up a REST call. Responses:
-
-| Case | HTTP status |
-|------|-------------|
-| success | `200` |
-| replay of a completed call | `200` with the stored body and `Idempotent-Replayed: true` |
-| `OPERATION_ID_REUSED` (key used for a different route or body) | `422` |
-| `OPERATION_IN_DOUBT` | `409`, body `{ code, operationId, status, replaySafe: false, target, ... }` |
-| definite failure (validation, business error) | `400` |
-| sign-in required | `401` |
-| `TIMEOUT_ERROR` | `504` |
-| other ambiguous failure (`SESSION_LOST`, `CONNECTION_ERROR`, `PROTOCOL_ERROR`, `ABORTED_ERROR`) | `503` |
-| unclassified error | `500` |
-
-Ambiguous failures (`503`/`504`/`500`) of a mutating route carry `replaySafe: false`, with or without a key. Read-only routes ignore the header.
-
-### Data query tools (BC 29+)
-
-The four `bc_data_*` tools front the data query tools in Business Central's own MCP server, which BC 29 serves on the OData port at `/BC/mcp`. They let the model write an AL `query` object and run it against any table the user can read, including tables with no API page. BC compiles it on the fly, runs it read-only under the user's permissions, and returns up to 50 rows per page. The usual flow is `bc_data_find_tables`, then `bc_data_get_table_schema` for exact field names, then `bc_data_get_table_relations` for joins, then `bc_data_query`. Compile errors come back as `DATA_QUERY_ERROR` with BC's AL diagnostics, so the model can fix the query and retry.
-
-To turn them on in BC: enable the MCP Server on the Copilot & agent capabilities page, then switch on "Data Query Tools (Preview)" under Server Features in MCP Server Configuration. Until then the tools return `BC_MCP_UNAVAILABLE` with a `reason` (`endpoint-missing`, `mcp-disabled` or `tools-disabled`). Auth is the same as `bc_query` (Basic on-prem, Bearer on BC Online). Without a `company` argument they use the current session company, then `BC_ODATA_COMPANY`, then the user's default company in BC. Semantic table search depends on BC's Copilot metadata search and can return nothing on-prem; keyword search always works. Microsoft has announced billing for these tools at general availability.
-
-### API tools (BC 29+)
-
-The four `bc_api_*` tools use the API tools of the same BC MCP server. `bc_api_search` finds actions on every installed API page and API query the user can read, named like `List_Customers_PAG30009` or `Create_Customer_PAG30009`. That covers Microsoft's standard APIs as well as ISV and custom extension APIs. `bc_api_describe` shows an action's fields and parameters, `bc_api_list` reads with OData `filter`, `select`, `orderby`, `top` and `skip`, and `bc_api_invoke` creates, modifies or deletes a record, or runs a bound action such as posting.
-
-Reads need no setup. Writes are listed only for API objects an admin adds to BC's MCP Server Configuration with Create/Modify/Delete/Bound Actions permissions. `bc_api_invoke` takes an `operationId` like the other changing tools; `replaySafe` is true for Modify (it needs the record's current `@odata.etag` as `If-Match`, so a repeat is refused) and Delete, and false for Create and bound actions. BC's rejections come back as `API_ACTION_ERROR` with BC's OData code in `details.odataCode` (e.g. `Request_EntityChanged` for a stale etag).
+All 30-odd variables, one config file for many BC instances (`~/.bc-mcp/config.jsonc`), and the `FIN`/`NAV` applicationId gotcha on on-prem containers: [docs/configuration.md](docs/configuration.md).
 
 ## How it works
 
-This server speaks BC's internal WebSocket protocol directly -- the same protocol the browser-based web client uses. It was reverse-engineered from decompiled BC server assemblies. No OData endpoints, no SOAP services, no Selenium.
-
-One WebSocket connection per session. All operations serialized through a promise queue. BC27 and BC28 are wire-compatible.
-
 ```
-LLM (Claude / Copilot / etc.)
-   |
-   v   MCP (stdio or HTTP)
+Agent (Claude, Copilot, ...)
+   |  MCP over stdio or Streamable HTTP
+   v
 business-central-mcp
-   |
-   v   WebSocket + JSON-RPC
-BC Web Service Tier (BC27 / BC28)
-   |
-   v   internal calls
-BC Server
+   |-- WebSocket /csh, JSON-RPC ------> BC web client endpoint   (UI tools)
+   |     (SignalR hub on BC26)
+   |-- OData v4 ----------------------> BC API v2.0              (bc_query)
+   |-- MCP Streamable HTTP -----------> BC 29 native MCP server  (bc_data_*, bc_api_*)
 ```
 
-<details>
-<summary><strong>Page output shape</strong></summary>
+One WebSocket per session, every call serialised through a queue, because BC's protocol is stateful and concurrent sends corrupt it. BC26 to BC29 share one codec; BC26 only differs in framing.
 
-`bc_open_page` returns the page as a flat list of sections:
+What keeps it running:
 
-```json
-{
-  "pageContextId": "session:page:21:abc",
-  "pageType": "Card",
-  "caption": "Customer Card",
-  "isModal": false,
-  "sections": [
-    { "sectionId": "header",                       "kind": "header",  "fields": [...], "actions": [...] },
-    { "sectionId": "factbox:Customer Statistics",  "kind": "factbox", "fields": [...] }
-  ]
-}
-```
+- A dead session reconnects with backoff (1, 2, 4, 8 s).
+- Long posts and reports stay alive as long as BC answers `IsExecuting` with yes. A hung call is killed when BC says no twice.
+- Stale confirms and request pages left by a crash are closed with No / Cancel, never accepted. Anything else resets the session.
+- License popups on fresh databases are dismissed.
+- Downloads are fetched only from BC's own file handler on the same origin, never from an external URL.
 
-Each section carries its own content shape:
-- **Card-style** (`header` on Card pages, `factbox`, `requestPage`): `fields[]` and (for `header`) `actions[]`
-- **List-style** (`lines` on Documents, `header` on List pages, repeater subpages): `rows[]` and `totalRowCount`
-- **Cue tiles** (Role Center hosted CardParts): `cues[]` with each tile's `name`, `value`, `groupCaption`, `synopsis`, `hasAction`. Drill down with `bc_execute_action { section, cue }`.
-
-`bc_read_data` returns a single `Section` for the requested `sectionId` (defaults to `"header"`). The section ID for a FactBox or subpage comes from the `bc_open_page` response.
-
-</details>
-
-<details>
-<summary><strong>Session resilience</strong></summary>
-
-- Automatic reconnect with exponential backoff after session death
-- Handles BC's ~15s NTLM auth slot hold after crashes
-- Auto-dismisses license popups on fresh databases
-- Invoke timeout kills hung sessions and triggers recovery
-- Auto-recovery from `LogicalModalityViolationException` mid-session: closes stale confirms, messages and report request pages (`CloseForm`, which answers a confirm with No and cancels a request page) and retries transparently; any other stale modal (a `Page.RunModal` page, a lookup, a menu), or a dialog BC does not close, resets the session instead, because closing it could accept it
-
-</details>
+Every protocol claim in this repo is checked against the decompiled BC source and a live container. [CLAUDE.md](CLAUDE.md) has the long version, with the classes that confirmed each one.
 
 ## Key files
 
-| File | Purpose |
+| Path | Purpose |
 |------|---------|
-| `src/stdio-server.ts` | npm `bin` entry -- stdio MCP transport |
-| `src/server.ts` | HTTP MCP transport entry |
-| `src/mcp/` | MCP tool registry, schemas, request handler |
-| `src/operations/` | One handler per tool (`bc_open_page`, `bc_read_data`, etc.) |
-| `src/services/` | Page, data, action, navigation, search business logic |
-| `src/protocol/` | WebSocket transport, wire types, captures |
-| `src/session/` | Session lifecycle, modal stack, reconnect |
-| `manifest.json` | Claude Desktop Extension manifest |
-| `scripts/build-dxt.ts` | Builds `.dxt` artifact for Claude Desktop |
-| `.github/workflows/release.yml` | Builds + attaches `.dxt` on `v*` tag pushes |
-| `ROADMAP.md` | Deferred work (Cursor, init wizard) |
+| `src/stdio-server.ts` | npm `bin` entry, stdio transport |
+| `src/server.ts` | HTTP transport (MCP + REST) |
+| `src/mcp/` | Tool registry, schemas, handler, prompts, skills, retry ledger |
+| `src/operations/` | One operation per tool, with its `*.tool.ts` definition next to it |
+| `src/services/` | Page, data, action, navigation and download logic |
+| `src/protocol/` | Wire codec, form state, captures |
+| `src/session/` | Session lifecycle, invoke queue, modal recovery |
+| `src/connection/` | WebSocket, auth providers, HTTP |
+| `src/bcmcp/` | Client for BC 29's native MCP server |
+| `.github/workflows/release.yml` | On a `v*` tag: test, publish to npm with provenance, attach the `.dxt` |
 
 ## Development
 
@@ -460,18 +202,15 @@ Each section carries its own content shape:
 git clone https://github.com/SShadowS/business-central-mcp
 cd business-central-mcp
 npm install
-npm run start:stdio-direct   # Run from source
-npm test                     # unit + protocol tests
-npm run test:integration     # Cronus28 integration tests (requires running BC server)
-npm run test:saas            # BC Online smoke (needs a signed-in STATE_DIR cookie file)
+npm run typecheck
+npm test                     # unit + protocol
+npm run test:integration     # needs a live BC container
+npm run start:stdio-direct   # run from source
 ```
 
-## Roadmap
-
-Cursor support, an interactive `init` wizard, and a few protocol gaps.
-See [ROADMAP.md](ROADMAP.md) for the full list and priorities.
+Still missing: Windows auth for on-prem, Cursor install badge, an `init` wizard. See [ROADMAP.md](ROADMAP.md). Found a page it can't drive? Open an issue with the page id and the log from `LOG_DIR`.
 
 ---
 
-**Author:** Torben Leth (sshadows@sshadows.dk)
-**License:** MIT (see [LICENSE](LICENSE))
+**Author**: Torben Leth (sshadows@sshadows.dk)
+**License**: MIT (see [LICENSE](LICENSE))

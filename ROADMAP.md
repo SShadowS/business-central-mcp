@@ -17,7 +17,7 @@ Future work, ordered by priority within each section. Open an issue or PR if you
 
 ## Protocol
 
-- **More tools.** Cover the remaining ~10% of the web client that the current 16 tools do not. Tracked via issues.
+- **More tools.** Cover the remaining ~10% of the web client that the current tools do not. Tracked via issues.
 - **BC29+ wire-compat verification.** Verify each new BC version as it ships.
 
 ## Distribution
