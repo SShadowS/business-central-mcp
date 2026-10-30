@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so `bc_switch_company` carries over. They need no web-client session. New error
   codes: `DATA_QUERY_UNAVAILABLE` (with `reason`) and `DATA_QUERY_ERROR` (BC's text,
   including AL compile diagnostics).
+- **`bc-data-query` skill and `bc_data_analysis` prompt.** The skill teaches the
+  find-tables -> schema -> relations -> query workflow and AL query syntax
+  (filters, FlowField `ColumnFilter`, aggregations, joins, date grouping, paging,
+  compile errors). Every example and rule in it was run against BC 29.1. The prompt
+  is a step-by-step playbook for answering a data question with an AL query.
 
 ## [2.3.0] - 2026-10-22
 

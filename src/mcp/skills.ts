@@ -112,11 +112,160 @@ absent and \`replaySafe\` was false, run the call again under a fresh
 \`operationId\`. Never retry an in-doubt post without this check.
 `;
 
+// Every AL example and syntax rule below was compiled and run against BC 29.1
+// (Cronus291, 2026-10-30), including the FlowField filter (AL0672) and
+// TopNumberOfRows-vs-top behaviour.
+const DATA_QUERY_BODY = `
+# Querying Business Central data with AL queries
+
+\`bc_data_query\` compiles an AL \`query\` object you write and runs it against
+any table the user can read: tables with no API page, extension tables,
+ledger entries. BC compiles it as a dynamic object (nothing is published) and
+always runs it read-only with the user's permissions and security filters.
+It needs BC 29+ with "Data Query Tools (Preview)" enabled in BC's MCP Server
+Configuration; otherwise every \`bc_data_*\` tool returns
+\`DATA_QUERY_UNAVAILABLE\` (use \`bc_query\` for Standard API entities instead).
+
+## 1. Workflow
+
+1. \`bc_data_find_tables\` with \`searchMode: "keyword"\` and comma-separated
+   name fragments ("customer, ledger entry") to get table IDs. \`"semantic"\`
+   takes plain language but can come back empty on-prem; then use keyword.
+2. \`bc_data_get_table_schema\` for EVERY table you use. Field names vary by
+   version and extensions, and a wrong name is a compile error. Use
+   \`nameContains\` on wide tables. FlowFields show their formula.
+3. \`bc_data_get_table_relations\` (\`direction: "outgoing"\`, optionally
+   \`relatedToTableIds\`) to find the field that links two tables.
+4. \`bc_data_query\` without \`returnData\` to compile and check the columns,
+   then with \`returnData: true\` to get rows.
+
+## 2. Query shape
+
+    query 50100 CustomerList
+    {
+        elements
+        {
+            dataitem(Cust; Customer)
+            {
+                column(No; "No.") { }
+                column(Name; Name) { }
+                column(City; City) { }
+            }
+        }
+    }
+
+- Exactly one \`query\` object per call. Any ID and name work.
+- \`dataitem(<alias>; <table name>)\`, \`column(<column name>; <field>)\`.
+  Quote names with spaces or dots: \`"No."\`, \`"Cust. Ledger Entry"\`.
+- Column names must be unique across the whole query and are what the
+  result's \`columns\` array reports.
+
+## 3. Let BC aggregate
+
+Prefer one aggregating query over paging through raw rows.
+
+    query 50101 OpenInvoicesByCustomer
+    {
+        OrderBy = descending(Amount);
+        elements
+        {
+            dataitem(CLE; "Cust. Ledger Entry")
+            {
+                DataItemTableFilter = "Document Type" = const(Invoice), Open = const(true);
+                column(CustomerNo; "Customer No.") { }
+                column(Amount; "Remaining Amount") { Method = Sum; }
+                column(Entries) { Method = Count; }
+            }
+        }
+    }
+
+- \`Method = Sum | Average | Min | Max | Count\`. A \`Count\` column has no field.
+  Non-aggregated columns become the grouping.
+- \`DataItemTableFilter\` filters rows on NORMAL fields: \`Field = const(Value)\`
+  for one value, \`Field = filter(<BC filter>)\` for ranges and lists, e.g.
+  \`"Sales (LCY)" = filter(>1000)\`, \`"No." = filter('10000|20000')\`.
+- A FlowField (the schema shows "FlowField: ...") cannot go in
+  \`DataItemTableFilter\` (error \`AL0672\`). Filter it with \`ColumnFilter\` on
+  its column, \`column(Amount; Amount) { ColumnFilter = Amount = filter(>1000); }\`,
+  or, to filter without returning it, a filter element:
+  \`filter(AmountFilter; Amount) { ColumnFilter = AmountFilter = filter(>1000); }\`.
+- \`OrderBy = descending(<column>)\` (or \`ascending\`), comma-separated for
+  several. It names COLUMNS, not fields.
+- Limit rows with the tool's \`top\`, not \`TopNumberOfRows\`: \`top\` (default 10)
+  decides how many rows come back, while \`TopNumberOfRows\` only changes
+  \`totalCount\`.
+
+## 4. Joins
+
+Nest the child dataitem and link it with \`DataItemLink\`:
+
+    query 50102 CustomerSales
+    {
+        OrderBy = descending(Sales);
+        elements
+        {
+            dataitem(Cust; Customer)
+            {
+                column(No; "No.") { }
+                column(Name; Name) { }
+                dataitem(CLE; "Cust. Ledger Entry")
+                {
+                    DataItemLink = "Customer No." = Cust."No.";
+                    SqlJoinType = InnerJoin;
+                    DataItemTableFilter = "Document Type" = const(Invoice);
+                    column(Sales; "Sales (LCY)") { Method = Sum; }
+                }
+            }
+        }
+    }
+
+- \`DataItemLink = <child field> = <parent alias>.<parent field>\`. Get the
+  pair from \`bc_data_get_table_relations\`.
+- \`SqlJoinType\`: \`LeftOuterJoin\` (default: parents without children
+  still appear), \`InnerJoin\` (only matches), \`RightOuterJoin\`,
+  \`FullOuterJoin\`, \`CrossJoin\`.
+
+## 5. Dates
+
+    column(PostingYear; "Posting Date") { Method = Year; }
+
+\`Method = Year | Month | Day\` turns a date column into a number you can
+group by, e.g. sales per year with a \`Sum\` column next to it.
+
+## 6. Results and paging
+
+- \`returnData: true\` returns \`columns\` (names) and \`rows\` (arrays in column
+  order). Dates come back as ISO strings, decimals as numbers, and Year/Month/Day
+  columns as numbers.
+- \`top\` is 1-50 (default 10). \`skip\` pages forward (max 100000).
+  \`totalCount\` comes only with the first page (\`skip: 0\`); \`hasMore\` says
+  whether another page exists.
+- If BC answers "Pagination not supported for this query shape", add an
+  \`OrderBy\` so the order is deterministic.
+- \`company\` runs the query in another company (exact, case-sensitive name).
+
+## 7. Errors
+
+- \`DATA_QUERY_ERROR\` with "Compilation failed" lists AL diagnostics with
+  (line,column) positions in your text. \`AL0345\` is an unknown field or a
+  field on the wrong table: check \`bc_data_get_table_schema\` and fix it.
+  Do not guess field names; read the schema.
+- \`DATA_QUERY_UNAVAILABLE\` has \`details.reason\`: \`endpoint-missing\`
+  (BC < 29), \`mcp-disabled\` (MCP Server capability off) or
+  \`tools-disabled\` (Data Query Tools off). An admin has to fix it in BC;
+  retrying does not help.
+`;
+
 export const SKILLS: SkillDefinition[] = [
   defineSkill(
     'bc-ui-recovery',
     'Recover from failures of the mutating Business Central UI tools (bc_execute_action, bc_write_data, bc_respond_dialog, bc_wizard_navigate, bc_close_page): answer confirm/choice dialogs, reconnect after a dropped session, and decide whether an in-doubt write landed before retrying. Read this before driving any posting, deletion, or multi-step document flow.',
     RECOVERY_BODY,
+  ),
+  defineSkill(
+    'bc-data-query',
+    'Write and run AL query objects with bc_data_query (BC 29+) to read, aggregate and join any Business Central table, including tables without an API page: the find-tables -> schema -> relations -> query workflow, AL query syntax for filters, aggregations, joins and date grouping, paging, and fixing compile errors. Read this before the first bc_data_query call.',
+    DATA_QUERY_BODY,
   ),
 ];
 

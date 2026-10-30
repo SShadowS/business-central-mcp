@@ -247,6 +247,31 @@ ${has(a, 'filter') ? `     filter: "${a['filter']}",\n` : ''}${has(a, 'select') 
   },
 
   {
+    name: 'bc_data_analysis',
+    description: 'Answer a data question by writing and running an AL query with the bc_data_* tools (BC 29+), over any table, including ones without an API page.',
+    arguments: [
+      { name: 'question', description: 'What to find out, e.g. "top 5 customers by open invoice amount", "G/L postings per month in 2025".', required: true },
+      { name: 'tables', description: 'Table names or IDs you already know are involved, e.g. "Customer, Cust. Ledger Entry". Optional.', required: false },
+      { name: 'company', description: 'Company to query (exact name). Optional; defaults to the current company.', required: false },
+    ],
+    build: (a) => userPlaybook(
+      `Data analysis: ${opt(a, 'question', '<question>')}`,
+      `Goal: answer "${opt(a, 'question', '<question>')}" from Business Central data with an AL query.
+
+Steps:
+1. ${has(a, 'tables') ? `Find the IDs of ${a['tables']}` : 'Find the tables involved'} with bc_data_find_tables { searchMode: "keyword", searchText: "<comma-separated name fragments>" }. If keyword finds nothing useful, try searchMode "semantic" with a plain description.
+2. Call bc_data_get_table_schema for EVERY table you will use; take field names from it verbatim. FlowFields cannot go in DataItemTableFilter; filter them with ColumnFilter.
+3. When joining, call bc_data_get_table_relations { direction: "outgoing" } to get the DataItemLink field pair.
+4. Write ONE AL query object that lets BC do the work: group and aggregate (Method = Sum/Count/Average/Min/Max, Year/Month for dates) and OrderBy the measure, instead of fetching raw rows.
+5. bc_data_query { queryText${has(a, 'company') ? `, company: "${a['company']}"` : ''} } without returnData to compile it. On DATA_QUERY_ERROR read the AL diagnostics, fix the field names or syntax, and compile again.
+6. bc_data_query { queryText, returnData: true, top: <up to 50>${has(a, 'company') ? `, company: "${a['company']}"` : ''} }. Page with skip while hasMore is true only if the question needs more rows.
+7. Answer from the rows, and say which tables and filters the numbers come from.
+
+Read the bc-data-query skill for AL query syntax and examples. If the tools return DATA_QUERY_UNAVAILABLE, BC is older than 29 or "Data Query Tools" is off in BC's MCP Server Configuration: tell the user, and fall back to bc_query for Standard API entities.`,
+    ),
+  },
+
+  {
     name: 'bc_run_wizard',
     description: 'Drive an assisted-setup / NavigatePage wizard step by step to completion.',
     arguments: [
