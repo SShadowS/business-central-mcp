@@ -22,10 +22,10 @@
 |----------|-------|
 | Language | TypeScript / Node 20+ |
 | npm package | [`business-central-mcp`](https://www.npmjs.com/package/business-central-mcp) |
-| BC versions | BC27, BC28 (wire-compatible) |
-| Auth | On-prem NavUserPassword. BC Online: ESTS cookie session for `/csh` (no password in env) + device-code for `bc_query`. |
-| Tools | 17 |
-| Tests | 1117 unit/protocol + 164 integration |
+| BC versions | BC26 to BC29 (UI tools); `bc_data_*` and `bc_api_*` need BC 29+ |
+| Auth | On-prem NavUserPassword. BC Online: ESTS cookie session for `/csh` (no password in env) + device-code for `bc_query`, `bc_data_*` and `bc_api_*`. |
+| Tools | 25 |
+| Tests | 1328 unit/protocol + 194 integration |
 | License | MIT |
 
 ## Install
@@ -148,7 +148,7 @@ Restart Claude Desktop.
 | `BC_CLIENT_ID` | `bc_query` on SaaS | — | Multi-tenant public Entra app for device-code sign-in (see [bc_query on SaaS](#which-client-id-signs-in-bc_client_id)). UI tools do not need it |
 | `BC_OAUTH_SCOPE` | No | `user_impersonation` + `offline_access` | Override the Entra scope for `bc_query` device-code |
 | `BC_PROFILE` | No | server default | Profile id, e.g. `BUSINESS MANAGER`. Affects which Role Center loads and which pages Tell Me indexes. |
-| `BC_MCP_URL` | No | `{OData URL}/mcp` | BC's own MCP endpoint, used by the `bc_data_*` tools (BC 29+) |
+| `BC_MCP_URL` | No | `{OData URL}/mcp` | BC's own MCP endpoint, used by the `bc_data_*` and `bc_api_*` tools (BC 29+) |
 | `BC_TENANT_ID` | No | `default` | On-prem multi-tenant id. SaaS uses the Entra tenant from the URL. |
 | `BC_CLIENT_VERSION` | No | `27.0.0.0` | Version reported to BC during session open. |
 | `BC_APPLICATION_ID` | No | detected | `navigationContext.applicationId` sent at session open. Unset: read from the server's web client config (`FIN` on SaaS and cronus images, `NAV` on on-prem containers), falling back to `FIN` (see below). |
