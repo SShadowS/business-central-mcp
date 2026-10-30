@@ -54,6 +54,7 @@ function makeMockOps(): Operations {
     getOperation: makeOp() as never,
     runTests: makeOp() as never,
     dataQuery: makeOp() as never,
+    apiActions: makeOp() as never,
   };
 }
 

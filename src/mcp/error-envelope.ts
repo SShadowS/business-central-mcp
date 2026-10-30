@@ -17,7 +17,8 @@ import {
   SignInRequiredError,
   DeviceLoginRequiredError,
   ConnectionError,
-  DataQueryUnavailableError,
+  BCMcpUnavailableError,
+  ApiActionError,
 } from '../core/errors.js';
 
 /**
@@ -41,8 +42,9 @@ export const BC_EXTENSION_CODES = [
   'OPERATION_ID_REUSED',
   'OPERATION_IN_DOUBT',
   'TEST_RUNNER_NOT_INSTALLED',
-  'DATA_QUERY_UNAVAILABLE',
+  'BC_MCP_UNAVAILABLE',
   'DATA_QUERY_ERROR',
+  'API_ACTION_ERROR',
 ] as const;
 
 interface Rule {
@@ -81,9 +83,12 @@ const RULES: Record<string, Rule> = {
   OPERATION_ID_REUSED: { code: 'OPERATION_ID_REUSED', category: 'validation', retryable: false },
   OPERATION_IN_DOUBT: { code: 'OPERATION_IN_DOUBT', category: 'state', retryable: false },
   TEST_RUNNER_NOT_INSTALLED: { code: 'TEST_RUNNER_NOT_INSTALLED', category: 'configuration', retryable: false },
-  DATA_QUERY_UNAVAILABLE: { code: 'DATA_QUERY_UNAVAILABLE', category: 'configuration', retryable: false },
+  BC_MCP_UNAVAILABLE: { code: 'BC_MCP_UNAVAILABLE', category: 'configuration', retryable: false },
   // BC rejected the request (AL compile error, unknown table, ...): fix the input.
   DATA_QUERY_ERROR: { code: 'DATA_QUERY_ERROR', category: 'validation', retryable: false },
+  // BC rejected an API action (unknown action, bad parameters, OData error such
+  // as a stale If-Match etag): definite, nothing was applied.
+  API_ACTION_ERROR: { code: 'API_ACTION_ERROR', category: 'validation', retryable: false },
 };
 
 const FALLBACK: Rule = { code: 'INTERNAL_ERROR', category: 'internal', retryable: false };
@@ -131,8 +136,10 @@ function detailsFor(e: unknown, originalCode?: string): ErrorDetails {
     d.verificationUri = e.verificationUri;
     d.userCode = e.userCode;
     d.expiresAt = e.expiresAt;
-  } else if (e instanceof DataQueryUnavailableError) {
+  } else if (e instanceof BCMcpUnavailableError) {
     d.reason = e.reason;
+  } else if (e instanceof ApiActionError && e.odataCode) {
+    d.odataCode = e.odataCode;
   } else if (e instanceof ConnectionError && e.status != null) {
     d.status = e.status;
   }

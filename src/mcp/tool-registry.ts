@@ -17,6 +17,7 @@ import type { UploadFileOperation } from '../operations/upload-file.js';
 import type { GetOperationOperation } from '../operations/get-operation.js';
 import type { RunTestsOperation } from '../operations/run-tests.js';
 import type { DataQueryOperation } from '../operations/data-query.js';
+import type { ApiActionsOperation } from '../operations/api-actions.js';
 import { createToolDefinition as openPageTool } from '../operations/open-page.tool.js';
 import { createToolDefinition as readDataTool } from '../operations/read-data.tool.js';
 import { createToolDefinition as writeDataTool } from '../operations/write-data.tool.js';
@@ -38,6 +39,10 @@ import { createToolDefinition as dataFindTablesTool } from '../operations/data-f
 import { createToolDefinition as dataTableSchemaTool } from '../operations/data-table-schema.tool.js';
 import { createToolDefinition as dataTableRelationsTool } from '../operations/data-table-relations.tool.js';
 import { createToolDefinition as dataQueryTool } from '../operations/data-query.tool.js';
+import { createToolDefinition as apiSearchTool } from '../operations/api-search.tool.js';
+import { createToolDefinition as apiDescribeTool } from '../operations/api-describe.tool.js';
+import { createToolDefinition as apiListTool } from '../operations/api-list.tool.js';
+import { createToolDefinition as apiInvokeTool } from '../operations/api-invoke.tool.js';
 
 export interface ToolDefinition {
   name: string;
@@ -94,6 +99,7 @@ export interface Operations {
   getOperation: GetOperationOperation;
   runTests: RunTestsOperation;
   dataQuery: DataQueryOperation;
+  apiActions: ApiActionsOperation;
 }
 
 export function buildToolRegistry(ops: Operations): ToolDefinition[] {
@@ -119,5 +125,9 @@ export function buildToolRegistry(ops: Operations): ToolDefinition[] {
     dataTableSchemaTool(ops),
     dataTableRelationsTool(ops),
     dataQueryTool(ops),
+    apiSearchTool(ops),
+    apiDescribeTool(ops),
+    apiListTool(ops),
+    apiInvokeTool(ops),
   ];
 }

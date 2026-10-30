@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { API_ACTION_TYPES } from '../operations/api-actions.js';
 
 // MCP delivers params as strings or typed values — coerce everything.
 // Note: .transform() breaks z.toJSONSchema(), so we keep a separate
@@ -160,6 +161,36 @@ export const DataQuerySchema = z.object({
   returnData: z.boolean().optional().describe('false (default): only compile and return the column/dataitem schema — use it to check a query cheaply. true: also run it and return a page of rows.'),
   top: z.number().int().min(1).max(50).optional().describe('Rows per page when returnData is true (default 10, max 50).'),
   skip: z.number().int().min(0).max(100000).optional().describe('Rows to skip for paging (max 100000). totalCount is only returned on the first page (skip 0). Paging needs a deterministic order: add OrderBy if BC says pagination is not supported.'),
+  company: DataCompany,
+});
+
+const ApiActionName = z.string().min(1).describe('Exact, case-sensitive action name from bc_api_search, e.g. "List_Customers_PAG30009" or "Create_Customer_PAG30009".');
+
+export const ApiSearchSchema = z.object({
+  searchText: z.string().min(1).describe('Comma-separated fragments of the entity or action name to match, e.g. "customer, ledger" or "salesInvoice". Matching is by name (keyword search).'),
+  actionTypes: z.array(z.enum(API_ACTION_TYPES)).min(1).optional().describe('Only these action types (default: all). "List" reads; "Create"/"Modify"/"Delete" write; "BoundAction" runs a record operation such as Post; "UnboundAction" runs a codeunit API. Write types exist only for API objects an admin enabled in BC\'s MCP Server Configuration.'),
+  top: z.number().int().min(5).max(50).optional().describe('Maximum number of action names to return (default 15, range 5-50).'),
+  company: DataCompany,
+});
+
+export const ApiDescribeSchema = z.object({
+  actionName: ApiActionName,
+  company: DataCompany,
+});
+
+export const ApiListSchema = z.object({
+  actionName: ApiActionName.describe('A List_* action name from bc_api_search, e.g. "List_CustomerLedgerEntries_QRY30302".'),
+  filter: z.string().optional().describe('OData filter, e.g. "city eq \'London\'", "amount gt 1000 and open eq true", "contains(tolower(displayName),\'contoso\')". Operators: eq ne lt le gt ge and or; functions: contains startswith endswith tolower toupper. "or" only on the same field; no "not". Filterable fields are listed by bc_api_describe.'),
+  select: z.string().optional().describe('Comma-separated fields to return, e.g. "number,displayName,balanceDue". Omit for all fields.'),
+  orderby: z.string().optional().describe('OData orderby, e.g. "postingDate desc", "city, number". Not every API allows it: use it only when bc_api_describe lists "orderby" for the action.'),
+  top: z.number().int().min(1).optional().describe('Rows to return (default 10).'),
+  skip: z.number().int().min(0).optional().describe('Rows to skip, for paging with top.'),
+  company: DataCompany,
+});
+
+export const ApiInvokeSchema = z.object({
+  actionName: ApiActionName.describe('A Create_*, Modify_*, Delete_* or bound/unbound action name from bc_api_search. List_* actions go through bc_api_list.'),
+  parameters: z.record(z.string(), z.unknown()).describe('The action\'s parameters as an object, exactly as bc_api_describe\'s schema names them. Create: the field values, e.g. { "displayName": "Contoso" }. Modify: the key ("id"), "If-Match" with the record\'s current "@odata.etag" (from bc_api_list), and the fields to change. Delete: the key. Bound action: the key plus the action\'s own parameters.'),
   company: DataCompany,
 });
 
@@ -377,6 +408,34 @@ export const DataQueryOutputSchema = z.object({
   top: z.number().optional(),
   totalCount: z.number().optional(),
   hasMore: z.boolean().optional(),
+});
+
+export const ApiSearchOutputSchema = z.object({
+  company: z.string(),
+  actions: z.array(z.string()),
+});
+
+export const ApiDescribeOutputSchema = z.object({
+  company: z.string(),
+  name: z.string(),
+  description: z.string(),
+  schema: Loose,
+});
+
+export const ApiListOutputSchema = z.object({
+  company: z.string(),
+  actionName: z.string(),
+  rows: z.array(z.unknown()),
+  rowCount: z.number(),
+  totalCount: z.number().optional(),
+  hasMore: z.boolean(),
+});
+
+export const ApiInvokeOutputSchema = z.object({
+  company: z.string(),
+  actionName: z.string(),
+  result: z.unknown().optional(),
+  replaySafe: z.boolean(),
 });
 
 export const UploadFileOutputSchema = z.object({

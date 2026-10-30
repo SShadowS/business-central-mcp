@@ -17,7 +17,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport, StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { ErrorCode, McpError, type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import {
-  AuthenticationError, BCError, ConnectionError, DataQueryUnavailableError, OAuthNotConfiguredError, TimeoutError,
+  AuthenticationError, BCError, ConnectionError, BCMcpUnavailableError, OAuthNotConfiguredError, TimeoutError,
 } from '../core/errors.js';
 import type { Logger } from '../core/logger.js';
 import { SERVER_VERSION } from '../core/version.js';
@@ -101,15 +101,25 @@ export class BCMcpClient {
   private async callOnce(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
     const { client, toolNames } = await this.connect();
     if (!toolNames.has(name)) {
-      throw new DataQueryUnavailableError(
-        `BC's MCP server does not offer ${name}. Turn on "Data Query Tools (Preview)" in the MCP Server Configuration `
-        + '(Server Features). BC reads the setting when a session starts.',
+      const feature = name.startsWith('bc_data_')
+        ? '"Data Query Tools (Preview)" (Server Features)'
+        : 'the API tools ("Enable API Tools", which also needs the OData V4 and API services)';
+      throw new BCMcpUnavailableError(
+        `BC's MCP server does not offer ${name}. Turn on ${feature} in the MCP Server Configuration.`,
         'tools-disabled',
         { tool: name, offered: [...toolNames] },
       );
     }
-    const result = await client.callTool({ name, arguments: args }, undefined, { timeout: this.config.requestTimeoutMs });
-    return result as CallToolResult;
+    try {
+      return await client.callTool({ name, arguments: args }, undefined, { timeout: this.config.requestTimeoutMs }) as CallToolResult;
+    } catch (e) {
+      // A JSON-RPC error BC answered (not a timeout or a dropped connection) is a
+      // definite rejection, like an isError result: callers map both the same way.
+      if (e instanceof McpError && e.code !== ErrorCode.RequestTimeout && e.code !== ErrorCode.ConnectionClosed) {
+        return { isError: true, content: [{ type: 'text', text: e.message }] };
+      }
+      throw e;
+    }
   }
 
   private connect(): Promise<Connection> {
@@ -169,7 +179,7 @@ export class BCMcpClient {
   private mapConnectError(e: unknown): BCError {
     if (e instanceof StreamableHTTPError) {
       if (e.code === 404) {
-        return new DataQueryUnavailableError(
+        return new BCMcpUnavailableError(
           `BC has no MCP endpoint at ${this.config.mcpUrl}. It needs BC 29+ with McpServicesEnabled and ODataServicesEnabled `
           + 'on the server instance (set BC_MCP_URL if the endpoint lives elsewhere).',
           'endpoint-missing',
@@ -178,7 +188,7 @@ export class BCMcpClient {
       }
       // McpFeatureGate: the "MCP Server" Copilot capability is not active.
       if (e.code === 412) {
-        return new DataQueryUnavailableError(
+        return new BCMcpUnavailableError(
           `BC's MCP server is turned off: ${e.message}. Enable it on the Copilot & agent capabilities page.`,
           'mcp-disabled',
           { status: 412 },

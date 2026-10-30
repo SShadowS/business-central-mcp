@@ -267,7 +267,7 @@ Steps:
 6. bc_data_query { queryText, returnData: true, top: <up to 50>${has(a, 'company') ? `, company: "${a['company']}"` : ''} }. Page with skip while hasMore is true only if the question needs more rows.
 7. Answer from the rows, and say which tables and filters the numbers come from.
 
-Read the bc-data-query skill for AL query syntax and examples. If the tools return DATA_QUERY_UNAVAILABLE, BC is older than 29 or "Data Query Tools" is off in BC's MCP Server Configuration: tell the user, and fall back to bc_query for Standard API entities.`,
+Read the bc-data-query skill for AL query syntax and examples. If the tools return BC_MCP_UNAVAILABLE, BC is older than 29 or "Data Query Tools" is off in BC's MCP Server Configuration: tell the user, and fall back to bc_query for Standard API entities.`,
     ),
   },
 

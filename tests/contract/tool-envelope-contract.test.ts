@@ -13,8 +13,9 @@ import {
   AuthenticationError,
   SignInRequiredError,
   OAuthNotConfiguredError,
-  DataQueryUnavailableError,
+  BCMcpUnavailableError,
   DataQueryError,
+  ApiActionError,
   SessionLostError,
   TimeoutError,
 } from '../../src/core/errors.js';
@@ -37,6 +38,10 @@ import {
   DataTableSchemaOutputSchema,
   DataTableRelationsOutputSchema,
   DataQueryOutputSchema,
+  ApiSearchOutputSchema,
+  ApiDescribeOutputSchema,
+  ApiListOutputSchema,
+  ApiInvokeOutputSchema,
   UploadFileOutputSchema,
   GetOperationOutputSchema,
   RunTestsOutputSchema,
@@ -124,15 +129,26 @@ describe('tool envelope contract — the four required failure classes', () => {
     expect(body.error.category).toBe('configuration');
   });
 
-  it('3b. data query tools switched off -> DATA_QUERY_UNAVAILABLE (configuration) with the reason', async () => {
+  it('3b. data query tools switched off -> BC_MCP_UNAVAILABLE (configuration) with the reason', async () => {
     const h = new MCPHandler([makeTool('bc_data_query',
-      vi.fn().mockResolvedValue({ ok: false, error: new DataQueryUnavailableError('not offered', 'tools-disabled') }))], logger());
+      vi.fn().mockResolvedValue({ ok: false, error: new BCMcpUnavailableError('not offered', 'tools-disabled') }))], logger());
     const res = await call(h, 'bc_data_query');
     assertEnvelope(res);
     const body = res.structuredContent as { error: { code: string; category: string; details: Record<string, unknown> } };
-    expect(body.error.code).toBe('DATA_QUERY_UNAVAILABLE');
+    expect(body.error.code).toBe('BC_MCP_UNAVAILABLE');
     expect(body.error.category).toBe('configuration');
     expect(body.error.details.reason).toBe('tools-disabled');
+  });
+
+  it('3d. stale etag on an API Modify -> API_ACTION_ERROR (validation)', async () => {
+    const h = new MCPHandler([makeTool('bc_api_invoke',
+      vi.fn().mockResolvedValue({ ok: false, error: new ApiActionError('Request_EntityChanged: Another user has already changed the record.', { odataCode: 'Request_EntityChanged' }) }))], logger());
+    const res = await call(h, 'bc_api_invoke');
+    assertEnvelope(res);
+    const body = res.structuredContent as { error: { code: string; category: string; details: Record<string, unknown> } };
+    expect(body.error.code).toBe('API_ACTION_ERROR');
+    expect(body.error.category).toBe('validation');
+    expect(body.error.details.odataCode).toBe('Request_EntityChanged');
   });
 
   it('3c. AL compile error -> DATA_QUERY_ERROR (validation) keeping BC\'s diagnostics', async () => {
@@ -204,10 +220,14 @@ describe('tool envelope contract — every tool success validates against its ou
     ['bc_data_get_table_schema', DataTableSchemaOutputSchema, { company: 'CRONUS Danmark A/S', tableId: 18, schema: 'Table: Customer (ID: 18)\nPrimary Key: No.\n' }],
     ['bc_data_get_table_relations', DataTableRelationsOutputSchema, { company: 'CRONUS Danmark A/S', tableId: 18, tableName: 'Customer', outgoing: [{ targetTableId: 9, targetTableName: 'Country/Region', viaFields: [{ fieldNo: 35, fieldName: 'Country/Region Code' }] }] }],
     ['bc_data_query', DataQueryOutputSchema, { company: 'CRONUS Danmark A/S', status: 'executed', columns: ['No', 'Name'], rows: [['10000', 'Kontorcentralen A/S']], rowCount: 1, skip: 0, top: 1, totalCount: 5, hasMore: true }],
+    ['bc_api_search', ApiSearchOutputSchema, { company: 'CRONUS Danmark A/S', actions: ['List_Customers_PAG30009', 'Create_Customer_PAG30009'] }],
+    ['bc_api_describe', ApiDescribeOutputSchema, { company: 'CRONUS Danmark A/S', name: 'Delete_Customer_PAG30009', description: 'Deletes records for an entity Customer.', schema: { type: 'object', required: ['id'] } }],
+    ['bc_api_list', ApiListOutputSchema, { company: 'CRONUS Danmark A/S', actionName: 'List_Customers_PAG30009', rows: [{ number: '10000', displayName: 'Kontorcentralen A/S' }], rowCount: 1, totalCount: 5, hasMore: true }],
+    ['bc_api_invoke', ApiInvokeOutputSchema, { company: 'CRONUS Danmark A/S', actionName: 'Delete_Customer_PAG30009', replaySafe: true }],
   ];
 
-  it('covers all 21 tools', () => {
-    expect(cases).toHaveLength(21);
+  it('covers all 25 tools', () => {
+    expect(cases).toHaveLength(25);
   });
 
   it.each(cases)('%s success carries schema-valid structuredContent', async (name, schema, value) => {

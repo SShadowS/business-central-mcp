@@ -6,7 +6,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { BCMcpClient, type BCMcpClientConfig } from '../../src/bcmcp/bc-mcp-client.js';
 import { DataQueryOperation } from '../../src/operations/data-query.js';
-import { DataQueryError, DataQueryUnavailableError, DeviceLoginRequiredError } from '../../src/core/errors.js';
+import { BCMcpToolRunner } from '../../src/bcmcp/bc-mcp-tools.js';
+import { DataQueryError, BCMcpUnavailableError, DeviceLoginRequiredError } from '../../src/core/errors.js';
 import { createNullLogger } from '../../src/core/logger.js';
 import { FakeBCMcpServer, text, type FakeBCMcpServerOptions } from '../helpers/fake-bc-mcp-server.js';
 
@@ -51,7 +52,7 @@ async function setup(opts: {
     logger: createNullLogger(),
     ...opts.client,
   });
-  const op = new DataQueryOperation(client, () => opts.sessionCompany, opts.configuredCompany);
+  const op = new DataQueryOperation(new BCMcpToolRunner(client, () => opts.sessionCompany, opts.configuredCompany));
   return { server, op };
 }
 
@@ -164,25 +165,25 @@ describe('BCMcpClient', () => {
     expect(server.initializeCount).toBe(2);
   });
 
-  it('reports DATA_QUERY_UNAVAILABLE (tools-disabled) when BC does not list the tool', async () => {
+  it('reports BC_MCP_UNAVAILABLE (tools-disabled) when BC does not list the tool', async () => {
     const { op } = await setup({ sessionCompany: COMPANY, serverOptions: { tools: ['bc_actions_search', 'list_companies'] } });
     const r = await op.query({ queryText: QUERY });
-    expect(!r.ok && r.error).toBeInstanceOf(DataQueryUnavailableError);
-    expect(!r.ok && (r.error as DataQueryUnavailableError).reason).toBe('tools-disabled');
+    expect(!r.ok && r.error).toBeInstanceOf(BCMcpUnavailableError);
+    expect(!r.ok && (r.error as BCMcpUnavailableError).reason).toBe('tools-disabled');
   });
 
-  it('reports DATA_QUERY_UNAVAILABLE (endpoint-missing) when there is no /mcp endpoint', async () => {
+  it('reports BC_MCP_UNAVAILABLE (endpoint-missing) when there is no /mcp endpoint', async () => {
     const { op } = await setup({ sessionCompany: COMPANY, url: (s) => s.url.replace('/BC/mcp', '/BC/nope') });
     const r = await op.findTables({ searchText: 'a', searchMode: 'keyword' });
-    expect(!r.ok && (r.error as DataQueryUnavailableError).reason).toBe('endpoint-missing');
+    expect(!r.ok && (r.error as BCMcpUnavailableError).reason).toBe('endpoint-missing');
   });
 
-  it('reports DATA_QUERY_UNAVAILABLE (mcp-disabled) on BC\'s 412 feature gate, and retries the connect next call', async () => {
+  it('reports BC_MCP_UNAVAILABLE (mcp-disabled) on BC\'s 412 feature gate, and retries the connect next call', async () => {
     const { server, op } = await setup({ sessionCompany: COMPANY, serverOptions: { initializeStatus: 412 } });
     const first = await op.findTables({ searchText: 'a', searchMode: 'keyword' });
     const second = await op.findTables({ searchText: 'a', searchMode: 'keyword' });
-    expect(!first.ok && (first.error as DataQueryUnavailableError).reason).toBe('mcp-disabled');
-    expect(!second.ok && second.error.code).toBe('DATA_QUERY_UNAVAILABLE');
+    expect(!first.ok && (first.error as BCMcpUnavailableError).reason).toBe('mcp-disabled');
+    expect(!second.ok && second.error.code).toBe('BC_MCP_UNAVAILABLE');
     expect(server.initializeCount).toBe(2);
   });
 

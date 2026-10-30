@@ -11,6 +11,7 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { BCMcpClient } from '../../src/bcmcp/bc-mcp-client.js';
 import { DataQueryOperation } from '../../src/operations/data-query.js';
+import { BCMcpToolRunner } from '../../src/bcmcp/bc-mcp-tools.js';
 import { createNullLogger } from '../../src/core/logger.js';
 
 const url = process.env.BC_MCP_TEST_URL;
@@ -27,7 +28,7 @@ describe.runIf(url)('bc_data_* against BC 29+ native MCP', () => {
     requestTimeoutMs: 60_000,
     logger: createNullLogger(),
   });
-  const op = new DataQueryOperation(client, () => undefined, undefined);
+  const op = new DataQueryOperation(new BCMcpToolRunner(client, () => undefined, undefined));
   afterAll(() => client.close());
 
   it('finds the Customer table by keyword in the default company', async () => {

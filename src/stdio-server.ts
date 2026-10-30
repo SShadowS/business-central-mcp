@@ -40,7 +40,9 @@ import { UploadFileOperation } from './operations/upload-file.js';
 import { LookupService } from './services/lookup-service.js';
 import { LookupOperation } from './operations/lookup.js';
 import { createQueryOperation } from './operations/query.js';
-import { createDataQueryOperation } from './operations/data-query.js';
+import { DataQueryOperation } from './operations/data-query.js';
+import { ApiActionsOperation } from './operations/api-actions.js';
+import { createBCMcpRuntime } from './bcmcp/bc-mcp-tools.js';
 import { buildToolRegistry, type Operations } from './mcp/tool-registry.js';
 import { MCPHandler } from './mcp/handler.js';
 import { OperationLedger } from './mcp/operation-ledger.js';
@@ -83,7 +85,9 @@ async function main() {
   const connectionFactory = new ConnectionFactory(uiAuth, config.bc, logger);
   const queryOperation = createQueryOperation(config, apiAuth);
   // The getter runs per call, after sessionManager exists.
-  const dataQuery = createDataQueryOperation(config, apiAuth, logger, () => sessionManager.currentSession?.companyName);
+  const bcMcp = createBCMcpRuntime(config, apiAuth, logger, () => sessionManager.currentSession?.companyName);
+  const dataQueryOperation = new DataQueryOperation(bcMcp.runner);
+  const apiActionsOperation = new ApiActionsOperation(bcMcp.runner);
 
   // Protocol
   const decoder = new EventDecoder();
@@ -140,7 +144,8 @@ async function main() {
       uploadFile: new UploadFileOperation(uploadService),
       getOperation: new GetOperationOperation(ledger, pageService, () => s.companyName, () => s.modalStackSnapshot().length > 0),
       runTests: new RunTestsOperation(pageService, dataService, actionService, pageContextRepo, logger),
-      dataQuery: dataQuery.operation,
+      dataQuery: dataQueryOperation,
+      apiActions: apiActionsOperation,
     };
 
     return buildToolRegistry(operations);
@@ -225,7 +230,7 @@ async function main() {
   async function shutdown(): Promise<void> {
     logger.info('Shutting down...');
     sessionManager.close();
-    await dataQuery.client.close();
+    await bcMcp.client.close();
     process.exit(0);
   }
 

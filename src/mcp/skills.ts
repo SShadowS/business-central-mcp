@@ -124,7 +124,7 @@ ledger entries. BC compiles it as a dynamic object (nothing is published) and
 always runs it read-only with the user's permissions and security filters.
 It needs BC 29+ with "Data Query Tools (Preview)" enabled in BC's MCP Server
 Configuration; otherwise every \`bc_data_*\` tool returns
-\`DATA_QUERY_UNAVAILABLE\` (use \`bc_query\` for Standard API entities instead).
+\`BC_MCP_UNAVAILABLE\` (use \`bc_query\` for Standard API entities instead).
 
 ## 1. Workflow
 
@@ -250,10 +250,93 @@ group by, e.g. sales per year with a \`Sum\` column next to it.
   (line,column) positions in your text. \`AL0345\` is an unknown field or a
   field on the wrong table: check \`bc_data_get_table_schema\` and fix it.
   Do not guess field names; read the schema.
-- \`DATA_QUERY_UNAVAILABLE\` has \`details.reason\`: \`endpoint-missing\`
+- \`BC_MCP_UNAVAILABLE\` has \`details.reason\`: \`endpoint-missing\`
   (BC < 29), \`mcp-disabled\` (MCP Server capability off) or
   \`tools-disabled\` (Data Query Tools off). An admin has to fix it in BC;
   retrying does not help.
+`;
+
+// Verified against BC 29.1 (Cronus291, 2026-10-30) with customers API page
+// 30009 enabled for writes in the MCP configuration.
+const API_ACTIONS_BODY = `
+# Reading and changing Business Central data through its APIs
+
+The \`bc_api_*\` tools use the API tools of Business Central's own MCP server
+(BC 29+). They reach every installed API page and API query the user can
+read: Microsoft's standard APIs, ISV and custom extension APIs.
+
+## 1. Action names
+
+\`bc_api_search\` returns names of the form \`<Verb>_<EntitySet>_<PAG|QRY><id>\`:
+
+- \`List_Customers_PAG30009\` reads the customers API page (object 30009).
+- \`List_CustomerLedgerEntries_QRY30302\` reads an API query.
+- \`Create_Customer_PAG30009\`, \`Modify_Customer_PAG30009\`,
+  \`Delete_Customer_PAG30009\` write (note the singular entity name).
+- Bound actions (e.g. posting a document) use the action's name as the verb.
+
+Search by entity words ("customer", "sales invoice", "ledger"). Pass
+\`actionTypes: ["List"]\` to find readable data only.
+
+## 2. Who can do what
+
+- Reads: every API the user has permission to read is listed, with no setup.
+- Writes: Create/Modify/Delete/bound actions are listed ONLY for API objects
+  an admin added to BC's MCP Server Configuration with those permissions. If
+  a write action is missing from the search, that is why. Tell the user;
+  do not try to work around it.
+
+## 3. Reading: bc_api_list
+
+1. \`bc_api_describe\` the List action. Its \`schema.properties._availableFields\`
+   lists each field with type and option values, and which are filterable.
+   The schema only has \`orderby\` when the API allows sorting.
+2. \`bc_api_list\` with \`filter\`, \`select\`, \`orderby\`, \`top\` (default 10) and
+   \`skip\`. Read \`totalCount\` and \`hasMore\` for paging.
+
+Filter rules (BC's): operators \`eq ne lt le gt ge and or\`; functions
+\`contains startswith endswith tolower toupper\`. \`or\` only on the SAME field,
+\`and\` across fields; no \`not\` (use \`ne\`); no arithmetic or date functions.
+Case-insensitive search: \`contains(tolower(displayName),'contoso')\`.
+Strings take single quotes, GUIDs and numbers none: \`id eq 99c9a42c-...\`.
+
+## 4. Changing data: bc_api_invoke
+
+Always \`bc_api_describe\` the action first and send exactly its properties in
+\`parameters\`.
+
+- Create: the field values, e.g. \`{ "displayName": "Contoso" }\`. Returns the
+  new record with its \`id\` and \`@odata.etag\`.
+- Modify: \`{ "id": "<id>", "If-Match": "<current @odata.etag>", ...fields }\`.
+  Read the etag with \`bc_api_list\` (or take it from the Create/Modify result).
+  A stale etag fails with \`API_ACTION_ERROR\` and \`odataCode\`
+  \`Request_EntityChanged\`: re-read the record and retry with the new etag.
+  Returns the record with its new etag.
+- Delete: \`{ "id": "<id>" }\`. Returns no result. A record that is already gone
+  fails with \`BadRequest_ResourceNotFound\`.
+
+BC runs its normal validation and business logic. A rejection is
+\`API_ACTION_ERROR\` with BC's message, and nothing was changed.
+
+## 5. Retries
+
+Pass an \`operationId\` (a UUID you keep) on every \`bc_api_invoke\`. A retry
+with the same id replays the first result without calling BC. \`replaySafe\`:
+
+- \`true\` for Modify and Delete: a repeat is refused by BC (stale etag, or the
+  record is gone), so it cannot apply twice.
+- \`false\` for Create and bound actions: a repeat would create or post again.
+  After a timeout or lost connection, check with \`bc_api_list\` whether the
+  record exists before running it again under a new id.
+
+## 6. Which tool for what
+
+- Data behind an API: \`bc_api_list\`.
+- Tables with no API, or totals and joins: \`bc_data_query\` (AL query, see the
+  bc-data-query skill).
+- Changes that need the UI's dialogs or pages: \`bc_open_page\`,
+  \`bc_write_data\`, \`bc_execute_action\`.
+- Before BC 29 (\`BC_MCP_UNAVAILABLE\`): \`bc_query\` for Standard API entities.
 `;
 
 export const SKILLS: SkillDefinition[] = [
@@ -266,6 +349,11 @@ export const SKILLS: SkillDefinition[] = [
     'bc-data-query',
     'Write and run AL query objects with bc_data_query (BC 29+) to read, aggregate and join any Business Central table, including tables without an API page: the find-tables -> schema -> relations -> query workflow, AL query syntax for filters, aggregations, joins and date grouping, paging, and fixing compile errors. Read this before the first bc_data_query call.',
     DATA_QUERY_BODY,
+  ),
+  defineSkill(
+    'bc-api-actions',
+    'Find, read and change Business Central data through any installed API page or query (BC 29+) with bc_api_search, bc_api_describe, bc_api_list and bc_api_invoke: action names, which writes an admin must enable, OData filter rules, the If-Match etag flow for Modify, and safe retries. Read this before the first bc_api_invoke.',
+    API_ACTIONS_BODY,
   ),
 ];
 

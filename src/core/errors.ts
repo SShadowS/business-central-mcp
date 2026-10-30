@@ -280,19 +280,33 @@ export class CompanyNotFoundError extends BCError {
 }
 
 /**
- * BC's native MCP server (BC 29+, `{odataUrl}/mcp`) cannot serve the data
- * query tools: the endpoint is missing (BC < 29, or `McpServicesEnabled` /
- * `ODataServicesEnabled` off), the "MCP Server" Copilot capability is off
- * (HTTP 412, `McpFeatureGate`), or the MCP configuration does not enable
- * "Data Query Tools" (`MCP Configuration`.`EnableAlQueryTools`, so BC never
- * lists them).
+ * BC's native MCP server (BC 29+, `{odataUrl}/mcp`) cannot serve a tool: the
+ * endpoint is missing (BC < 29, or `McpServicesEnabled` / `ODataServicesEnabled`
+ * off), the "MCP Server" Copilot capability is off (HTTP 412, `McpFeatureGate`),
+ * or the MCP configuration does not enable that tool family, so BC never lists
+ * it ("Data Query Tools" = `EnableAlQueryTools`, API tools = `EnableApiTools`).
  */
-export type DataQueryUnavailableReason = 'endpoint-missing' | 'mcp-disabled' | 'tools-disabled';
-export class DataQueryUnavailableError extends BCError {
-  public readonly reason: DataQueryUnavailableReason;
-  constructor(message: string, reason: DataQueryUnavailableReason, context?: Record<string, unknown>) {
-    super(message, 'DATA_QUERY_UNAVAILABLE', { ...context, reason });
+export type BCMcpUnavailableReason = 'endpoint-missing' | 'mcp-disabled' | 'tools-disabled';
+export class BCMcpUnavailableError extends BCError {
+  public readonly reason: BCMcpUnavailableReason;
+  constructor(message: string, reason: BCMcpUnavailableReason, context?: Record<string, unknown>) {
+    super(message, 'BC_MCP_UNAVAILABLE', { ...context, reason });
     this.reason = reason;
+  }
+}
+
+/**
+ * BC's API action tools answered with an error: an unknown action, invalid
+ * parameters, or the OData error of the underlying API call (e.g.
+ * `Request_EntityChanged` for a stale `If-Match` etag). Definite: BC did not
+ * apply the call.
+ */
+export class ApiActionError extends BCError {
+  /** BC's OData error code, e.g. `Request_EntityChanged`, `BadRequest_ResourceNotFound`. */
+  public readonly odataCode?: string;
+  constructor(message: string, context?: Record<string, unknown> & { odataCode?: string }) {
+    super(message, 'API_ACTION_ERROR', context);
+    this.odataCode = context?.odataCode;
   }
 }
 
@@ -324,7 +338,8 @@ const ERROR_HINTS: Record<string, string> = {
   OAUTH_NOT_CONFIGURED: 'bc_query on BC Online needs BC_CLIENT_ID set to a multi-tenant public Entra app (delegated user_impersonation). If it is set, check the server logs. UI tools do not need this.',
   DEVICE_LOGIN_REQUIRED: 'Show the user the sign-in URL and code from this message. After they complete sign-in, retry this tool — it picks up the pending sign-in automatically.',
   URL_ELICITATION_REQUIRED: 'The host must open the sign-in page. Retry the tool after completing sign-in.',
-  DATA_QUERY_UNAVAILABLE: 'The data query tools need BC 29+ with the MCP Server enabled (Copilot & agent capabilities) and "Data Query Tools (Preview)" turned on in MCP Server Configuration. bc_query still works for Standard API entities.',
+  BC_MCP_UNAVAILABLE: 'These tools need BC 29+ with the MCP Server enabled (Copilot & agent capabilities) and, in MCP Server Configuration, "Data Query Tools (Preview)" for bc_data_* or the API tools for bc_api_*. An admin has to change that in BC; bc_query still works for Standard API entities.',
+  API_ACTION_ERROR: 'BC rejected the call. Check the action name with bc_api_search and its parameters with bc_api_describe. For Request_EntityChanged, re-read the record with bc_api_list and pass its current @odata.etag as If-Match.',
   DATA_QUERY_ERROR: 'BC rejected the request. For an AL compile error, check field names with bc_data_get_table_schema and fix the query text, then retry.',
   TEST_RUNNER_NOT_INSTALLED:'Install Microsoft\'s Test Runner app (part of the Test Framework, e.g. BcContainerHelper -includeTestToolkit), then retry.',
 };
