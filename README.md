@@ -323,6 +323,10 @@ Known wart: when the browser sign-in fails (65002, blocked consent), Entra keeps
 | `bc_data_get_table_schema` | A table's fields, types, FlowField formulas and relations, as compact text |
 | `bc_data_get_table_relations` | Outgoing or incoming TableRelation links, for joins |
 | `bc_data_query` | Compile and run an AL query object over any table the user can read, read-only, paged |
+| `bc_api_search` | Find actions on any installed API page or query: standard, ISV and custom APIs (BC 29+) |
+| `bc_api_describe` | An API action's fields, filters and parameters |
+| `bc_api_list` | Read through any API List action with OData filter, select, orderby and paging |
+| `bc_api_invoke` | Create, modify or delete through an API, or run a bound action, where an admin enabled it |
 | `bc_upload_file` | Upload a local file into a BC file-upload dialog (e.g. Import Layout) |
 | `bc_get_operation` | Look up an earlier `operationId` and, when its outcome is in doubt, read the record back |
 | `bc_run_tests` | Run AL test codeunits through the AL Test Runner (page 130455), so the Permissions Mock and test personas apply; one row per test method |
@@ -369,7 +373,13 @@ Ambiguous failures (`503`/`504`/`500`) of a mutating route carry `replaySafe: fa
 
 The four `bc_data_*` tools front the data query tools in Business Central's own MCP server, which BC 29 serves on the OData port at `/BC/mcp`. They let the model write an AL `query` object and run it against any table the user can read, including tables with no API page. BC compiles it on the fly, runs it read-only under the user's permissions, and returns up to 50 rows per page. The usual flow is `bc_data_find_tables`, then `bc_data_get_table_schema` for exact field names, then `bc_data_get_table_relations` for joins, then `bc_data_query`. Compile errors come back as `DATA_QUERY_ERROR` with BC's AL diagnostics, so the model can fix the query and retry.
 
-To turn them on in BC: enable the MCP Server on the Copilot & agent capabilities page, then switch on "Data Query Tools (Preview)" under Server Features in MCP Server Configuration. Until then the tools return `DATA_QUERY_UNAVAILABLE` with a `reason` (`endpoint-missing`, `mcp-disabled` or `tools-disabled`). Auth is the same as `bc_query` (Basic on-prem, Bearer on BC Online). Without a `company` argument they use the current session company, then `BC_ODATA_COMPANY`, then the user's default company in BC. Semantic table search depends on BC's Copilot metadata search and can return nothing on-prem; keyword search always works. Microsoft has announced billing for these tools at general availability.
+To turn them on in BC: enable the MCP Server on the Copilot & agent capabilities page, then switch on "Data Query Tools (Preview)" under Server Features in MCP Server Configuration. Until then the tools return `BC_MCP_UNAVAILABLE` with a `reason` (`endpoint-missing`, `mcp-disabled` or `tools-disabled`). Auth is the same as `bc_query` (Basic on-prem, Bearer on BC Online). Without a `company` argument they use the current session company, then `BC_ODATA_COMPANY`, then the user's default company in BC. Semantic table search depends on BC's Copilot metadata search and can return nothing on-prem; keyword search always works. Microsoft has announced billing for these tools at general availability.
+
+### API tools (BC 29+)
+
+The four `bc_api_*` tools use the API tools of the same BC MCP server. `bc_api_search` finds actions on every installed API page and API query the user can read, named like `List_Customers_PAG30009` or `Create_Customer_PAG30009`. That covers Microsoft's standard APIs as well as ISV and custom extension APIs. `bc_api_describe` shows an action's fields and parameters, `bc_api_list` reads with OData `filter`, `select`, `orderby`, `top` and `skip`, and `bc_api_invoke` creates, modifies or deletes a record, or runs a bound action such as posting.
+
+Reads need no setup. Writes are listed only for API objects an admin adds to BC's MCP Server Configuration with Create/Modify/Delete/Bound Actions permissions. `bc_api_invoke` takes an `operationId` like the other changing tools; `replaySafe` is true for Modify (it needs the record's current `@odata.etag` as `If-Match`, so a repeat is refused) and Delete, and false for Create and bound actions. BC's rejections come back as `API_ACTION_ERROR` with BC's OData code in `details.odataCode` (e.g. `Request_EntityChanged` for a stale etag).
 
 ## How it works
 

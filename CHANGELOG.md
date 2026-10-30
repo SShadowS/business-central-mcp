@@ -17,8 +17,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   50 rows. bc-mcp connects with the official MCP TypeScript SDK (Streamable HTTP,
   protocol `2025-11-25`), keeps one BC MCP session, and passes the company per call,
   so `bc_switch_company` carries over. They need no web-client session. New error
-  codes: `DATA_QUERY_UNAVAILABLE` (with `reason`) and `DATA_QUERY_ERROR` (BC's text,
-  including AL compile diagnostics).
+  codes: `BC_MCP_UNAVAILABLE` (with `reason`, shared with the API tools) and
+  `DATA_QUERY_ERROR` (BC's text, including AL compile diagnostics).
+- **API tools for BC 29+.** `bc_api_search`, `bc_api_describe`, `bc_api_list` and
+  `bc_api_invoke` front the API tools of BC's own MCP server. They reach every installed
+  API page and query the user can read (standard, ISV and custom APIs), read them with
+  OData filter/select/orderby/paging, and, where an admin enabled it in BC's MCP Server
+  Configuration, create, modify or delete records or run bound actions.
+  `bc_api_invoke` goes through the `operationId` replay gate. `replaySafe` is true for
+  Modify (If-Match etag) and Delete, and false for Create and bound actions; verified
+  live on BC 29.1. BC's rejections are `API_ACTION_ERROR` with `details.odataCode`.
+  New `bc-api-actions` skill.
 - **`bc-data-query` skill and `bc_data_analysis` prompt.** The skill teaches the
   find-tables -> schema -> relations -> query workflow and AL query syntax
   (filters, FlowField `ColumnFilter`, aggregations, joins, date grouping, paging,
