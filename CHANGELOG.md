@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-10-30
+
 ### Added
 
 - **Data query tools for BC 29+.** `bc_data_find_tables`, `bc_data_get_table_schema`,
