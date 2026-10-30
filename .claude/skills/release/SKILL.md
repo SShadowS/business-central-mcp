@@ -5,9 +5,11 @@ description: Release `business-central-mcp` to npm — bumps version, builds, te
 
 # bc-mcp release runbook
 
-Release `business-central-mcp` to npm. The package is configured for manual
-publish via `prepublishOnly` (typecheck + build); the rest is gated by you
-to keep destructive operations safe.
+Release `business-central-mcp` to npm. Publishing is automatic: pushing a
+`v*` tag runs `.github/workflows/release.yml`, which publishes to npm (Trusted
+Publishing, with provenance) and creates the GitHub release with the `.dxt`.
+Everything up to the tag push is local and gated by you to keep destructive
+operations safe.
 
 This is a runbook, not an automated tool. Walk the user through each step,
 pausing on anything destructive (version bump, publish, tag push) for
