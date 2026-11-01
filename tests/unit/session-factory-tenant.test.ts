@@ -6,7 +6,7 @@ import { BCSession } from '../../src/session/bc-session.js';
 import { EventDecoder } from '../../src/protocol/event-decoder.js';
 import { InteractionEncoder } from '../../src/protocol/interaction-encoder.js';
 import { ok, err } from '../../src/core/result.js';
-import { SignInRequiredError } from '../../src/core/errors.js';
+import { SignInRequiredError, ConnectionError, ProtocolError } from '../../src/core/errors.js';
 import { createNullLogger } from '../../src/core/logger.js';
 import type { IBCAuthProvider } from '../../src/connection/auth/auth-provider.js';
 import type { BCConfig } from '../../src/core/config.js';
@@ -64,6 +64,59 @@ describe('SessionFactory tenant override', () => {
     const result = await sf.create();
     expect(result.ok).toBe(true);
     expect(initialize).toHaveBeenCalledWith('msft1a6720t30818544');
+  });
+
+  it('drops the sign-in when OpenSession fails after the upgrade, so the next create signs in again (#48)', async () => {
+    vi.spyOn(BCWebSocket.prototype, 'connect').mockResolvedValue(ok(undefined));
+    vi.spyOn(BCSession.prototype, 'close').mockImplementation(() => {});
+    const initialize = vi.spyOn(BCSession.prototype, 'initialize')
+      .mockResolvedValueOnce(err(new ProtocolError(
+        'JSON-RPC error: {"code":3,"errorType":"Microsoft.Dynamics.Nav.Types.NavCancelCredentialPromptException"}',
+      )))
+      .mockResolvedValueOnce(ok([]));
+    let signedIn = true;
+    const authenticate = vi.fn(async () => { signedIn = true; return ok({ cookies: 'c=2', csrfToken: 'tok2' }); });
+    const stateful: IBCAuthProvider = {
+      ...auth,
+      isAuthenticated: () => signedIn,
+      authenticate,
+      invalidate: () => { signedIn = false; },
+    };
+    const sf = new SessionFactory(
+      new ConnectionFactory(stateful, cfg(), createNullLogger()),
+      new EventDecoder(),
+      new InteractionEncoder('28.0.0.0'),
+      createNullLogger(),
+      'default',
+    );
+
+    const first = await sf.create();
+    expect(first.ok).toBe(false);
+    if (!first.ok) expect(first.error).toBeInstanceOf(ConnectionError);
+    expect(signedIn).toBe(false);
+    expect(authenticate).not.toHaveBeenCalled();
+
+    const second = await sf.create();
+    expect(second.ok).toBe(true);
+    expect(authenticate).toHaveBeenCalledOnce();
+    expect(initialize).toHaveBeenCalledTimes(2);
+  });
+
+  it('drops the sign-in when initialize throws (#48)', async () => {
+    vi.spyOn(BCWebSocket.prototype, 'connect').mockResolvedValue(ok(undefined));
+    vi.spyOn(BCSession.prototype, 'close').mockImplementation(() => {});
+    vi.spyOn(BCSession.prototype, 'initialize').mockRejectedValue(new Error('boom'));
+    const invalidate = vi.fn();
+    const sf = new SessionFactory(
+      new ConnectionFactory({ ...auth, invalidate }, cfg(), createNullLogger()),
+      new EventDecoder(),
+      new InteractionEncoder('28.0.0.0'),
+      createNullLogger(),
+      'default',
+    );
+    const result = await sf.create();
+    expect(result.ok).toBe(false);
+    expect(invalidate).toHaveBeenCalledOnce();
   });
 
   it('forwards SignInRequiredError from ConnectionFactory unchanged', async () => {

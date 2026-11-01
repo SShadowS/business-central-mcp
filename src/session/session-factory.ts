@@ -52,6 +52,9 @@ export class SessionFactory {
       const initResult = await session.initialize(tenantId);
       if (isErr(initResult)) {
         session.close();
+        // A connect that did not end in an open session drops the sign-in, the
+        // same rule ConnectionFactory applies to a failed upgrade (#48).
+        this.connectionFactory.invalidateAuth();
         return err(new ConnectionError(`Session initialization failed: ${initResult.error.message}`));
       }
       return ok(session);
@@ -59,6 +62,7 @@ export class SessionFactory {
       // initialize() threw instead of returning err -- close the session so the
       // WebSocket + NTLM slot are not leaked, then surface a consistent err Result.
       session.close();
+      this.connectionFactory.invalidateAuth();
       return err(new ConnectionError(`Session initialization failed: ${e instanceof Error ? e.message : String(e)}`));
     }
   }

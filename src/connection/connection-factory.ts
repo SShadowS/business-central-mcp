@@ -67,6 +67,19 @@ export class ConnectionFactory {
     return ok(ws);
   }
 
+  /**
+   * Drop the sign-in so the next create() authenticates again. Used when the
+   * socket opened but OpenSession failed: BC's web server keeps NavUserPassword
+   * credentials in server-side session state (UserPasswordAuthenticationProvider
+   * -> WebSessionState.SecurityToken), which WebSessionStateProvider.Unregister
+   * deletes when the server ends the last ClientSession (idle timeout). The
+   * auth cookie outlives it, so the upgrade still answers 101 but OpenSession
+   * fails with NavCancelCredentialPromptException until a new /SignIn (#48).
+   */
+  invalidateAuth(): void {
+    this.authProvider.invalidate();
+  }
+
   createHttpClient(): BCHttpClient {
     return new BCHttpClient(
       this.httpBaseUrl,
