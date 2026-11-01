@@ -13,6 +13,12 @@ describe('isFatalRpcError', () => {
     expect(isFatalRpcError('{"error":{"code":1,"message":"session not found"}}')).toBe(true);
   });
 
+  it('classifies InvalidBookmarkException as fatal: BC abandons the web session on it (#48)', () => {
+    expect(
+      isFatalRpcError('{"code":3,"errorType":"Microsoft.Dynamics.Framework.UI.InvalidBookmarkException"}'),
+    ).toBe(true);
+  });
+
   it('does NOT classify LogicalModalityViolationException as fatal', () => {
     expect(
       isFatalRpcError('Microsoft.Dynamics.Nav.Runtime.LogicalModalityViolationException'),

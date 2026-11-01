@@ -21,12 +21,19 @@
 const FATAL_CODE_1_RE = /"code":\s*1(?=[,}\s])/;
 
 export function isFatalRpcError(message: string): boolean {
-  return message.includes('InvalidSessionException') || FATAL_CODE_1_RE.test(message);
+  return message.includes('InvalidSessionException')
+    || isInvalidBookmarkError(message)
+    || FATAL_CODE_1_RE.test(message);
 }
 
 /**
  * True when an RPC error message is BC's InvalidBookmarkException — the anchor
  * bookmark passed to SetCurrentRowAndRowsSelection is not in BC's loaded rows.
+ *
+ * Also session-fatal (#48): the web server's ClientExceptionHandler.HandleExceptionBase
+ * has no case for InvalidBookmarkException, so it takes the default branch with
+ * AbandonSession = true; WebSessionAbandoner sets ClientSessionBase.MarkForClose
+ * and the next request on the connection fails with InvalidSessionException.
  * Pure; unit-tested without session state.
  */
 export function isInvalidBookmarkError(message: string): boolean {

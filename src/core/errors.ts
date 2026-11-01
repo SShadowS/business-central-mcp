@@ -218,7 +218,7 @@ export class InvalidBookmarkError extends BCError {
   public readonly bookmark: string;
   constructor(bookmark: string, context?: Record<string, unknown>) {
     super(
-      `Bookmark "${bookmark}" is no longer in BC's loaded rows. Re-read the section with bc_read_data to get current bookmarks, then retry.`,
+      `Bookmark "${bookmark}" is no longer in BC's loaded rows. BC ends the session on this error, so the next call starts a new one and every open page closes. Reopen the page with bc_open_page, read it with bc_read_data to get current bookmarks, then retry.`,
       'INVALID_BOOKMARK',
       context,
     );
@@ -331,7 +331,7 @@ const ERROR_HINTS: Record<string, string> = {
   OPERATION_IN_DOUBT: 'Read the affected page/record to see whether the change landed, then act under a new operationId.',
   CARDPART_STUB: 'This page is a CardPart stub when opened standalone. See the hostHint in this error and open that host page instead.',
   STALE_CONTEXT: 'The page changed since you last read it (stateVersion mismatch). Re-read with bc_read_data to get the current stateVersion, then retry.',
-  INVALID_BOOKMARK: 'The anchor bookmark is no longer loaded in BC. Re-read the section with bc_read_data and retry with a current bookmark.',
+  INVALID_BOOKMARK: 'The anchor bookmark is no longer loaded in BC, and BC ended the session. Reopen the page with bc_open_page, re-read it with bc_read_data and retry with a current bookmark.',
   MULTI_ROW_ACTION_UNAVAILABLE: 'This page disables the action for multiple selected rows. Retry with a single bookmark, or repeat the action per row.',
   COMPANY_NOT_FOUND: 'The target company does not exist or is not accessible. List valid names with bc_list_companies and retry with the exact (case-sensitive) name.',
   SIGN_IN_REQUIRED: 'Complete Microsoft sign-in in the window that opened (Authenticator number matching), then retry this tool. If no window appeared, run the MCP on a machine with a display or run `npx business-central-mcp login` with the same `STATE_DIR`.',
