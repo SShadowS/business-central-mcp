@@ -6,13 +6,20 @@
 // share one implementation.
 
 import type { ActionNode } from './form-node.js';
-import { SystemAction } from './types.js';
+import { SystemAction, type PageType } from './types.js';
 
 export type WizardNav = 'back' | 'next' | 'finish' | 'cancel';
 
-export function classifyWizardNav(a: ActionNode): WizardNav | undefined {
+/**
+ * The icon roles (Back/Next/Finish) apply only on wizard pages. BC's
+ * `NavigatePageActionControlHelper` maps the same images, but only for
+ * NavigatePage action bars; on a list or card, `Image = Approve` or `Start`
+ * is an ordinary action ("Mark as Handled", "Release", "Run Now"), and
+ * tagging it let bc_wizard_navigate run it as "finish" (#50).
+ */
+export function classifyWizardNav(a: ActionNode, pageType: PageType | undefined): WizardNav | undefined {
   const id = a.iconIdentifier;
-  if (id) {
+  if (id && (pageType === 'NavigatePage' || pageType === 'StandardDialog')) {
     if (/PreviousRecord/i.test(id)) return 'back';
     if (/NextRecord|Action_Start/i.test(id)) return 'next';
     if (/Approve/i.test(id)) return 'finish';

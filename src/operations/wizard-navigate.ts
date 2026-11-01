@@ -83,7 +83,7 @@ export class WizardNavigateOperation {
           }));
         availableNav = treeActions(root)
           .filter(a => (a.properties.enabled ?? true) && isEffectivelyVisible(root, a.controlPath, groupVis, ws))
-          .map(a => classifyWizardNav(a))
+          .map(a => classifyWizardNav(a, ctx.pageType))
           .filter((v): v is WizardNav => !!v);
       }
       closed = (input.action === 'finish' || input.action === 'cancel') && availableNav.length === 0;

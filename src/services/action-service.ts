@@ -212,9 +212,9 @@ export class ActionService {
     const groupVis = treeGroupVisibility(root.root);
     const allActions = treeActions(root.root)
       .filter(a => isEffectivelyVisible(root.root, a.controlPath, groupVis, ctx.wizardState));
-    const actionNode = allActions.find(a => classifyWizardNav(a) === nav);
+    const actionNode = allActions.find(a => classifyWizardNav(a, ctx.pageType) === nav);
     if (!actionNode) {
-      const available = allActions.map(a => classifyWizardNav(a)).filter(Boolean);
+      const available = allActions.map(a => classifyWizardNav(a, ctx.pageType)).filter(Boolean);
       return err(new ProtocolError(
         `No wizard action of type '${nav}' on this page (page is ${ctx.pageType}, isModal=${ctx.isModal})`,
         { availableWizardNav: available },

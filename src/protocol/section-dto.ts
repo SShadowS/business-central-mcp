@@ -194,7 +194,7 @@ export function buildSection(ctx: PageContext, sectionId: string): Section | nul
       .filter(a => (a.properties.enabled ?? true) && a.properties.caption
         && isEffectivelyVisible(root, a.controlPath, groupVis, ws))
       .map(a => {
-        const wn = classifyWizardNav(a);
+        const wn = classifyWizardNav(a, ctx.pageType);
         return {
           name: a.properties.caption!,
           systemAction: a.systemAction,
