@@ -252,6 +252,7 @@ const ExternalUri = z.object({ uri: z.string(), style: z.string() });
 const OpenedPage = z.object({ pageContextId: z.string(), caption: z.string() });
 const Section = z.looseObject({});
 const Loose = z.looseObject({});
+const ShownMessage = z.object({ text: z.string(), type: z.string() });
 
 export const OpenPageOutputSchema = z.object({
   pageContextId: z.string(),
@@ -274,6 +275,7 @@ export const WriteDataOutputSchema = z.object({
   dialogsOpened: z.array(Dialog),
   requiresDialogResponse: z.boolean(),
   validationWarnings: z.array(Loose),
+  messages: z.array(ShownMessage),
   replaySafe: z.boolean(),
 });
 
@@ -285,6 +287,7 @@ export const ExecuteActionOutputSchema = z.object({
   openedPages: z.array(OpenedPage),
   dialogsOpened: z.array(OpenedDialog),
   requiresDialogResponse: z.boolean(),
+  messages: z.array(ShownMessage),
   downloads: z.array(Download),
   externalUris: z.array(ExternalUri),
   replaySafe: z.boolean(),
@@ -317,6 +320,7 @@ export const RespondDialogOutputSchema = z.object({
   dialogsOpened: z.array(Dialog),
   requiresDialogResponse: z.boolean(),
   openedPages: z.array(OpenedPage),
+  messages: z.array(ShownMessage),
   downloads: z.array(Download),
   externalUris: z.array(ExternalUri),
   replaySafe: z.boolean(),

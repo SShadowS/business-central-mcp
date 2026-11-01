@@ -1,5 +1,5 @@
 // src/protocol/mutation-result.ts
-import type { BCEvent, DialogOpenedEvent, PropertyChangedEvent, ValidationResultItem, ControlField } from './types.js';
+import type { BCEvent, DialogOpenedEvent, MessageToShowEvent, PropertyChangedEvent, ValidationResultItem, ControlField } from './types.js';
 import type { PageContext } from './page-context.js';
 import { buildFormTree } from './form-tree-builder.js';
 import { fields as treeFields } from './form-views.js';
@@ -82,6 +82,24 @@ export function extractValidationErrors(events: BCEvent[]): ValidationResultItem
     }
   }
   return out;
+}
+
+/** A non-blocking AL `Message()` (or other session notification) BC raised during the call. */
+export interface ShownMessage {
+  readonly text: string;
+  readonly type: MessageToShowEvent['messageType'];
+}
+
+/**
+ * The `MessageToShow` events of a call, minus Error/Fatal (classifyBusinessError
+ * turns those into a BusinessError). Without this an action that reports its
+ * result through `Message()` looked like it did nothing (#49).
+ */
+export function collectMessages(events: BCEvent[]): ShownMessage[] {
+  return events
+    .filter((e): e is MessageToShowEvent => e.type === 'MessageToShow'
+      && e.messageType !== 'Error' && e.messageType !== 'Fatal')
+    .map(e => ({ text: e.text, type: e.messageType }));
 }
 
 /**

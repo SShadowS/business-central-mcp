@@ -1,6 +1,6 @@
 import { v4 as uuid } from 'uuid';
 import { err, ok, isOk, isErr, type Result } from '../core/result.js';
-import { ProtocolError, StaleContextError, InvalidBookmarkError, type BCError } from '../core/errors.js';
+import { ProtocolError, StaleContextError, InvalidBookmarkError, InputValidationError, type BCError } from '../core/errors.js';
 import { classifyBusinessError } from '../protocol/error-classifier.js';
 import type { ActionService, ActionResult } from '../services/action-service.js';
 import type { NavigationService } from '../services/navigation-service.js';
@@ -8,7 +8,7 @@ import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { BCEvent, ControlField } from '../protocol/types.js';
 import type { Download, DownloadService } from '../services/download-service.js';
 import { resolveSection } from '../protocol/section-resolver.js';
-import { detectChangedSections, detectDialogs } from '../protocol/mutation-result.js';
+import { detectChangedSections, detectDialogs, collectMessages, type ShownMessage } from '../protocol/mutation-result.js';
 import { isEffectivelyVisible } from '../protocol/visibility.js';
 import { fields as treeFields, groupVisibility as treeGroupVisibility } from '../protocol/form-views.js';
 import { isInvalidBookmarkError } from '../session/rpc-error-classifier.js';
@@ -58,6 +58,8 @@ export interface ExecuteActionOutput {
   openedPages: Array<{ pageContextId: string; caption: string }>;
   dialogsOpened: OpenedDialog[];
   requiresDialogResponse: boolean;
+  /** AL Message() texts the action raised (Error/Fatal ones become an error instead); empty when none. */
+  messages: ShownMessage[];
   /** Captured file downloads produced by this action (e.g. Open in Excel); empty when none. */
   downloads: Download[];
   /** Links BC would open externally (not fetched by the server); empty when none. */
@@ -189,9 +191,11 @@ export class ExecuteActionOperation {
       const rows = resolved.form.rows.get(resolved.repeater.controlPath) ?? [];
       const row = rows[input.rowIndex];
       if (!row) {
-        return err(new ProtocolError(
-          `rowIndex ${input.rowIndex} is out of range (${rows.length} rows loaded). Read the section first or pass a bookmark.`,
-        ));
+        // Caller input, not a protocol fault: retrying the same call cannot succeed (#51).
+        return err(new InputValidationError([{
+          path: 'rowIndex',
+          message: `${input.rowIndex} is out of range (${rows.length} rows loaded). Read the section with bc_read_data first or pass a bookmark.`,
+        }]));
       }
       bookmark = row.bookmark;
     }
@@ -237,6 +241,7 @@ export class ExecuteActionOperation {
       openedPages,
       dialogsOpened,
       requiresDialogResponse: dialogsOpened.length > 0,
+      messages: collectMessages(ar.events),
       replaySafe: actionReplaySafe(ar),
     };
   }

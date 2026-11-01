@@ -4,7 +4,7 @@ import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { PageContext } from '../protocol/page-context.js';
 import { SystemAction } from '../protocol/types.js';
-import { detectChangedSections, detectDialogs } from '../protocol/mutation-result.js';
+import { detectChangedSections, detectDialogs, collectMessages, type ShownMessage } from '../protocol/mutation-result.js';
 import { classifyBusinessError } from '../protocol/error-classifier.js';
 import { formClosed } from '../protocol/replay-safety.js';
 import type { Download, DownloadService } from '../services/download-service.js';
@@ -22,6 +22,8 @@ export interface RespondDialogOutput {
   dialogsOpened: Array<{ formId: string; message?: string; fields?: import('../protocol/types.js').ControlField[] }>;
   requiresDialogResponse: boolean;
   openedPages: Array<{ pageContextId: string; caption: string }>;
+  /** AL Message() texts raised after the answer (Error/Fatal ones become an error instead); empty when none. */
+  messages: ShownMessage[];
   /** Captured file downloads produced by this response (e.g. Open in Excel); empty when none. */
   downloads: Download[];
   /** Links BC would open externally (not fetched by the server); empty when none. */
@@ -72,6 +74,7 @@ export class RespondDialogOperation {
         dialogsOpened: newDialogs,
         requiresDialogResponse: newDialogs.length > 0,
         openedPages: [],
+        messages: collectMessages(closeResult.value),
         downloads: closeCaptured.downloads,
         externalUris: closeCaptured.externalUris,
         replaySafe: formClosed(closeResult.value, input.dialogFormId),
@@ -134,6 +137,7 @@ export class RespondDialogOperation {
       dialogsOpened: newDialogs,
       requiresDialogResponse: newDialogs.length > 0,
       openedPages,
+      messages: collectMessages(events),
       downloads: captured.downloads,
       externalUris: captured.externalUris,
       replaySafe: formClosed(events, input.dialogFormId),
