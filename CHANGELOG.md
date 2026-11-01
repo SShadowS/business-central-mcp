@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.1] - 2026-11-01
+
+### Fixed
+
+- **Session recovery after BC ends the session (#48).** With NavUserPassword, BC's
+  web server keeps the password in server-side session state and deletes it when it
+  ends the session itself (idle `SessionTimeout`). The sign-in cookie outlives it, so
+  recovery reconnected on a dead sign-in and every call failed with
+  `NavCancelCredentialPromptException` until the process restarted. A failed
+  `OpenSession` now drops the sign-in, so the next attempt signs in again.
+- **A stale bookmark ends the session (#48).** BC's web server abandons the session on
+  `InvalidBookmarkException`, so the next request failed with `InvalidSessionException`.
+  It is now treated as session-ending: the next call recreates the session, and the
+  `INVALID_BOOKMARK` hint says to reopen the page before retrying.
+
 ## [2.4.0] - 2026-10-30
 
 ### Added
