@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.2] - 2026-11-02
+
+### Added
+
+- **AL `Message()` texts in results (#49).** `bc_execute_action`, `bc_respond_dialog`
+  and `bc_write_data` return `messages: [{ text, type }]` from BC's `MessageToShow`
+  events. Before, an action that reported its result through `Message()` looked like it
+  did nothing. Error/Fatal messages still come back as `BUSINESS_ERROR`.
+
+### Fixed
+
+- **`wizardNav` on non-wizard pages (#50).** The Back/Next/Finish icon roles
+  (`PreviousRecord`, `NextRecord`/`Start`, `Approve`) now apply only on NavigatePage and
+  StandardDialog pages. A list action with `Image = Approve` ("Mark as Handled") was
+  tagged `finish`, and `bc_wizard_navigate` could run it.
+- **Out-of-range `rowIndex` (#51)** on `bc_execute_action` is now `INVALID_ARGUMENT`,
+  not `PROTOCOL_ERROR` with a "Retry" next step.
+
 ## [2.4.1] - 2026-11-01
 
 ### Fixed
