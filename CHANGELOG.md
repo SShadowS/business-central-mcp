@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A list page opened with RunModal comes back with its rows (#59).** BC sends such a
+  page as a dialog with its rows inline in the repeater (`Data.Rows.LoadedRows`, written
+  when the data is already loaded, `LogicalControlSerializer.WriteDataProperty`) and no
+  `DataLoaded` after it, so the dialog's page context had a repeater with no rows. They are
+  now read from the tree, so `bc_read_data` lists them with bookmarks and `bc_write_data`
+  can set a row's cell. Verified live on cronus291: "Select items..." on a Sales Invoice
+  opens the Item List as a dialog with 49 rows.
+- **A caption-less field is listed and writable (#58).** A `ShowCaption = false` control
+  has no caption on the wire, so it was left out of every field list and `bc_write_data`
+  could not find it (the Company Creation Wizard's name box). It is now named by its AL
+  control name (`CompanyName`), and `bc_write_data` accepts that name. Verified live on
+  cronus291: the wizard lists `CompanyName`, and a write to it is echoed.
+- **Fields BC sends without an `Editable` flag are reported as editable.** BC leaves
+  the flag out when it is true (`WriteExpressionProperty(..., defaultValue: true)`), but
+  field lists read a missing flag as `editable: false`. The write path already treated
+  it as editable.
+
 ## [2.4.6] - 2026-11-02
 
 ### Added
