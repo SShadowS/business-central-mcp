@@ -357,6 +357,8 @@ export const SystemAction = {
   // cancel-shaped wizard nav role.
   CloseOk: 350,
   Yes: 380, No: 390,
+  /** Report request page buttons (P&review, Send to... / Download, Print). */
+  ReportPreview: 400, SendTo: 410, Print: 420,
   /** Sort a list by a repeater column header (rcc). Reference: SortColumnAction.cs (decompiled BC28). */
   SortColumn: 470,
 } as const;

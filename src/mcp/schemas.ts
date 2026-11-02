@@ -81,7 +81,7 @@ export const NavigateSchema = z.object({
 export const RespondDialogSchema = z.object({
   pageContextId: z.string().min(1).describe('Page context ID of the page that triggered the dialog.'),
   dialogFormId: z.string().min(1).describe('Dialog form ID from a dialogsOpened entry, or requestPage.formId returned by bc_run_report.'),
-  response: z.enum(['ok', 'cancel', 'yes', 'no', 'abort', 'close']).describe('"ok" confirms, "cancel" dismisses, "yes"/"no" answers a question, "abort" force-closes, "close" closes a modal info page.'),
+  response: z.enum(['ok', 'cancel', 'yes', 'no', 'abort', 'close', 'print', 'preview']).describe('"ok" confirms, "cancel" dismisses, "yes"/"no" answers a question, "abort" force-closes, "close" closes a modal info page, "print"/"preview" press the Print or Preview button of a report request page.'),
 });
 
 export const SwitchCompanySchema = z.object({

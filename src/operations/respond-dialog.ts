@@ -14,7 +14,7 @@ import type { BCEvent } from '../protocol/types.js';
 export interface RespondDialogInput {
   pageContextId: string;
   dialogFormId: string;
-  response: 'ok' | 'cancel' | 'yes' | 'no' | 'abort' | 'close';
+  response: 'ok' | 'cancel' | 'yes' | 'no' | 'abort' | 'close' | 'print' | 'preview';
 }
 
 export interface RespondDialogOutput {
@@ -45,6 +45,10 @@ const RESPONSE_MAP: Record<string, readonly number[]> = {
   yes: [SystemAction.Yes],
   no: [SystemAction.No],
   abort: [SystemAction.Abort],
+  // A report request page opened by an action (Print... on page 143) has no OK: its buttons
+  // are Send to... (410), Print (420), Preview (400) and Cancel (live cronus291).
+  print: [SystemAction.Print],
+  preview: [SystemAction.ReportPreview],
 };
 
 export class RespondDialogOperation {
@@ -91,7 +95,7 @@ export class RespondDialogOperation {
 
     const candidates = RESPONSE_MAP[input.response];
     if (candidates === undefined) {
-      return err(new ProtocolError(`Invalid dialog response: ${input.response}. Use: ok, cancel, yes, no, abort, close`));
+      return err(new ProtocolError(`Invalid dialog response: ${input.response}. Use: ok, cancel, yes, no, abort, close, print, preview`));
     }
 
     // Press the dialog's own button when it has one (#55). On an ActionControl whose

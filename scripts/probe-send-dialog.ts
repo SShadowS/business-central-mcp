@@ -47,9 +47,10 @@ async function main(): Promise<void> {
     const rows = unwrap(await read.execute({ pageContextId: list.pageContextId, range: { offset: 0, limit: 1 } }));
     const bm = rows.section.rows?.[0]?.bookmark;
     console.log('posted invoice row:', bm);
-    const r = unwrap(await exec.execute({ pageContextId: list.pageContextId, action: 'Send...', bookmark: bm }));
+    const r = unwrap(await exec.execute({ pageContextId: list.pageContextId, action: process.env.ACTION ?? 'Send...', bookmark: bm }));
     const d = r.dialogsOpened?.[0];
     console.log('dialog:', d?.formId, d?.message);
+    for (const f of d?.fields ?? []) console.log(`  field "${f.caption}" = ${JSON.stringify((f as { value?: unknown; stringValue?: unknown }).value ?? (f as { stringValue?: unknown }).stringValue)} editable=${f.editable} options=${JSON.stringify((f as { options?: unknown }).options ?? null)}`);
     if (!d) return;
     const form = repo.get(d.pageContextId)?.forms.get(d.formId);
     for (const a of form ? treeActions(form.root) : []) console.log(`  action "${a.properties.caption}" systemAction=${a.systemAction} ${a.controlPath} enabled=${a.properties.enabled ?? '(unset)'}`);

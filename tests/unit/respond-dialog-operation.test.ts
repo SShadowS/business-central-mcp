@@ -313,3 +313,36 @@ describe('RespondDialogOperation: StandardDialog OK/Cancel are LookupOk/LookupCa
     expect(session.invoke.mock.calls[0][0]).toMatchObject({ type: 'InvokeAction', formId: 'D1', controlPath, systemAction });
   });
 });
+
+describe('RespondDialogOperation: report request page buttons', () => {
+  // Live cronus291, Print... on page 143: the request page has Send to... 410, Print 420,
+  // P&review 400 and Cancel 310, and no OK button.
+  const requestPage = () => {
+    const repo = new PageContextRepository();
+    repo.create('pc:rp', 'R1', { isModal: true });
+    repo.applyToPage('pc:rp', [{
+      type: 'DialogOpened', formId: 'R1',
+      controlTree: { t: 'lf', ServerId: 'R1', PageType: 1, MappingHint: 'RequestPage', Caption: 'Sales - Invoice', Children: [
+        { t: 'gc', Children: [] },
+        { t: 'gc', Children: [
+          { t: 'ac', Caption: 'Send to...', SystemAction: 410 },
+          { t: 'ac', Caption: 'Print', SystemAction: 420 },
+          { t: 'ac', Caption: 'P&review', SystemAction: 400 },
+          { t: 'ac', Caption: 'Cancel', SystemAction: 310 },
+        ] },
+      ] },
+    } as BCEvent]);
+    return repo;
+  };
+
+  it.each([
+    ['print', 'server:c[1]/c[1]', 420],
+    ['preview', 'server:c[1]/c[2]', 400],
+    ['cancel', 'server:c[1]/c[3]', 310],
+  ] as const)('"%s" presses %s with SystemAction %d', async (response, controlPath, systemAction) => {
+    const session = makeSession();
+    await new RespondDialogOperation(session, requestPage(), makeDownloadService())
+      .execute({ pageContextId: 'pc:rp', dialogFormId: 'R1', response });
+    expect(session.invoke.mock.calls[0][0]).toMatchObject({ type: 'InvokeAction', formId: 'R1', controlPath, systemAction });
+  });
+});

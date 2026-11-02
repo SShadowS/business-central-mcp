@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`bc_respond_dialog` responses `"print"` and `"preview"`.** A report request page that
+  an action opens (Print... on a posted document) has no OK button: its buttons are
+  Send to... (410), Print (420), P&review (400) and Cancel, so `"ok"` did nothing there.
+  `"print"` now returns the rendered PDF in `downloads[]` (verified live on BC 29.1,
+  page 143).
+
 ### Fixed
 
 - **A list filter no longer sticks for the rest of the session (#57).** BC stores every
