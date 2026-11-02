@@ -34,10 +34,20 @@ export function fields(root: FormNode): readonly FieldNode[] {
   return result;
 }
 
-/** The field a tool's field name addresses: caption (case-insensitive) or exact controlPath. */
-export function findField(root: FormNode, fieldName: string): FieldNode | undefined {
-  const lower = fieldName.toLowerCase();
-  return fields(root).find(f => (f.properties.caption ?? '').toLowerCase() === lower || f.controlPath === fieldName);
+/**
+ * A field's name in tool input and output: its caption, else its AL control name (wire
+ * `DesignName`). A `ShowCaption = false` control has no caption on the wire, e.g. the
+ * company name box of the Company Creation Wizard (live cronus291: `sc`, DesignName
+ * "CompanyName", #58). '' when it has neither (instruction labels).
+ */
+export function fieldName(f: FieldNode): string {
+  return f.properties.caption || f.properties.designName || '';
+}
+
+/** The field a tool's field name addresses: name (case-insensitive, see fieldName) or exact controlPath. */
+export function findField(root: FormNode, name: string): FieldNode | undefined {
+  const lower = name.toLowerCase();
+  return fields(root).find(f => (fieldName(f) !== '' && fieldName(f).toLowerCase() === lower) || f.controlPath === name);
 }
 
 /**

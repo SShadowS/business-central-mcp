@@ -16,6 +16,7 @@ import {
   actions as treeActions,
   groupVisibility as treeGroupVisibility,
   cues as treeCues,
+  fieldName,
 } from './form-views.js';
 import { isEffectivelyVisible } from './visibility.js';
 import { mapRowCellKeys } from './row-mapping.js';
@@ -160,7 +161,7 @@ export function buildSection(ctx: PageContext, sectionId: string): Section | nul
     out.totalRowCount = repeater.properties.totalRowCount ?? null;
   } else {
     out.fields = treeFields(root)
-      .filter(f => f.properties.caption && isEffectivelyVisible(root, f.controlPath, groupVis, ws))
+      .filter(f => fieldName(f) && isEffectivelyVisible(root, f.controlPath, groupVis, ws))
       .map(f => {
         const opts = f.properties.options;
         let selectedOption: { text?: string; value?: string } | undefined;
@@ -176,9 +177,9 @@ export function buildSection(ctx: PageContext, sectionId: string): Section | nul
           }
         }
         return {
-          name: f.properties.caption!,
+          name: fieldName(f),
           value: f.properties.stringValue,
-          editable: f.properties.editable ?? false,
+          editable: f.properties.editable !== false,
           type: f.type,
           ...(f.properties.showMandatory ? { showMandatory: true as const } : {}),
           ...(f.hasLookup ? { isLookup: true as const } : {}),

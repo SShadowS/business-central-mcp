@@ -6,7 +6,7 @@ import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import { resolveSection } from '../protocol/section-resolver.js';
 import { detectChangedSections, registerDialogs, type OpenedDialog } from '../protocol/mutation-result.js';
 import { isEffectivelyVisible } from '../protocol/visibility.js';
-import { fields as treeFields, actions as treeActions, groupVisibility as treeGroupVisibility } from '../protocol/form-views.js';
+import { fields as treeFields, actions as treeActions, groupVisibility as treeGroupVisibility, fieldName } from '../protocol/form-views.js';
 import { classifyWizardNav, type WizardNav } from '../protocol/wizard-classify.js';
 import { actionReplaySafe } from '../protocol/replay-safety.js';
 import type { Download, DownloadService } from '../services/download-service.js';
@@ -75,11 +75,11 @@ export class WizardNavigateOperation {
       if (root) {
         const groupVis = treeGroupVisibility(root);
         fieldsOut = treeFields(root)
-          .filter(f => f.properties.caption && isEffectivelyVisible(root, f.controlPath, groupVis, ws))
+          .filter(f => fieldName(f) && isEffectivelyVisible(root, f.controlPath, groupVis, ws))
           .map(f => ({
-            name: f.properties.caption!,
+            name: fieldName(f),
             value: f.properties.stringValue,
-            editable: f.properties.editable ?? false,
+            editable: f.properties.editable !== false,
           }));
         availableNav = treeActions(root)
           .filter(a => (a.properties.enabled ?? true) && isEffectivelyVisible(root, a.controlPath, groupVis, ws))

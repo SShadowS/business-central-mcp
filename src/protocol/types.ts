@@ -541,7 +541,7 @@ import type { PageContext } from './page-context.js';
 import type { FormState } from './form-state.js';
 import {
   fields as treeFields, actions as treeActions,
-  repeaters as treeRepeaters, filterControlPath as treeFilter,
+  repeaters as treeRepeaters, filterControlPath as treeFilter, fieldName,
 } from './form-views.js';
 
 /**
@@ -557,9 +557,9 @@ export function derivePageState(ctx: PageContext): PageState {
     pageType: ctx.pageType,
     controlTree: rootForm ? treeFields(rootForm.root).map(f => ({
       controlPath: f.controlPath,
-      caption: f.properties.caption ?? '',
+      caption: fieldName(f),
       type: f.type,
-      editable: f.properties.editable ?? false,
+      editable: f.properties.editable !== false,
       visible: f.properties.visible ?? true,
       stringValue: f.properties.stringValue,
       value: f.properties.objectValue ?? f.properties.stringValue,

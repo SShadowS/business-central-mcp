@@ -5,7 +5,7 @@ import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { BCEvent, RepeaterRow, ControlField, TabGroup, SaveValueInteraction, SetCurrentRowInteraction, ScrollRepeaterInteraction } from '../protocol/types.js';
 import type { Logger } from '../core/logger.js';
 import { resolveSection } from '../protocol/section-resolver.js';
-import { fields as treeFields, tabs as treeTabs, actions as treeActions, groupVisibility as treeGroupVisibility, findField } from '../protocol/form-views.js';
+import { fields as treeFields, tabs as treeTabs, actions as treeActions, groupVisibility as treeGroupVisibility, findField, fieldName as nameOf } from '../protocol/form-views.js';
 import { isEffectivelyVisible } from '../protocol/visibility.js';
 import type { PageContext } from '../protocol/page-context.js';
 import { SystemAction } from '../protocol/types.js';
@@ -212,7 +212,7 @@ export class DataService {
     if (!fieldNode) {
       return err(new ProtocolError(`Field not found: ${fieldName}`, {
         pageContextId,
-        availableFields: treeFields(form.root).map(f => f.properties.caption ?? f.controlPath).filter(Boolean),
+        availableFields: treeFields(form.root).map(f => nameOf(f) || f.controlPath),
       }));
     }
 

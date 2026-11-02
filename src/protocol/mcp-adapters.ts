@@ -7,13 +7,14 @@
 import type { FieldNode, FormNode } from './form-node.js';
 import { ancestorGroupPaths } from './form-tree-walk.js';
 import type { ControlField } from './types.js';
+import { fieldName } from './form-views.js';
 
 export function fieldNodeToControlField(root: FormNode, f: FieldNode): ControlField {
   return {
     controlPath: f.controlPath,
-    caption: f.properties.caption ?? '',
+    caption: fieldName(f),
     type: f.type,
-    editable: f.properties.editable ?? false,
+    editable: f.properties.editable !== false,
     visible: f.properties.visible ?? true,
     stringValue: f.properties.stringValue,
     value: f.properties.objectValue ?? f.properties.stringValue,
