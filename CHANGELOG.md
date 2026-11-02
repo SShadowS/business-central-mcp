@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.6] - 2026-11-02
+
 ### Added
 
 - **`bc_respond_dialog` responses `"print"` and `"preview"`.** A report request page that
