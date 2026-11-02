@@ -82,10 +82,11 @@ describe('MCP Endpoint (integration)', () => {
     expect(result.result.capabilities.tools).toBeDefined();
   }, 60_000);
 
-  it('lists 17 tools', async () => {
+  it('lists one tool per src/operations/*.tool.ts module', async () => {
     const result = await mcpCall('tools/list') as any;
     const tools = result.result.tools;
-    expect(tools).toHaveLength(17);
+    const { readdirSync } = await import('node:fs');
+    expect(tools).toHaveLength(readdirSync('src/operations').filter(f => f.endsWith('.tool.ts')).length);
 
     const names = tools.map((t: any) => t.name);
     expect(names).toContain('bc_open_page');
