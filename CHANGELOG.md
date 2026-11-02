@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.3] - 2026-11-02
+
+### Fixed
+
+- **Dialogs opened by any tool get a `pageContextId` (#52).** Only `bc_execute_action`
+  registered the dialogs it opened, so a dialog from `bc_wizard_navigate` (e.g. the
+  "Set up SMTP Account" page of the Set Up Email wizard), `bc_write_data`,
+  `bc_respond_dialog`, `bc_close_page` or `bc_upload_file` came back with a `formId`
+  only and could not be filled or answered. All six now share one `registerDialogs`, and
+  each `dialogsOpened` entry carries its own `pageContextId`.
+
 ## [2.4.2] - 2026-11-02
 
 ### Added
