@@ -10,6 +10,7 @@ keys / IDs replaced with `"REDACTED"`. Captured via `scripts/capture-tell-me.ts`
 | `tell-me-result-2026-04-28.json` | BC28, `BC_PROFILE="BUSINESS MANAGER"`, Tell Me query `customer` | 2026-04-28 |
 | `cuegroup-rolecenter-2026-04-28.json` | BC28, `BC_PROFILE="BUSINESS MANAGER"`, default Role Center (16 hosted forms) | 2026-04-28 |
 | `cuegroup-cardpart-standalone-2026-04-28.json` | BC28, standalone OpenForm of pages 1310 / 9061 / 9152 (CardParts) | 2026-04-28 |
+| `error-messages-page-2026-11-02.json` | BC 29.1 (cronus291), the page 700 "Error Messages" handlers (FormToShow + its rows) from the Yes response to "Do you want to post the invoice?" on a Sales Invoice whose only line has Quantity 0 (#53, `scripts/probe-post-error.ts`) | 2026-11-02 |
 
 ## Tell Me wire shape (verified 2026-04-28 against BC28 BUSINESS MANAGER profile)
 

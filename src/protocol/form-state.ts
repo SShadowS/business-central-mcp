@@ -53,7 +53,7 @@ export class FormProjection {
     const repeaterNode = treeRepeaters(form.root).get(event.controlPath);
     if (!repeaterNode) return form;
 
-    const extractedRows = this.extractRows(event.rows);
+    const extractedRows = extractRows(event.rows);
 
     let newRows: readonly RepeaterRow[];
     if (event.currentRowOnly) {
@@ -161,27 +161,28 @@ export class FormProjection {
     if (newRoot === form.root) return form;
     return { ...form, root: newRoot };
   }
+}
 
-  private extractRows(rawRows: unknown[]): RepeaterRow[] {
-    const rows: RepeaterRow[] = [];
-    for (const raw of rawRows) {
-      if (!raw || typeof raw !== 'object') continue;
-      const r = raw as Record<string, unknown>;
-      // BC28's /csh wire uses the long-name keys; accept the abbreviated tags
-      // (drich/druch) too in case an older tier emits them. The [1] payload is
-      // guarded so a malformed row (e.g. [index, null]) can't throw and abort
-      // the whole batch.
-      const rowData = (r['DataRowInserted'] ?? r['DataRowUpdated'] ?? r['drich'] ?? r['druch']) as unknown[] | undefined;
-      if (Array.isArray(rowData) && rowData.length >= 2 && rowData[1] && typeof rowData[1] === 'object') {
-        const payload = rowData[1] as Record<string, unknown>;
-        rows.push({
-          bookmark: (payload['bookmark'] ?? payload['Bookmark'] ?? '') as string,
-          cells: (payload['cells'] ?? payload['Cells'] ?? {}) as Record<string, unknown>,
-        });
-      }
+/** The rows of a DataLoaded event's `rows` (DataRowInserted / DataRowUpdated changes). */
+export function extractRows(rawRows: unknown[]): RepeaterRow[] {
+  const rows: RepeaterRow[] = [];
+  for (const raw of rawRows) {
+    if (!raw || typeof raw !== 'object') continue;
+    const r = raw as Record<string, unknown>;
+    // BC28's /csh wire uses the long-name keys; accept the abbreviated tags
+    // (drich/druch) too in case an older tier emits them. The [1] payload is
+    // guarded so a malformed row (e.g. [index, null]) can't throw and abort
+    // the whole batch.
+    const rowData = (r['DataRowInserted'] ?? r['DataRowUpdated'] ?? r['drich'] ?? r['druch']) as unknown[] | undefined;
+    if (Array.isArray(rowData) && rowData.length >= 2 && rowData[1] && typeof rowData[1] === 'object') {
+      const payload = rowData[1] as Record<string, unknown>;
+      rows.push({
+        bookmark: (payload['bookmark'] ?? payload['Bookmark'] ?? '') as string,
+        cells: (payload['cells'] ?? payload['Cells'] ?? {}) as Record<string, unknown>,
+      });
     }
-    return rows;
   }
+  return rows;
 }
 
 /**

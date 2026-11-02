@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A posting error shown on the "Error Messages" page is returned as an error (#53).**
+  Error Message Management reports posting errors (e.g. Sales-Post's "There is nothing
+  to post" after the post confirm) by opening page 700 "Error Messages", not an error
+  dialog, so `bc_respond_dialog` returned `success: true` for a post that never happened.
+  Every tool now returns `BUSINESS_ERROR` (`source: "errorMessages"`) with the page's
+  Error rows as `bcText`; a page with warnings only is not an error. Verified live on
+  BC 29.1.
+
 ## [2.4.3] - 2026-11-02
 
 ### Fixed

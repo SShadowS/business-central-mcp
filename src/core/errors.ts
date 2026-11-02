@@ -179,8 +179,8 @@ export class BusinessValidationError extends BCError {
 export class BusinessError extends BCError {
   public readonly bcText: string;
   public readonly severity: string;
-  public readonly source: 'message' | 'dialog';
-  constructor(opts: { bcText: string; severity: string; source: 'message' | 'dialog' }) {
+  public readonly source: 'message' | 'dialog' | 'errorMessages';
+  constructor(opts: { bcText: string; severity: string; source: 'message' | 'dialog' | 'errorMessages' }) {
     super(opts.bcText, 'BUSINESS_ERROR');
     this.bcText = opts.bcText;
     this.severity = opts.severity;

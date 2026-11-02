@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { EventDecoder } from '../../src/protocol/event-decoder.js';
 import { classifyBusinessError } from '../../src/protocol/error-classifier.js';
 import type { BCEvent } from '../../src/protocol/types.js';
 import type { BusinessValidationError, BusinessError } from '../../src/core/errors.js';
@@ -268,5 +271,26 @@ describe('classifyBusinessError', () => {
       expect(result!.code).toBe('VALIDATION_ERROR');
       expect(result!.constructor.name).toBe('BusinessValidationError');
     });
+  });
+});
+
+// #53: Sales-Post's "There is nothing to post" after the post confirm arrives as page 700
+// "Error Messages" (FormToShow + its rows), not as an error dialog. Live capture, cronus291.
+describe('classifyBusinessError: page 700 Error Messages', () => {
+  const capture = (): unknown[] => JSON.parse(readFileSync(
+    fileURLToPath(new URL('../../src/protocol/captures/error-messages-page-2026-11-02.json', import.meta.url)), 'utf8'));
+
+  it('returns the Error rows as a BusinessError', () => {
+    const result = classifyBusinessError(new EventDecoder().decode(capture())) as BusinessError;
+    expect(result).not.toBeNull();
+    expect(result.code).toBe('BUSINESS_ERROR');
+    expect(result.source).toBe('errorMessages');
+    expect(result.bcText).toBe('There is nothing to post because the document does not contain a quantity or amount.');
+  });
+
+  it('ignores a page that holds only warnings', () => {
+    // Message Type (table 700 field 4) Warning = ordinal 1.
+    const text = JSON.stringify(capture()).replace(/("\d+_c4":\{"type":"selection","objectValue":)0/g, '$11');
+    expect(classifyBusinessError(new EventDecoder().decode(JSON.parse(text)))).toBeNull();
   });
 });
