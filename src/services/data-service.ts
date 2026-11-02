@@ -262,6 +262,19 @@ export class DataService {
   ): Promise<Result<WriteFieldsResult, ProtocolError>> {
     const results: FieldWriteResult[] = [];
     const allEvents: BCEvent[] = [];
+    // Address a bookmarked row by its index for the whole call: writing a draft row
+    // inserts the record and BC replaces its DraftRecord bookmark with the real one at
+    // the same index, so the caller's bookmark is stale for the next field (#54, live
+    // cronus291: "No." inserted the Sales Line, then "Quantity" by DraftRecord268 hit
+    // InvalidBookmarkException, which ends the session).
+    const bookmark = options?.bookmark;
+    if (options && bookmark !== undefined && options.rowIndex === undefined) {
+      const ctx = this.repo.get(pageContextId);
+      const resolved = ctx ? resolveSection(ctx, options.sectionId, 'header') : undefined;
+      const index = resolved && !('error' in resolved) && resolved.repeater
+        ? resolved.rows.findIndex(r => r.bookmark === bookmark) : -1;
+      if (index >= 0) options = { sectionId: options.sectionId, rowIndex: index };
+    }
     for (const [name, value] of Object.entries(fields)) {
       const result = await this.writeField(pageContextId, name, value, options);
       if (isErr(result)) {
@@ -308,7 +321,16 @@ export class DataService {
     if (reasons.length > 0) return err(notWritableError('Column', fieldName, reasons, { pageContextId, controlPath: col.controlPath }));
     // A row's cells carry their own editable/enabled (DataLoaded, written only when
     // false: LogicalControlSerializer.WriteDataValues), e.g. one locked line.
-    const cell = rows.find(r => r.bookmark === bookmark)?.cells[col.columnBinder?.name ?? ''] as { editable?: unknown; enabled?: unknown } | undefined;
+    const row = rows.find(r => r.bookmark === bookmark);
+    // BC answers SetCurrentRow on a bookmark it has not loaded with InvalidBookmarkException
+    // and ends the session (#48), so refuse locally: rows mirror BC's loaded rows.
+    if (!row) {
+      return err(new ProtocolError(
+        `Bookmark "${bookmark}" is not among the loaded rows of this section, so nothing was sent. A new line's DraftRecord bookmark is replaced once BC inserts the line. Re-read the section with bc_read_data for current bookmarks, or address the row by rowIndex.`,
+        { pageContextId, bookmark },
+      ));
+    }
+    const cell = row.cells[col.columnBinder?.name ?? ''] as { editable?: unknown; enabled?: unknown } | undefined;
     const cellReasons = cell && typeof cell === 'object'
       ? unwritableReasons({ editable: cell.editable === false ? false : undefined, enabled: cell.enabled === false ? false : undefined })
       : [];

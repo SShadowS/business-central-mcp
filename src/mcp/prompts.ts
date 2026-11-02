@@ -143,9 +143,9 @@ Steps:
 1. bc_open_page for the document page. It exposes a "header" section and a "lines" section (the sub-form repeater).
 2. bc_execute_action { action: "New" } to start a fresh document (if not already on a blank one).
 3. Header: bc_write_data { section: "header", fields: { ... } }. Set the primary key/party field first (e.g. Sell-to Customer No.) — it triggers defaulting of other header fields.
-4. Lines (repeat per line): bc_execute_action { action: "New", section: "lines" } to add a draft row, then bc_write_data { section: "lines", bookmark: "<new-row-bookmark>", fields: { "Type": "Item", "No.": "...", "Quantity": "..." } }. Re-read the lines section (bc_read_data { section: "lines" }) to get the new row's bookmark and confirm defaulted values (description, price).
+4. Lines (repeat per line): bc_execute_action { action: "New", section: "lines" } to add a draft row, then bc_read_data { section: "lines" } and bc_write_data { section: "lines", bookmark: "<new-row-bookmark>", fields: { "Type": "Item", "No.": "...", "Quantity": "..." } } with all of the line's fields in ONE call. The draft row's DraftRecord bookmark stops working once BC inserts the line (after "No."), so re-read the lines section to get the line's real bookmark before writing to it again, and to confirm defaulted values (description, price).
 5. Watch for VALIDATION_ERROR (bad item/quantity) and BUSINESS_ERROR (e.g. credit limit) and surface them.
-6. To post the finished document, chain into the bc_post_document workflow.
+6. BC saves the line being edited only when you move to another row or close the page, so finish with bc_close_page (or chain into the bc_post_document workflow to post); otherwise the last line's last field can be lost when the session ends.
 
 ${CORE_NOTE}`,
     ),

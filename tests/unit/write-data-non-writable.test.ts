@@ -160,8 +160,16 @@ describe('DataService.writeField when BC sends no echo', () => {
   });
 });
 
+const loadRow = (repo: PageContextRepository, pcId: string, formId: string, bookmark: string): PageContextRepository => {
+  repo.applyToPage(pcId, [{
+    type: 'DataLoaded', formId, controlPath: 'server:c[0]', currentRowOnly: false,
+    rows: [{ DataRowInserted: [0, { bookmark, cells: {} }] }],
+  } as BCEvent]);
+  return repo;
+};
+
 describe('DataService line cell writes', () => {
-  const lines = () => open('pc:lines', 'F1', {
+  const lines = () => loadRow(open('pc:lines', 'F1', {
     Children: [{
       t: 'rc',
       Columns: [
@@ -171,7 +179,7 @@ describe('DataService line cell writes', () => {
         { t: 'rcc', Caption: 'Off', Enabled: false, ColumnBinder: { Name: 'off' } },
       ],
     }],
-  });
+  }), 'pc:lines', 'F1', 'B1');
 
   it('a hidden column (page 393 bin columns) fails as hidden and sends nothing, not even the row selection', async () => {
     const { data, invoke } = service(lines());
@@ -256,7 +264,7 @@ describe('document lines subpage after Edit', () => {
         Children: [{ t: 'rc', Columns: [{ t: 'rcc', Caption: 'Quantity', Editable: false, ColumnBinder: { Name: 'qty' } }] }],
       },
     } as BCEvent]);
-    return repo;
+    return loadRow(repo, 'pc:so', 'L', 'B1');
   };
 
   it('refuses a line write in view mode, then writes once the host-routed Editable flip arrives', async () => {
@@ -295,5 +303,58 @@ describe('wizard step fields', () => {
     const { data, invoke } = service(repo);
     expect((await data.writeField('pc:wiz', 'Company Name', 'Acme')).ok).toBe(true);
     expect(invoke).toHaveBeenCalledOnce();
+  });
+});
+
+// #54: writing a draft line inserts it, and BC re-keys the row from its DraftRecord
+// bookmark to the real record's at the same index (live cronus291: after "No." on a
+// Sales Invoice line). The next field by the old bookmark hit InvalidBookmarkException,
+// which ends the session.
+describe('a draft row re-keyed by BC mid-write', () => {
+  const draftLines = () => {
+    const repo = open('pc:inv', 'F1', {
+      Children: [{
+        t: 'rc',
+        Columns: [
+          { t: 'rcc', Caption: 'Type', ColumnBinder: { Name: 'type' } },
+          { t: 'rcc', Caption: 'No.', ColumnBinder: { Name: 'no' } },
+          { t: 'rcc', Caption: 'Quantity', ColumnBinder: { Name: 'qty' } },
+        ],
+      }],
+    });
+    repo.applyToPage('pc:inv', [{
+      type: 'DataLoaded', formId: 'F1', controlPath: 'server:c[0]', currentRowOnly: false,
+      rows: [{ DataRowInserted: [0, { bookmark: 'DraftRecord1', cells: {} }] }],
+    } as BCEvent]);
+    return repo;
+  };
+
+  it('writes every field of the call to the same row after BC re-keys it', async () => {
+    const repo = draftLines();
+    const invoke = vi.fn(async (interaction: { type: string; controlPath?: string }) => ok(
+      interaction.type === 'SaveValue' && interaction.controlPath === 'server:c[0]/cr/c[1]'
+        ? [{
+            type: 'DataLoaded', formId: 'F1', controlPath: 'server:c[0]', currentRowOnly: false,
+            rows: [
+              { DataRowInserted: [0, { bookmark: 'REAL1', cells: {} }] },
+              { DataRowInserted: [1, { bookmark: 'DraftRecord2', cells: {} }] },
+            ],
+          } as BCEvent]
+        : []));
+    const op = new WriteDataOperation(new DataService({ invoke } as never, repo, logger), repo);
+    const res = await op.execute({ pageContextId: 'pc:inv', bookmark: 'DraftRecord1', fields: { Type: 'Item', 'No.': '1896-S', Quantity: '1' } });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.value.results.every(r => r.success)).toBe(true);
+    const keys = invoke.mock.calls.map(c => c[0]).filter(i => i.type === 'SetCurrentRow').map(i => (i as { key?: string }).key);
+    expect(keys).toEqual(['DraftRecord1', 'DraftRecord1', 'REAL1']);
+  });
+
+  it('refuses a bookmark that is no longer loaded and sends nothing', async () => {
+    const repo = draftLines();
+    const { data, invoke } = service(repo);
+    const res = await data.writeField('pc:inv', 'Quantity', '1', { bookmark: 'DraftRecord0' });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.message).toContain('not among the loaded rows');
+    expect(invoke).not.toHaveBeenCalled();
   });
 });

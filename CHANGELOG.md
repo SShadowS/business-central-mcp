@@ -16,6 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Every tool now returns `BUSINESS_ERROR` (`source: "errorMessages"`) with the page's
   Error rows as `bcText`; a page with warnings only is not an error. Verified live on
   BC 29.1.
+- **Writing a new line by its draft bookmark (#54).** Writing a draft row inserts the
+  line, and BC replaces its `DraftRecord…` bookmark with the record's at the same row, so
+  `bc_write_data { bookmark: "DraftRecord…", fields: { Type, "No.", Quantity } }` sent the
+  dead bookmark for the fields after "No.", got `InvalidBookmarkException` and lost the
+  session. A call now addresses its row by position for every field, and a bookmark that
+  is not among the loaded rows is refused before anything is sent. The `bc_create_document`
+  playbook says to write a line's fields in one call, re-read for the real bookmark, and
+  close the page so the last line is saved.
 
 ## [2.4.3] - 2026-11-02
 
