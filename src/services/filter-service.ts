@@ -15,6 +15,9 @@ export interface Filter {
 }
 
 export class FilterService {
+  /** Page contexts this session added a filter to, so close_page can clear it first (#57). */
+  private readonly filtered = new Set<string>();
+
   constructor(
     private readonly session: BCSession,
     private readonly repo: PageContextRepository,
@@ -36,6 +39,13 @@ export class FilterService {
     const initialFilterPath = filterControlPath(resolved.form.root);
     if (!initialFilterPath) {
       return err(new ProtocolError('Page has no FilterLogicalControl (filc) -- cannot filter'));
+    }
+
+    // BC's AddLine sets the value only when it is not empty (FilterInteraction.AddFilterLine),
+    // so an empty value adds a blank line and leaves the column's filter in place.
+    const empty = filters.find(f => f.value === '');
+    if (empty) {
+      return err(new ProtocolError(`Filter value for '${empty.column}' is empty: BC ignores an empty filter value, so it cannot remove a filter. Pass clearFilters: true to remove the filters, then the ones to keep. Nothing was sent.`));
     }
 
     for (const filter of filters) {
@@ -80,12 +90,18 @@ export class FilterService {
       );
       if (isErr(addResult)) return addResult;
       this.repo.applyToPage(pageContextId, addResult.value);
+      this.filtered.add(pageContextId);
     }
 
     const updatedCtx = this.repo.get(pageContextId);
     if (!updatedCtx) return err(new ProtocolError('State lost after filter'));
     this.logger.info(`[Filter] Filters applied on ${pageContextId}: ${filters.map(f => `${f.column}=${f.value}`).join(', ')}`);
     return ok(updatedCtx);
+  }
+
+  /** True when this session added a filter to the page context that clearFilters has not removed. */
+  hasFilters(pageContextId: string): boolean {
+    return this.filtered.has(pageContextId);
   }
 
   async clearFilters(pageContextId: string, sectionId?: string): Promise<Result<PageContext, ProtocolError>> {
@@ -96,21 +112,37 @@ export class FilterService {
     if ('error' in resolved) return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
     if (!resolved.repeater) return err(new ProtocolError('Page has no repeater -- cannot clear filters'));
 
+    const formId = resolved.form.formId;
     const fpath = filterControlPath(resolved.form.root);
-    const controlPath = fpath ?? resolved.repeater.controlPath;
 
-    const resetInteraction: FilterInteraction = {
-      type: 'Filter',
-      formId: resolved.form.formId,
-      controlPath,
-      filterOperation: FilterOperation.Reset,
-    };
-    const result = await this.session.invoke(
-      resetInteraction,
-      (event) => event.type === 'InvokeCompleted' || event.type === 'DataLoaded',
-    );
-    if (isErr(result)) return result;
-    this.repo.applyToPage(pageContextId, result.value);
+    // Reset alone does not clear a filter the session keeps (#57). BC stores every executed
+    // filter per page for the session (FormFilterPersistencePattern.FilterExecuted ->
+    // FormFilterStorage.SaveModified) and applies it to the page's UserFilter when the page
+    // opens again, with no filter line; Reset (ApplySessionFilters(applyOriginal)) restores
+    // the stored "original", which then holds it too (live cronus291, page 143: a filter
+    // active at close_page survived reopen + Reset). So, with a filter control:
+    //   1. Reset: removes the filter lines (ChildRemoved per line).
+    //   2. Execute on the LogicalForm with UserFilter '': BindingManager.UserFilter.Clear()
+    //      + refill (FilterInteraction.ExecuteFilter), clears the stored filter from the view.
+    //   3. Execute on the filter control: raises FilterExecuted, so the session stores the
+    //      now-empty filters and the page opens unfiltered next time.
+    // Page-defined filters (SourceTableView, AL SetFilter) are not in UserFilter and stay.
+    const steps: FilterInteraction[] = fpath
+      ? [
+          { type: 'Filter', formId, controlPath: fpath, filterOperation: FilterOperation.Reset },
+          { type: 'Filter', formId, controlPath: 'server:', filterOperation: FilterOperation.Execute, userFilter: '' },
+          { type: 'Filter', formId, controlPath: fpath, filterOperation: FilterOperation.Execute, filterColumnId: '', filterValue: '' },
+        ]
+      : [{ type: 'Filter', formId, controlPath: resolved.repeater.controlPath, filterOperation: FilterOperation.Reset }];
+    for (const step of steps) {
+      const result = await this.session.invoke(
+        step,
+        (event) => event.type === 'InvokeCompleted' || event.type === 'DataLoaded',
+      );
+      if (isErr(result)) return result;
+      this.repo.applyToPage(pageContextId, result.value);
+    }
+    this.filtered.delete(pageContextId);
 
     const updatedCtx = this.repo.get(pageContextId);
     if (!updatedCtx) return err(new ProtocolError('State lost after clear'));

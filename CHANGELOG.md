@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A list filter no longer sticks for the rest of the session (#57).** BC stores every
+  executed filter per page for the session and applies it to the page's UserFilter when
+  the page opens again, where `Filter(Reset)` does not remove it. A filter still active at
+  `bc_close_page` therefore came back on every reopen, and `clearFilters: true` could not
+  clear it, so reads silently returned a subset. `clearFilters` now also clears the
+  UserFilter and re-runs the filter control, so the session stores empty filters, and
+  `bc_close_page` clears the filters this session added before it closes the page. An
+  empty filter value, which BC ignores, is refused instead of sent. Verified live on
+  BC 29.1 (page 143).
+
 ## [2.4.5] - 2026-11-02
 
 ### Fixed

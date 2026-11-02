@@ -12,7 +12,7 @@ Pass section: "header" (default) to refresh the page's header. Pass section: "li
 
 Option/enum and boolean fields in card-shape sections carry "options" (allowed choices as [{text, value}]) and "selectedOption" (current choice). When writing an enum field with bc_write_data, use the "value" string from "options" -- do NOT guess values. Example: after opening Item Card, the "Type" field returns options=[{text:"Inventory",value:"0"},{text:"Service",value:"1"},{text:"Non-Inventory",value:"2"}]; to change to Service, write value "1".
 
-Filtering applies to list-shape sections only. Pass an array of { column, value }; values use BC filter syntax (exact "10000", ranges "10000..20000", wildcards "*consulting*", expressions ">1000"). Multiple filters combine with AND.
+Filtering applies to list-shape sections only. Pass an array of { column, value }; values use BC filter syntax (exact "10000", ranges "10000..20000", wildcards "*consulting*", expressions ">1000"). Multiple filters combine with AND. Filters stay on the page until clearFilters (an empty value is refused: BC cannot remove a filter that way); bc_close_page clears them, so the page opens unfiltered next time.
 
 clearFilters: true resets agent-applied filters and restores the page to its default/native filtered state before reading. Note: page-defined SourceTableView filters (set in AL code) remain active -- this does NOT guarantee a completely empty filter set. Use before applying new filters to avoid stacking. Applies to list-shape sections only. Runs before any filters[] in the same call.
 

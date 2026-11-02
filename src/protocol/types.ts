@@ -257,6 +257,8 @@ export interface FilterInteraction extends BaseInteraction {
   readonly filterOperation: number;
   readonly filterColumnId?: string;
   readonly filterValue?: string;
+  /** Execute on the LogicalForm (`server:`): replaces the form's UserFilter with this OData filter ('' clears it). */
+  readonly userFilter?: string;
 }
 
 export interface SetCurrentRowInteraction extends BaseInteraction {

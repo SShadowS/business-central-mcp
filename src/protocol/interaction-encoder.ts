@@ -186,6 +186,7 @@ export class InteractionEncoder {
       case 'Filter': {
         const filterParams: Record<string, unknown> = { filterOperation: interaction.filterOperation, filterColumnId: interaction.filterColumnId };
         if (interaction.filterValue !== undefined) filterParams['FilterValue'] = interaction.filterValue;
+        if (interaction.userFilter !== undefined) filterParams['UserFilter'] = interaction.userFilter;
         return { interactionName: 'Filter', formId: interaction.formId, controlPath: interaction.controlPath, namedParameters: JSON.stringify(filterParams), callbackId };
       }
       case 'SetCurrentRow':

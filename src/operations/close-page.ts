@@ -1,6 +1,7 @@
 import { err, mapResult, type Result } from '../core/result.js';
 import { InputValidationError, type BCError } from '../core/errors.js';
 import type { PageService } from '../services/page-service.js';
+import type { FilterService } from '../services/filter-service.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import { registerDialogs, type OpenedDialog } from '../protocol/mutation-result.js';
 
@@ -25,6 +26,7 @@ export class ClosePageOperation {
   constructor(
     private readonly pageService: PageService,
     private readonly repo: PageContextRepository,
+    private readonly filterService?: FilterService,
   ) {}
 
   async execute(input: ClosePageInput): Promise<Result<ClosePageOutput, BCError>> {
@@ -37,6 +39,13 @@ export class ClosePageOperation {
         path: 'pageContextId',
         message: `${input.pageContextId} is a dialog, not a page: answer it with bc_respond_dialog (dialogFormId ${ctx.rootFormId}, e.g. response "cancel").`,
       }]));
+    }
+
+    // BC keeps a filter that is active when the page closes for the rest of the session and
+    // applies it when the page opens again (#57), so clear the filters this session added.
+    // Best effort: a failed clear must not keep the page open.
+    if (this.filterService?.hasFilters(input.pageContextId)) {
+      await this.filterService.clearFilters(input.pageContextId);
     }
 
     const result = await this.pageService.closePage(input.pageContextId);

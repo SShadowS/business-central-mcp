@@ -10,6 +10,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { FilterService } from '../../src/services/filter-service.js';
+import { ClosePageOperation } from '../../src/operations/close-page.js';
 import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
 import { FilterOperation } from '../../src/protocol/types.js';
 import { ok, err } from '../../src/core/result.js';
@@ -145,5 +146,70 @@ describe('FilterService.clearFilters — interaction shape', () => {
     if (!result.ok) {
       expect(result.error.message).toContain('network failure');
     }
+  });
+});
+
+// #57: BC keeps a filter that is active when the page closes for the rest of the session and
+// applies it to the page's UserFilter on reopen, where Reset does not remove it (live
+// cronus291, page 143). clearFilters therefore clears UserFilter and re-executes the filter
+// control, so the session stores empty filters too.
+describe('FilterService.clearFilters with a filter control (#57)', () => {
+  function makeFilteredList(repo: PageContextRepository) {
+    repo.create('pc:list', 'L1');
+    repo.applyToPage('pc:list', [{
+      type: 'FormCreated', formId: 'L1', isReload: false,
+      controlTree: {
+        t: 'lf', ServerId: 'L1', PageType: 1, Caption: 'Posted Sales Invoices',
+        Children: [
+          { t: 'gc', Children: [] },
+          { t: 'gc', Children: [] },
+          { t: 'filc', Children: [] },
+          { t: 'rc', Columns: [{ t: 'rcc', Caption: 'No.', ColumnBinder: { Name: 'c1' }, ColumnBinderPath: '112_Sales Invoice Header.3' }] },
+        ],
+      },
+    } as BCEvent]);
+  }
+
+  it('sends Reset, Execute(UserFilter "") on the form, then Execute on the filter control', async () => {
+    const repo = new PageContextRepository();
+    makeFilteredList(repo);
+    const session = makeSession();
+    await new FilterService(session as any, repo, createNullLogger()).clearFilters('pc:list');
+    expect(session.invoke.mock.calls.map(c => c[0])).toMatchObject([
+      { type: 'Filter', formId: 'L1', controlPath: 'server:c[2]', filterOperation: FilterOperation.Reset },
+      { type: 'Filter', formId: 'L1', controlPath: 'server:', filterOperation: FilterOperation.Execute, userFilter: '' },
+      { type: 'Filter', formId: 'L1', controlPath: 'server:c[2]', filterOperation: FilterOperation.Execute, filterColumnId: '', filterValue: '' },
+    ]);
+  });
+
+  it('refuses an empty filter value and sends nothing (BC ignores it)', async () => {
+    const repo = new PageContextRepository();
+    makeFilteredList(repo);
+    const session = makeSession();
+    const result = await new FilterService(session as any, repo, createNullLogger()).applyFilters('pc:list', [{ column: 'No.', value: '' }]);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain('clearFilters');
+    expect(session.invoke).not.toHaveBeenCalled();
+  });
+
+  it('bc_close_page clears the filters this session added before closing', async () => {
+    const repo = new PageContextRepository();
+    makeFilteredList(repo);
+    const session = makeSession();
+    const filters = new FilterService(session as any, repo, createNullLogger());
+    const closePage = vi.fn(async () => ok({ events: [] as BCEvent[] }));
+    const close = new ClosePageOperation({ closePage } as never, repo, filters);
+
+    await close.execute({ pageContextId: 'pc:list' });
+    expect(session.invoke).not.toHaveBeenCalled(); // never filtered: nothing to clear
+
+    expect((await filters.applyFilters('pc:list', [{ column: 'No.', value: '103293' }])).ok).toBe(true);
+    session.invoke.mockClear();
+    await close.execute({ pageContextId: 'pc:list' });
+    expect(session.invoke.mock.calls.map(c => (c[0] as any).filterOperation)).toEqual([
+      FilterOperation.Reset, FilterOperation.Execute, FilterOperation.Execute,
+    ]);
+    expect(closePage).toHaveBeenCalledTimes(2);
+    expect(filters.hasFilters('pc:list')).toBe(false);
   });
 });
