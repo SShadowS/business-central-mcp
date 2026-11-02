@@ -23,6 +23,36 @@ function normalizeMessageType(raw: unknown): MessageToShowEvent['messageType'] {
   return 'None';
 }
 
+/**
+ * A DataLoaded for each of a form's own repeaters whose rows BC put inline in the control
+ * tree (`rc.Data.Rows.LoadedRows`). BC writes them when the repeater's BindingManager is
+ * already filled at serialization (decompiled `LogicalControlSerializer.WriteDataProperty`),
+ * which is the case for a list page AL shows with RunModal: no DataLoaded follows, and a
+ * LoadForm is a no-op (`LoadFormInteraction.CanLoadData`: already DataLoaded). Live cronus291:
+ * page 31 opened by "Select items..." arrives as DialogToShow with 49 inline rows (#59).
+ * Paths are raw Children indices, as in `buildFormTree`; a hosted part (nested lf) is its
+ * own form and is skipped.
+ */
+function inlineRows(formId: string, tree: Record<string, unknown>): DataLoadedEvent[] {
+  const out: DataLoadedEvent[] = [];
+  const visit = (node: Record<string, unknown>, path: string): void => {
+    if (!Array.isArray(node.Children)) return;
+    node.Children.forEach((child: unknown, i: number) => {
+      if (!child || typeof child !== 'object') return;
+      const c = child as Record<string, unknown>;
+      const childPath = `${path}${path === 'server:' ? '' : '/'}c[${i}]`;
+      if (c.t === 'lf') return;
+      if (c.t !== 'rc') return visit(c, childPath);
+      const loaded = (c.Data as { Rows?: { LoadedRows?: unknown } } | undefined)?.Rows?.LoadedRows;
+      if (Array.isArray(loaded)) {
+        out.push({ type: 'DataLoaded', formId, controlPath: childPath, currentRowOnly: false, rows: loaded.map((row, idx) => ({ DataRowInserted: [idx, row] })) });
+      }
+    });
+  };
+  visit(tree, 'server:');
+  return out;
+}
+
 export class EventDecoder {
   decode(handlers: unknown[]): BCEvent[] {
     const events: BCEvent[] = [];
@@ -132,9 +162,12 @@ export class EventDecoder {
       case SESSION_EVENTS.FormToShow:
         events.push({ type: 'FormCreated', formId: (eventData.ServerId ?? eventData.formId ?? eventData.FormId ?? '') as string, parentFormId: (eventData.ParentForm ?? eventData.parentForm) as string | undefined, isReload: (eventData.IsReload ?? false) as boolean, controlTree: eventData } satisfies FormCreatedEvent);
         break;
-      case SESSION_EVENTS.DialogToShow:
-        events.push({ type: 'DialogOpened', formId: (eventData.ServerId ?? eventData.formId ?? eventData.FormId ?? '') as string, ownerFormId: (eventData.OwnerForm ?? eventData.ownerForm) as string | undefined, controlTree: eventData } satisfies DialogOpenedEvent);
+      case SESSION_EVENTS.DialogToShow: {
+        const dialogFormId = (eventData.ServerId ?? eventData.formId ?? eventData.FormId ?? '') as string;
+        events.push({ type: 'DialogOpened', formId: dialogFormId, ownerFormId: (eventData.OwnerForm ?? eventData.ownerForm) as string | undefined, controlTree: eventData } satisfies DialogOpenedEvent);
+        events.push(...inlineRows(dialogFormId, eventData));
         break;
+      }
       case SESSION_EVENTS.LookupFormReady: {
         // LookupFormReady: params[1] is the raw lf JSON of the lookup form.
         // Emit FormCreated so BCSession.updateFormTracking tracks the lookup
