@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.7] - 2026-11-02
+
 ### Fixed
 
 - **A list page opened with RunModal comes back with its rows (#59).** BC sends such a
