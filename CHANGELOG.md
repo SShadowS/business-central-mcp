@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.4] - 2026-11-02
+
 ### Fixed
 
 - **A posting error shown on the "Error Messages" page is returned as an error (#53).**
