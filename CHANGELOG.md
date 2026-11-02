@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`bc_respond_dialog` presses the dialog's own OK/Cancel button (#55).** It sent
+  `InvokeAction(Ok)` on `server:c[0]`, which BC answers with a generic dialog action
+  instead of the page's button. On a StandardDialog page such as 364 "Send Document to"
+  (Send... on a posted invoice), "ok" closed the page without running its OK, so nothing
+  was sent, and "cancel" left it open. Those pages' buttons are LookupOk/LookupCancel
+  (330/340), not Ok/Cancel. Each response now invokes the dialog's matching action
+  control, falling back to `server:c[0]` when there is none (message dialogs).
+  Verified live on BC 29.1.
+
 ## [2.4.4] - 2026-11-02
 
 ### Fixed

@@ -244,3 +244,72 @@ describe('RespondDialogOperation — "abort" BC ignored (#38)', () => {
     expect(result.ok && result.value.replaySafe).toBe(true);
   });
 });
+
+// #55: "ok" must press the dialog's own OK button. InvokeAction(Ok) on server:c[0] runs a
+// generic context action that closes a StandardDialog page (364 "Send Document to")
+// without its OK, so the caller's RunModal() = Action::OK is false and nothing is sent.
+describe('RespondDialogOperation: presses the dialog button', () => {
+  function dialogRepo(children: unknown[]) {
+    const repo = new PageContextRepository();
+    repo.create('pc:dlg', 'D1', { isModal: true });
+    repo.applyToPage('pc:dlg', [{
+      type: 'DialogOpened', formId: 'D1',
+      controlTree: { t: 'lf', ServerId: 'D1', PageType: 1, Caption: 'Send Document to', Children: children },
+    } as BCEvent]);
+    return repo;
+  }
+
+  it('invokes the OK action control of a StandardDialog page', async () => {
+    const session = makeSession();
+    const repo = dialogRepo([
+      { t: 'gc', Children: [{ t: 'sc', Caption: 'Email' }] },
+      { t: 'gc', Children: [
+        { t: 'ac', Caption: 'OK', SystemAction: 300 },
+        { t: 'ac', Caption: 'Cancel', SystemAction: 310 },
+      ] },
+    ]);
+    await new RespondDialogOperation(session, repo, makeDownloadService())
+      .execute({ pageContextId: 'pc:dlg', dialogFormId: 'D1', response: 'ok' });
+    expect(session.invoke.mock.calls[0][0]).toMatchObject({ type: 'InvokeAction', formId: 'D1', controlPath: 'server:c[1]/c[0]', systemAction: 300 });
+  });
+
+  it('falls back to server:c[0] when the dialog has no such button', async () => {
+    const session = makeSession();
+    const repo = dialogRepo([{ t: 'gc', Children: [{ t: 'sc', Caption: 'Do you want to post?' }] }]);
+    await new RespondDialogOperation(session, repo, makeDownloadService())
+      .execute({ pageContextId: 'pc:dlg', dialogFormId: 'D1', response: 'yes' });
+    expect(session.invoke.mock.calls[0][0]).toMatchObject({ controlPath: 'server:c[0]', systemAction: 380 });
+  });
+});
+
+describe('RespondDialogOperation: StandardDialog OK/Cancel are LookupOk/LookupCancel', () => {
+  // Live cronus291, page 364 "Send Document to": Refresh 30 at server:c[2], OK 330 and
+  // Cancel 340 at server:c[3]/c[0..1].
+  const sendDocumentTo = () => {
+    const repo = new PageContextRepository();
+    repo.create('pc:dlg', 'D1', { isModal: true });
+    repo.applyToPage('pc:dlg', [{
+      type: 'DialogOpened', formId: 'D1',
+      controlTree: { t: 'lf', ServerId: 'D1', PageType: 1, Caption: 'Send Document to', Children: [
+        { t: 'gc', Children: [{ t: 'sc', Caption: 'Email' }] },
+        { t: 'gc', Children: [] },
+        { t: 'ac', Caption: 'Refresh', SystemAction: 30 },
+        { t: 'gc', Children: [
+          { t: 'ac', Caption: 'OK', SystemAction: 330 },
+          { t: 'ac', Caption: 'Cancel', SystemAction: 340 },
+        ] },
+      ] },
+    } as BCEvent]);
+    return repo;
+  };
+
+  it.each([
+    ['ok', 'server:c[3]/c[0]', 330],
+    ['cancel', 'server:c[3]/c[1]', 340],
+  ] as const)('"%s" presses %s with SystemAction %d', async (response, controlPath, systemAction) => {
+    const session = makeSession();
+    await new RespondDialogOperation(session, sendDocumentTo(), makeDownloadService())
+      .execute({ pageContextId: 'pc:dlg', dialogFormId: 'D1', response });
+    expect(session.invoke.mock.calls[0][0]).toMatchObject({ type: 'InvokeAction', formId: 'D1', controlPath, systemAction });
+  });
+});

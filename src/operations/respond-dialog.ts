@@ -7,6 +7,7 @@ import { SystemAction } from '../protocol/types.js';
 import { detectChangedSections, registerDialogs, collectMessages, type ShownMessage, type OpenedDialog } from '../protocol/mutation-result.js';
 import { classifyBusinessError } from '../protocol/error-classifier.js';
 import { formClosed } from '../protocol/replay-safety.js';
+import { actions as treeActions } from '../protocol/form-views.js';
 import type { Download, DownloadService } from '../services/download-service.js';
 import type { BCEvent } from '../protocol/types.js';
 
@@ -33,12 +34,17 @@ export interface RespondDialogOutput {
   replaySafe: boolean;
 }
 
-const RESPONSE_MAP: Record<string, number> = {
-  ok: SystemAction.Ok,
-  cancel: SystemAction.Cancel,
-  yes: SystemAction.Yes,
-  no: SystemAction.No,
-  abort: SystemAction.Abort,
+/**
+ * The SystemActions a response's button can carry, the first one being sent when the
+ * dialog has no such button. A StandardDialog page's OK/Cancel are LookupOk/LookupCancel
+ * (live cronus291: page 364 "Send Document to" has "OK" 330 and "Cancel" 340).
+ */
+const RESPONSE_MAP: Record<string, readonly number[]> = {
+  ok: [SystemAction.Ok, SystemAction.LookupOk],
+  cancel: [SystemAction.Cancel, SystemAction.LookupCancel],
+  yes: [SystemAction.Yes],
+  no: [SystemAction.No],
+  abort: [SystemAction.Abort],
 };
 
 export class RespondDialogOperation {
@@ -83,16 +89,25 @@ export class RespondDialogOperation {
       });
     }
 
-    const systemAction = RESPONSE_MAP[input.response];
-    if (systemAction === undefined) {
+    const candidates = RESPONSE_MAP[input.response];
+    if (candidates === undefined) {
       return err(new ProtocolError(`Invalid dialog response: ${input.response}. Use: ok, cancel, yes, no, abort, close`));
     }
 
+    // Press the dialog's own button when it has one (#55). On an ActionControl whose
+    // SystemAction matches, InvokeActionInteraction runs actionControl.Invoke, a click.
+    // Ok on server:c[0] instead falls through to a session/context action
+    // (FindContextSystemAction), which closed page 364 "Send Document to" without its
+    // OK (nothing sent), and Cancel there left it open (live cronus291).
+    const dialogForm = this.repo.getByFormId(input.dialogFormId)?.forms.get(input.dialogFormId);
+    const dialogActions = dialogForm ? treeActions(dialogForm.root) : [];
+    const button = candidates.map(sa => dialogActions.find(a => a.systemAction === sa)).find(a => a !== undefined);
+    const systemAction = button?.systemAction ?? candidates[0]!;
     const result = await this.session.invoke(
       {
         type: 'InvokeAction' as const,
         formId: input.dialogFormId,
-        controlPath: 'server:c[0]',
+        controlPath: button?.controlPath ?? 'server:c[0]',
         systemAction,
       },
       (event) => event.type === 'InvokeCompleted' || event.type === 'FormCreated' || event.type === 'DialogOpened',
