@@ -1,6 +1,8 @@
 // src/protocol/mutation-result.ts
+import { v4 as uuid } from 'uuid';
 import type { BCEvent, DialogOpenedEvent, MessageToShowEvent, PropertyChangedEvent, ValidationResultItem, ControlField } from './types.js';
 import type { PageContext } from './page-context.js';
+import type { PageContextRepository } from './page-context-repo.js';
 import { buildFormTree } from './form-tree-builder.js';
 import { fields as treeFields } from './form-views.js';
 import { fieldNodeToControlField } from './mcp-adapters.js';
@@ -133,4 +135,47 @@ export function detectDialogs(events: BCEvent[]): Array<{ formId: string; messag
 
       return { formId: e.formId, message, fields };
     });
+}
+
+/**
+ * A dialog a call opened. `pageContextId` addresses it as a page context of its own:
+ * fill its fields with bc_write_data against it, then answer it with bc_respond_dialog.
+ */
+export interface OpenedDialog {
+  pageContextId: string;
+  formId: string;
+  message?: string;
+  fields?: ControlField[];
+}
+
+/**
+ * Detect the dialogs a call opened and register each as a page context of its own,
+ * the way bc_run_report registers its request page, so bc_write_data can fill its
+ * fields and bc_respond_dialog can press its button. Every tool that can open a
+ * dialog goes through this (#52: bc_wizard_navigate returned dialogs without one).
+ * Only the dialog's own events are applied to its context: a sibling dialog or a
+ * host-form event in the same batch must not leak in.
+ */
+export function registerDialogs(
+  repo: PageContextRepository,
+  ownerPageContextId: string,
+  events: BCEvent[],
+): OpenedDialog[] {
+  return detectDialogs(events).map(d => {
+    const pageContextId = `session:page:dialog:${uuid().substring(0, 8)}`;
+    repo.create(pageContextId, d.formId, { isModal: true, ownerPageContextId });
+    repo.applyToPage(pageContextId, events.flatMap(e => eventForDialog(e, d.formId)));
+    return { pageContextId, ...d };
+  });
+}
+
+function eventForDialog(event: BCEvent, formId: string): BCEvent[] {
+  if (!('formId' in event) || event.formId !== formId) return [];
+  if (event.type !== 'DialogOpened') return [event];
+  // Same normalisation as detectDialogs: a dialog tree can arrive without the `lf` tag.
+  const raw = event.controlTree as Record<string, unknown> | undefined;
+  if (raw && raw.t !== 'lf' && typeof raw.Children !== 'undefined') {
+    return [{ ...event, controlTree: { ...raw, t: 'lf' } }];
+  }
+  return [event];
 }

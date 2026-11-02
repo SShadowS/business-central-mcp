@@ -2,7 +2,7 @@ import { err, mapResult, type Result } from '../core/result.js';
 import { InputValidationError, type BCError } from '../core/errors.js';
 import type { PageService } from '../services/page-service.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
-import { detectDialogs } from '../protocol/mutation-result.js';
+import { registerDialogs, type OpenedDialog } from '../protocol/mutation-result.js';
 
 export interface ClosePageInput {
   pageContextId: string;
@@ -10,7 +10,8 @@ export interface ClosePageInput {
 
 export interface ClosePageOutput {
   success: boolean;
-  dialogsOpened: Array<{ formId: string; message?: string; fields?: import('../protocol/types.js').ControlField[] }>;
+  /** A save/discard dialog blocking the close, with its own pageContextId for bc_respond_dialog. */
+  dialogsOpened: OpenedDialog[];
   requiresDialogResponse: boolean;
   /**
    * True when no dialog blocked the close: CloseForm on an already-closed form
@@ -40,7 +41,11 @@ export class ClosePageOperation {
 
     const result = await this.pageService.closePage(input.pageContextId);
     return mapResult(result, (r) => {
-      const dialogsOpened = detectDialogs(r.events);
+      // A blocking dialog keeps the page context (PageService.closePage); a removed one means
+      // every dialog was already answered, so there is nothing left to register.
+      const dialogsOpened = this.repo.get(input.pageContextId)
+        ? registerDialogs(this.repo, input.pageContextId, r.events)
+        : [];
       return {
         success: true,
         dialogsOpened,

@@ -4,7 +4,7 @@ import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { PageContext } from '../protocol/page-context.js';
 import { SystemAction } from '../protocol/types.js';
-import { detectChangedSections, detectDialogs, collectMessages, type ShownMessage } from '../protocol/mutation-result.js';
+import { detectChangedSections, registerDialogs, collectMessages, type ShownMessage, type OpenedDialog } from '../protocol/mutation-result.js';
 import { classifyBusinessError } from '../protocol/error-classifier.js';
 import { formClosed } from '../protocol/replay-safety.js';
 import type { Download, DownloadService } from '../services/download-service.js';
@@ -19,7 +19,8 @@ export interface RespondDialogInput {
 export interface RespondDialogOutput {
   success: boolean;
   changedSections: string[];
-  dialogsOpened: Array<{ formId: string; message?: string; fields?: import('../protocol/types.js').ControlField[] }>;
+  /** Dialogs the answer opened (e.g. a follow-up confirm), each with its own pageContextId. */
+  dialogsOpened: OpenedDialog[];
   requiresDialogResponse: boolean;
   openedPages: Array<{ pageContextId: string; caption: string }>;
   /** AL Message() texts raised after the answer (Error/Fatal ones become an error instead); empty when none. */
@@ -64,9 +65,10 @@ export class RespondDialogOperation {
       const closeBizErr = classifyBusinessError(closeResult.value);
       if (closeBizErr !== null) return err(closeBizErr);
 
-      const updatedCtx = this.repo.get(this.reportPcId(ctx, input));
+      const closeReportPcId = this.reportPcId(ctx, input);
+      const updatedCtx = this.repo.get(closeReportPcId);
       const changedSections = updatedCtx ? detectChangedSections(updatedCtx, closeResult.value) : [];
-      const newDialogs = detectDialogs(closeResult.value);
+      const newDialogs = registerDialogs(this.repo, closeReportPcId, closeResult.value);
       const closeCaptured = await this.downloadService.capture(closeResult.value);
       return ok({
         success: true,
@@ -117,7 +119,7 @@ export class RespondDialogOperation {
     const reportPcId = this.reportPcId(ctx, input);
     const updatedCtx = this.repo.get(reportPcId);
     const changedSections = updatedCtx ? detectChangedSections(updatedCtx, events) : [];
-    const newDialogs = detectDialogs(events);
+    const newDialogs = registerDialogs(this.repo, reportPcId, events);
 
     // Check for new pages opened (e.g., posting creates a Posted Invoice)
     const openedPages: Array<{ pageContextId: string; caption: string }> = [];

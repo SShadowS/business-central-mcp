@@ -37,7 +37,7 @@ export const ReadDataSchema = z.object({
 });
 
 export const WriteDataSchema = z.object({
-  pageContextId: z.string().min(1).describe('Page context ID returned by bc_open_page. To fill a dialog or request page, use the pageContextId of its dialogsOpened entry (bc_execute_action) or requestPage (bc_run_report).'),
+  pageContextId: z.string().min(1).describe('Page context ID returned by bc_open_page. To fill a dialog or request page, use the pageContextId of its dialogsOpened entry (any tool that returns one) or requestPage (bc_run_report).'),
   fields: z.record(z.string(), z.string()).refine(f => Object.keys(f).length > 0, { message: 'fields must contain at least one field to write' }).describe('Key-value pairs of field caption names and string values to write (e.g., { "Name": "Contoso", "City": "London" }).'),
   section: z.string().optional().describe('Section to write to (e.g., "lines" for document line items). Omit for header fields.'),
   rowIndex: z.number().int().min(0).optional().describe('0-based row position in the repeater to write to. Use for line items. Prefer bookmark for stability.'),
@@ -80,7 +80,7 @@ export const NavigateSchema = z.object({
 
 export const RespondDialogSchema = z.object({
   pageContextId: z.string().min(1).describe('Page context ID of the page that triggered the dialog.'),
-  dialogFormId: z.string().min(1).describe('Dialog form ID from the dialogsOpened array returned by bc_execute_action or bc_write_data, or requestPage.formId returned by bc_run_report.'),
+  dialogFormId: z.string().min(1).describe('Dialog form ID from a dialogsOpened entry, or requestPage.formId returned by bc_run_report.'),
   response: z.enum(['ok', 'cancel', 'yes', 'no', 'abort', 'close']).describe('"ok" confirms, "cancel" dismisses, "yes"/"no" answers a question, "abort" force-closes, "close" closes a modal info page.'),
 });
 
@@ -272,7 +272,7 @@ export const WriteDataOutputSchema = z.object({
   results: z.array(Loose),
   allSucceeded: z.boolean(),
   changedSections: z.array(z.string()),
-  dialogsOpened: z.array(Dialog),
+  dialogsOpened: z.array(OpenedDialog),
   requiresDialogResponse: z.boolean(),
   validationWarnings: z.array(Loose),
   messages: z.array(ShownMessage),
@@ -295,7 +295,7 @@ export const ExecuteActionOutputSchema = z.object({
 
 export const ClosePageOutputSchema = z.object({
   success: z.boolean(),
-  dialogsOpened: z.array(Dialog),
+  dialogsOpened: z.array(OpenedDialog),
   requiresDialogResponse: z.boolean(),
   replaySafe: z.boolean(),
 });
@@ -317,7 +317,7 @@ export const NavigateOutputSchema = z.object({
 export const RespondDialogOutputSchema = z.object({
   success: z.boolean(),
   changedSections: z.array(z.string()),
-  dialogsOpened: z.array(Dialog),
+  dialogsOpened: z.array(OpenedDialog),
   requiresDialogResponse: z.boolean(),
   openedPages: z.array(OpenedPage),
   messages: z.array(ShownMessage),
@@ -356,7 +356,7 @@ export const WizardNavigateOutputSchema = z.object({
   availableNav: z.array(z.string()),
   closed: z.boolean(),
   changedSections: z.array(z.string()),
-  dialogsOpened: z.array(Dialog),
+  dialogsOpened: z.array(OpenedDialog),
   downloads: z.array(Download),
   externalUris: z.array(ExternalUri),
   replaySafe: z.boolean(),
@@ -447,7 +447,7 @@ export const UploadFileOutputSchema = z.object({
   fileName: z.string(),
   sizeBytes: z.number(),
   formId: z.string(),
-  dialogsOpened: z.array(z.looseObject({ formId: z.string(), message: z.string().optional() })),
+  dialogsOpened: z.array(OpenedDialog),
   replaySafe: z.boolean(),
 });
 

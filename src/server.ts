@@ -157,7 +157,7 @@ async function main() {
       wizardNavigate: new WizardNavigateOperation(actionService, pageContextRepo, downloadService),
       lookup: new LookupOperation(lookupService),
       query: queryOperation,
-      uploadFile: new UploadFileOperation(uploadService),
+      uploadFile: new UploadFileOperation(uploadService, pageContextRepo),
       getOperation: new GetOperationOperation(ledger, pageService, () => s.companyName, () => s.modalStackSnapshot().length > 0),
       runTests: new RunTestsOperation(pageService, dataService, actionService, pageContextRepo, logger),
       dataQuery: dataQueryOperation,

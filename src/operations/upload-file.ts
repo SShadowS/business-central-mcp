@@ -4,7 +4,8 @@ import { ok, err, isErr, type Result } from '../core/result.js';
 import { ProtocolError } from '../core/errors.js';
 import type { UploadService } from '../services/upload-service.js';
 import type { BCEvent } from '../protocol/types.js';
-import { detectDialogs } from '../protocol/mutation-result.js';
+import type { PageContextRepository } from '../protocol/page-context-repo.js';
+import { registerDialogs } from '../protocol/mutation-result.js';
 
 export interface UploadFileInput {
   pageContextId: string;
@@ -21,7 +22,7 @@ export interface UploadFileOutput {
   /** The form the file was uploaded to. */
   formId: string;
   /** Dialogs/messages the AL OnUpload trigger surfaced (e.g. validation errors). */
-  dialogsOpened: Array<{ formId: string; message?: string }>;
+  dialogsOpened: Array<{ pageContextId: string; formId: string; message?: string }>;
   /** Always false: re-running uploads again and re-fires the AL OnUpload import. */
   replaySafe: false;
 }
@@ -40,7 +41,10 @@ const CONTENT_TYPE_BY_EXT: Record<string, string> = {
 };
 
 export class UploadFileOperation {
-  constructor(private readonly uploadService: UploadService) {}
+  constructor(
+    private readonly uploadService: UploadService,
+    private readonly repo: PageContextRepository,
+  ) {}
 
   async execute(input: UploadFileInput): Promise<Result<UploadFileOutput, ProtocolError>> {
     let bytes: Buffer;
@@ -76,7 +80,8 @@ export class UploadFileOperation {
     if (isErr(result)) return result;
 
     const events: BCEvent[] = result.value.events;
-    const dialogsOpened = detectDialogs(events).map((d) => ({ formId: d.formId, message: d.message }));
+    const dialogsOpened = registerDialogs(this.repo, input.pageContextId, events)
+      .map((d) => ({ pageContextId: d.pageContextId, formId: d.formId, message: d.message }));
 
     return ok({
       success: result.value.success,

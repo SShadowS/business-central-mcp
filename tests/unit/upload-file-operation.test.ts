@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
 import { writeFileSync, rmSync, mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -22,7 +23,7 @@ describe('UploadFileOperation', () => {
     writeFileSync(p, 'APP-BYTES');
     const svc = fakeService();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const op = new UploadFileOperation(svc as any);
+    const op = new UploadFileOperation(svc as any, new PageContextRepository());
     const r = await op.execute({ pageContextId: 'pc1', path: p });
     expect(svc.upload).toHaveBeenCalledWith('pc1',
       expect.objectContaining({ fileName: 'ext.app', bytes: expect.any(Buffer) }),
@@ -35,7 +36,7 @@ describe('UploadFileOperation', () => {
   it('decodes base64 with the provided fileName and passes an explicit formId', async () => {
     const svc = fakeService();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const op = new UploadFileOperation(svc as any);
+    const op = new UploadFileOperation(svc as any, new PageContextRepository());
     const r = await op.execute({ pageContextId: 'pc1', base64: Buffer.from('HELLO').toString('base64'), fileName: 'x.app', formId: 'dlg' });
     const call = svc.upload.mock.calls[0]!;
     expect((call[1] as { bytes: Buffer }).bytes.toString()).toBe('HELLO');
@@ -46,7 +47,7 @@ describe('UploadFileOperation', () => {
   it('errors when the local path does not exist', async () => {
     const svc = fakeService();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const op = new UploadFileOperation(svc as any);
+    const op = new UploadFileOperation(svc as any, new PageContextRepository());
     const r = await op.execute({ pageContextId: 'pc1', path: join(dir, 'nope.app') });
     expect(isErr(r)).toBe(true);
     expect(svc.upload).not.toHaveBeenCalled();
@@ -57,7 +58,7 @@ describe('UploadFileOperation', () => {
     writeFileSync(p, '%PDF');
     const svc = fakeService();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const op = new UploadFileOperation(svc as any);
+    const op = new UploadFileOperation(svc as any, new PageContextRepository());
     await op.execute({ pageContextId: 'pc1', path: p });
     expect(svc.upload.mock.calls[0]![1].contentType).toBe('application/pdf');
   });

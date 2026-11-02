@@ -2,7 +2,7 @@ import { isOk, ok, err, type Result } from '../core/result.js';
 import { StaleContextError, type BCError } from '../core/errors.js';
 import type { DataService, FieldWriteResult } from '../services/data-service.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
-import { detectChangedSections, detectDialogs, extractValidationErrors, collectMessages, type ShownMessage } from '../protocol/mutation-result.js';
+import { detectChangedSections, registerDialogs, extractValidationErrors, collectMessages, type ShownMessage, type OpenedDialog } from '../protocol/mutation-result.js';
 import { classifyBusinessError } from '../protocol/error-classifier.js';
 import { writeDataReplaySafe } from '../protocol/replay-safety.js';
 import type { ValidationResultItem } from '../protocol/types.js';
@@ -28,7 +28,8 @@ export interface WriteDataOutput {
   results: FieldWriteResult[];
   allSucceeded: boolean;
   changedSections: string[];
-  dialogsOpened: Array<{ formId: string; message?: string; fields?: import('../protocol/types.js').ControlField[] }>;
+  /** Dialogs the write opened (e.g. an OnValidate confirm), each with its own pageContextId. */
+  dialogsOpened: OpenedDialog[];
   requiresDialogResponse: boolean;
   /**
    * De-duplicated field-level validation warnings from PropertyChanged events.
@@ -73,7 +74,7 @@ export class WriteDataOperation {
 
     const ctx = this.repo.get(input.pageContextId);
     const changedSections = ctx ? detectChangedSections(ctx, events) : [];
-    const dialogsOpened = detectDialogs(events);
+    const dialogsOpened = registerDialogs(this.repo, input.pageContextId, events);
     const validationWarnings = extractValidationErrors(events).filter(v => v.Severity !== 'Error');
 
     return ok({

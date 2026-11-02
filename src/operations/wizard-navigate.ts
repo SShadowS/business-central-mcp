@@ -4,9 +4,8 @@ import { classifyBusinessError } from '../protocol/error-classifier.js';
 import type { ActionService } from '../services/action-service.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import { resolveSection } from '../protocol/section-resolver.js';
-import { detectChangedSections, detectDialogs } from '../protocol/mutation-result.js';
+import { detectChangedSections, registerDialogs, type OpenedDialog } from '../protocol/mutation-result.js';
 import { isEffectivelyVisible } from '../protocol/visibility.js';
-import type { ControlField } from '../protocol/types.js';
 import { fields as treeFields, actions as treeActions, groupVisibility as treeGroupVisibility } from '../protocol/form-views.js';
 import { classifyWizardNav, type WizardNav } from '../protocol/wizard-classify.js';
 import { actionReplaySafe } from '../protocol/replay-safety.js';
@@ -30,7 +29,8 @@ export interface WizardNavigateOutput {
   /** True when the wizard closed (Finish or Cancel) — page should be considered done. */
   closed: boolean;
   changedSections: string[];
-  dialogsOpened: Array<{ formId: string; message?: string; fields?: ControlField[] }>;
+  /** Dialogs the step opened, each with its own pageContextId for bc_write_data / bc_respond_dialog. */
+  dialogsOpened: OpenedDialog[];
   /** Captured file downloads produced by this navigation step; empty when none. */
   downloads: Download[];
   /** Links BC would open externally (not fetched by the server); empty when none. */
@@ -59,7 +59,7 @@ export class WizardNavigateOperation {
     const captured = await this.downloadService.capture(ar.events);
 
     const ctx = this.repo.get(input.pageContextId);
-    const dialogsOpened = detectDialogs(ar.events);
+    const dialogsOpened = registerDialogs(this.repo, input.pageContextId, ar.events);
     const changedSections = ctx ? detectChangedSections(ctx, ar.events) : [];
 
     let caption = ctx?.caption ?? '';

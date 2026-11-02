@@ -8,7 +8,7 @@ export function createToolDefinition(ops: Operations): ToolDefinition {
 
 bc-mcp identifies the navigation buttons by the icon resource BC's own client uses (Actions/PreviousRecord, Actions/NextRecord, Actions/Approve), not by SystemAction or caption -- so localised wizards work without changes. The response surfaces fields visible on the new step, the remaining navigation options (availableNav), and a closed flag set when the wizard finished.
 
-Typical workflow: bc_open_page (returns isModal=true, fields for step 0) -> bc_write_data (fill step 0 inputs) -> bc_wizard_navigate { action: "next" } -> bc_write_data (fill step 1) -> ... -> bc_wizard_navigate { action: "finish" }. The wizard closes itself on finish/cancel; the pageContextId becomes invalid afterwards.
+Typical workflow: bc_open_page (returns isModal=true, fields for step 0) -> bc_write_data (fill step 0 inputs) -> bc_wizard_navigate { action: "next" } -> bc_write_data (fill step 1) -> ... -> bc_wizard_navigate { action: "finish" }. The wizard closes itself on finish/cancel; the pageContextId becomes invalid afterwards. A step that opens a separate dialog (e.g. "Set up SMTP Account") returns it in dialogsOpened with its own pageContextId: fill it with bc_write_data against that id and answer it with bc_respond_dialog, not through the wizard's pageContextId.
 
 Do NOT use this for non-wizard pages -- use bc_execute_action instead. Do NOT call "next" past the last step -- use "finish" once availableNav lists it.
 
