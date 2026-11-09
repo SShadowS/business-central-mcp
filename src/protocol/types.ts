@@ -9,6 +9,7 @@ export type BCEvent =
   | RowDeltaEvent
   | PropertyChangedEvent
   | BookmarkChangedEvent
+  | ControlInsertedEvent
   | InvokeCompletedEvent
   | SessionInfoEvent
   | FileDownloadReadyEvent;
@@ -153,6 +154,26 @@ export interface BookmarkChangedEvent {
   readonly formId: string;
   readonly controlPath: string;
   readonly bookmark: string;
+}
+
+/**
+ * A control BC added to a container at runtime (`ChildInserted` change), e.g.
+ * the filter line `Filter(AddLine)` adds to a filter control (filc).
+ * Wire: { t: 'ChildInserted', ControlReference: { controlPath: <parent>, formId },
+ * PropertyName: 'Children', ControlInserted: <control json>, Index: <child index> }.
+ * The form tree does not track runtime children; consumers read this event from
+ * the invoke result instead.
+ */
+export interface ControlInsertedEvent {
+  readonly type: 'ControlInserted';
+  readonly formId: string;
+  /** Path of the parent container the control was inserted into. */
+  readonly controlPath: string;
+  /** Child index of the new control, so its path is `${controlPath}/c[${index}]`. */
+  readonly index: number;
+  readonly control: Record<string, unknown>;
+  /** `ControlReference.formId` (see PropertyChangedEvent.refFormId). */
+  readonly refFormId?: string;
 }
 
 export interface InvokeCompletedEvent {

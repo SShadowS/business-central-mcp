@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`bc_read_data` filters apply on BC 23.** BC 23.3's `Filter(AddLine)` adds the filter
+  line but ignores its `FilterValue`, so every filter came back unfiltered with no error.
+  The filter service now reads the inserted line from BC's `ChildInserted` change and, when
+  its value control is empty, types the value into it with `SaveValue`, which runs the
+  filter; Option and Boolean columns, whose value control is a selection control (`fsec`),
+  are handled the same way. The read fails instead of returning unfiltered rows when BC
+  still leaves the value empty, or when AddLine inserts no line (an empty line for the
+  column is already there, e.g. after a call that failed; pass `clearFilters: true`).
+  Verified live on BC 23.3: Customer list `No.` filter returns 1 row, an `<>''` filter on
+  a ~2,400-row custom list returns its 8 matching rows, `Object Type` = `Page` and
+  `Table|Report` on page 9174 and a Boolean column on the Item list return only matching
+  rows.
+
 ## [2.4.7] - 2026-11-02
 
 ### Fixed

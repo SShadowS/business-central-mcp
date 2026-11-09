@@ -192,6 +192,115 @@ describe('FilterService.clearFilters with a filter control (#57)', () => {
     expect(session.invoke).not.toHaveBeenCalled();
   });
 
+  // BC 23.3 (live, Customer list 22): AddLine inserts the line but leaves
+  // its value control empty and the rows unfiltered; SaveValue on that control filters them.
+  const insertedLine = (value: string): BCEvent => ({
+    type: 'ControlInserted', formId: 'L1', refFormId: 'L1', controlPath: 'server:c[2]', index: 2,
+    control: { t: 'flc', Children: [{ t: 'sec', StringValue: 'No.' }, { t: 'fvc', Caption: 'No.', StringValue: value }] },
+  });
+  const valueEcho = (value: string): BCEvent => ({
+    type: 'PropertyChanged', formId: 'L1', refFormId: 'L1', controlPath: 'server:c[2]/c[2]/c[1]',
+    changes: { ResolvedFilterValue: value, UserTypedFilterValue: value, StringValue: value, ObjectValue: value },
+  });
+
+  it('writes the value into the new filter line when AddLine leaves it empty (BC 23.3)', async () => {
+    const repo = new PageContextRepository();
+    makeFilteredList(repo);
+    const session = makeSession();
+    session.invoke
+      .mockResolvedValueOnce(ok([insertedLine('')]))
+      .mockResolvedValueOnce(ok([valueEcho('103293')]));
+    const result = await new FilterService(session as any, repo, createNullLogger()).applyFilters('pc:list', [{ column: 'No.', value: '103293' }]);
+    expect(result.ok).toBe(true);
+    expect(session.invoke.mock.calls.map(c => c[0])).toMatchObject([
+      { type: 'Filter', formId: 'L1', controlPath: 'server:c[2]', filterOperation: FilterOperation.AddLine, filterValue: '103293' },
+      { type: 'SaveValue', formId: 'L1', controlPath: 'server:c[2]/c[2]/c[1]', newValue: '103293' },
+    ]);
+  });
+
+  it('sends only AddLine when BC set the value (in the insert or a PropertyChanged)', async () => {
+    for (const events of [[insertedLine('103293')], [insertedLine(''), valueEcho('103293')]]) {
+      const repo = new PageContextRepository();
+      makeFilteredList(repo);
+      const session = makeSession(ok(events));
+      const result = await new FilterService(session as any, repo, createNullLogger()).applyFilters('pc:list', [{ column: 'No.', value: '103293' }]);
+      expect(result.ok).toBe(true);
+      expect(session.invoke).toHaveBeenCalledOnce();
+    }
+  });
+
+  it('fails when BC does not take the value on SaveValue either', async () => {
+    const repo = new PageContextRepository();
+    makeFilteredList(repo);
+    const session = makeSession();
+    session.invoke
+      .mockResolvedValueOnce(ok([insertedLine('')]))
+      .mockResolvedValueOnce(ok([]));
+    const result = await new FilterService(session as any, repo, createNullLogger()).applyFilters('pc:list', [{ column: 'No.', value: '103293' }]);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain('unfiltered');
+  });
+
+  // An empty line for the column already on the page (left by a call that failed after its
+  // AddLine): BC 23.3 answers the next AddLine with no change at all and filters nothing.
+  it('fails, pointing at clearFilters, when AddLine inserts no filter line', async () => {
+    const repo = new PageContextRepository();
+    makeFilteredList(repo);
+    const session = makeSession(ok([]));
+    const result = await new FilterService(session as any, repo, createNullLogger()).applyFilters('pc:list', [{ column: 'No.', value: '103293' }]);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain('clearFilters: true');
+    expect(session.invoke).toHaveBeenCalledOnce();
+  });
+
+  // Option and Boolean columns get a selection control (fsec) instead of an fvc. Live BC 23.3,
+  // page 9174 "Object Type": SaveValue 'Table' echoes StringValue 'Table' (ObjectValue 1,
+  // SelectedIndexes [1]); 'Table|Page' echoes the ordinals '1|8'. Item list "Cost is
+  // Adjusted" (Boolean) has the same fsec with items '', No, Yes.
+  const insertedSelectionLine: BCEvent = {
+    type: 'ControlInserted', formId: 'L1', refFormId: 'L1', controlPath: 'server:c[2]', index: 1,
+    control: { t: 'flc', Caption: 'Show results:', StringValue: '', Children: [
+      { t: 'sec', StringValue: 'No.', ObjectValue: '1' },
+      { t: 'fsec', Caption: 'No.', StringValue: '', ObjectValue: '', MappingHint: 'ADVANCEDFILTER',
+        Items: [{ Text: 'TableData', Value: '0' }, { Text: 'Table', Value: '1' }, { Text: 'Page', Value: '8' }],
+        CurrentIndex: -1, SelectedIndexes: [] },
+    ] },
+  };
+  const selectionEcho = (value: string, selected: number[]): BCEvent => ({
+    type: 'PropertyChanged', formId: 'L1', refFormId: 'L1', controlPath: 'server:c[2]/c[1]/c[1]',
+    changes: { SelectedIndexes: selected, StringValue: value, ObjectValue: value },
+  });
+
+  it('writes the value into an Option/Boolean filter line (fsec) when AddLine leaves it empty', async () => {
+    for (const [value, echo, selected] of [['Table', 'Table', [1]], ['Table|Page', '1|8', [1, 6]]] as const) {
+      const repo = new PageContextRepository();
+      makeFilteredList(repo);
+      const session = makeSession();
+      session.invoke
+        .mockResolvedValueOnce(ok([insertedSelectionLine]))
+        .mockResolvedValueOnce(ok([selectionEcho(echo, [...selected])]));
+      const result = await new FilterService(session as any, repo, createNullLogger()).applyFilters('pc:list', [{ column: 'No.', value }]);
+      expect(result.ok).toBe(true);
+      expect(session.invoke.mock.calls.map(c => c[0])).toMatchObject([
+        { type: 'Filter', filterOperation: FilterOperation.AddLine, filterValue: value },
+        { type: 'SaveValue', formId: 'L1', controlPath: 'server:c[2]/c[1]/c[1]', newValue: value },
+      ]);
+    }
+  });
+
+  it('fails when the inserted filter line has no value control it recognises', async () => {
+    const repo = new PageContextRepository();
+    makeFilteredList(repo);
+    const session = makeSession(ok([{
+      type: 'ControlInserted', formId: 'L1', refFormId: 'L1', controlPath: 'server:c[2]', index: 1,
+      control: { t: 'flc', Children: [{ t: 'sec', StringValue: 'No.' }, { t: 'xyz', StringValue: '' }] },
+    } as BCEvent]));
+    const result = await new FilterService(session as any, repo, createNullLogger()).applyFilters('pc:list', [{ column: 'No.', value: '103293' }]);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain('no value control');
+    expect(session.invoke).toHaveBeenCalledOnce();
+  });
+
   it('bc_close_page clears the filters this session added before closing', async () => {
     const repo = new PageContextRepository();
     makeFilteredList(repo);
@@ -203,6 +312,7 @@ describe('FilterService.clearFilters with a filter control (#57)', () => {
     await close.execute({ pageContextId: 'pc:list' });
     expect(session.invoke).not.toHaveBeenCalled(); // never filtered: nothing to clear
 
+    session.invoke.mockResolvedValueOnce(ok([insertedLine('103293')]));
     expect((await filters.applyFilters('pc:list', [{ column: 'No.', value: '103293' }])).ok).toBe(true);
     session.invoke.mockClear();
     await close.execute({ pageContextId: 'pc:list' });
