@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.8] - 2026-11-09
+
 ### Fixed
 
 - **`bc_read_data` filters apply on BC 23.** BC 23.3's `Filter(AddLine)` adds the filter
