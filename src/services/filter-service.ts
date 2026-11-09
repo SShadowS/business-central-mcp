@@ -17,32 +17,46 @@ export interface Filter {
 const ownForm = (e: { formId: string; refFormId?: string }) => e.refFormId ?? e.formId;
 
 /**
- * Path of the value control of the filter line AddLine inserted into `filcPath`, when
- * BC left its value empty; undefined when BC set it, or reported no line.
- * A filter line (flc) holds a column selector (sec) and the value control (fvc), whose
- * StringValue may be set in the insert or by a PropertyChanged in the same response.
+ * Wire types of a filter line's value control: `fvc` (FilterValueControl) for text, code,
+ * number and date columns, `fsec` (a selection control) for Option and Boolean columns
+ * (live BC 23.3: page 9174 "Object Type", Item list "Cost is Adjusted").
  */
-function emptyFilterValuePath(events: readonly BCEvent[], filcPath: string, formId: string): string | undefined {
+const FILTER_VALUE_TYPES = new Set(['fvc', 'fsec']);
+
+type InsertedFilterLine =
+  | { kind: 'none' }
+  | { kind: 'no-value-control' }
+  | { kind: 'line'; valuePath: string; empty: boolean };
+
+/**
+ * The filter line AddLine inserted into `filcPath`. A filter line (flc) holds a column
+ * selector (sec) and a value control (fvc or fsec), whose StringValue may be set in the
+ * insert or by a PropertyChanged in the same response.
+ */
+function insertedFilterLine(events: readonly BCEvent[], filcPath: string, formId: string): InsertedFilterLine {
   const inserted = events.find((e): e is ControlInsertedEvent =>
     e.type === 'ControlInserted' && e.controlPath === filcPath && ownForm(e) === formId);
-  if (!inserted) return undefined;
+  if (!inserted) return { kind: 'none' };
   const children = (inserted.control['Children'] as Array<Record<string, unknown>> | undefined) ?? [];
-  const valueIndex = children.findIndex(c => c['t'] === 'fvc');
-  if (valueIndex < 0) return undefined;
-  const path = `${filcPath}/c[${inserted.index}]/c[${valueIndex}]`;
+  const valueIndex = children.findIndex(c => FILTER_VALUE_TYPES.has(c['t'] as string));
+  if (valueIndex < 0) return { kind: 'no-value-control' };
+  const valuePath = `${filcPath}/c[${inserted.index}]/c[${valueIndex}]`;
   let value = children[valueIndex]!['StringValue'];
   for (const e of events) {
-    if (e.type === 'PropertyChanged' && e.controlPath === path && ownForm(e) === formId && 'StringValue' in e.changes) {
+    if (e.type === 'PropertyChanged' && e.controlPath === valuePath && ownForm(e) === formId && 'StringValue' in e.changes) {
       value = e.changes['StringValue'];
     }
   }
-  return value ? undefined : path;
+  return { kind: 'line', valuePath, empty: !value };
 }
 
 /**
  * True when the SaveValue response does not echo a non-empty value for the filter value
  * control at `path`. BC echoes a value that changed (`LogicalControlObserver`), and this
- * one changes from '' (live BC 23.3: StringValue, ResolvedFilterValue, UserTypedFilterValue).
+ * one changes from '' (live BC 23.3: fvc echoes StringValue, ResolvedFilterValue and
+ * UserTypedFilterValue; fsec echoes StringValue + SelectedIndexes, as the caption for one
+ * item ("Table", "No") and as ordinals for several ("Table|Page" -> "1|8", "<>Table" ->
+ * every other ordinal)).
  */
 function emptyValueAfter(events: readonly BCEvent[], path: string, formId: string): boolean {
   let value: unknown;
@@ -133,12 +147,23 @@ export class FilterService {
       this.filtered.add(pageContextId);
 
       // BC 23.3 adds the line but ignores FilterValue (live: the
-      // inserted line's FilterValueControl comes back with StringValue '' and the rows stay
+      // inserted line's value control comes back with StringValue '' and the rows stay
       // unfiltered), while BC28 sets it in the same AddLine. Typing the value into that
       // control (SaveValue) runs the filter on both. So when BC reports the new line with an
       // empty value, write it there; otherwise the filter would silently not apply.
-      const valuePath = emptyFilterValuePath(addResult.value, fpath, currentResolved.form.formId);
-      if (valuePath) {
+      const line = insertedFilterLine(addResult.value, fpath, currentResolved.form.formId);
+      if (line.kind === 'none') {
+        // AddLine inserts nothing when an empty line for the column is already there (live
+        // BC 23.3: a second AddLine after an empty one answers with no change at all), and
+        // then applies nothing either. An earlier call that failed after its AddLine leaves
+        // such a line behind.
+        return err(new ProtocolError(`BC added no filter line for '${filter.column}', so the filter was not applied (the page already has an empty filter line for that column, e.g. from an earlier call that failed). Pass clearFilters: true together with the filters.`));
+      }
+      if (line.kind === 'no-value-control') {
+        return err(new ProtocolError(`BC's filter line for '${filter.column}' has no value control this server recognises (fvc or fsec), so the filter was not applied.`));
+      }
+      if (line.empty) {
+        const valuePath = line.valuePath;
         this.logger.info(`[Filter] AddLine left ${valuePath} empty; SaveValue "${filter.value}"`);
         const saveResult = await this.session.invoke(
           { type: 'SaveValue', formId: currentResolved.form.formId, controlPath: valuePath, newValue: filter.value },
