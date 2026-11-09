@@ -28,6 +28,18 @@ describe('EventDecoder', () => {
     }
   });
 
+  it('decodes ChildInserted into ControlInserted (filter line from Filter(AddLine), live BC 23.3 shape)', () => {
+    const line = { t: 'flc', Caption: 'Show results:', Children: [{ t: 'sec', StringValue: 'No.' }, { t: 'fvc', Caption: 'No.', StringValue: '' }] };
+    const events = decoder.decode([{
+      handlerType: HANDLER_TYPES.LogicalClientChange,
+      parameters: ['3F6', [{
+        t: 'ChildInserted', ControlReference: { controlPath: 'server:c[2]', formId: '3F6' },
+        PropertyName: 'Children', ControlInserted: line, Index: 2, DataRowUpdatedChanges: [],
+      }]],
+    }]);
+    expect(events).toEqual([{ type: 'ControlInserted', formId: '3F6', controlPath: 'server:c[2]', index: 2, control: line, refFormId: '3F6' }]);
+  });
+
   it('decodes a top-level DataRowInserted into a RowDelta insert', () => {
     const handlers = [{
       handlerType: HANDLER_TYPES.LogicalClientChange,

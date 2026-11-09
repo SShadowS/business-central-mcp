@@ -3,7 +3,7 @@ import { ProtocolError } from '../core/errors.js';
 import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { PageContext } from '../protocol/page-context.js';
-import type { FilterInteraction } from '../protocol/types.js';
+import type { BCEvent, ControlInsertedEvent, FilterInteraction } from '../protocol/types.js';
 import { FilterOperation } from '../protocol/types.js';
 import { resolveSection } from '../protocol/section-resolver.js';
 import { filterControlPath } from '../protocol/form-views.js';
@@ -12,6 +12,46 @@ import type { Logger } from '../core/logger.js';
 export interface Filter {
   column: string;
   value: string;
+}
+
+const ownForm = (e: { formId: string; refFormId?: string }) => e.refFormId ?? e.formId;
+
+/**
+ * Path of the value control of the filter line AddLine inserted into `filcPath`, when
+ * BC left its value empty; undefined when BC set it, or reported no line.
+ * A filter line (flc) holds a column selector (sec) and the value control (fvc), whose
+ * StringValue may be set in the insert or by a PropertyChanged in the same response.
+ */
+function emptyFilterValuePath(events: readonly BCEvent[], filcPath: string, formId: string): string | undefined {
+  const inserted = events.find((e): e is ControlInsertedEvent =>
+    e.type === 'ControlInserted' && e.controlPath === filcPath && ownForm(e) === formId);
+  if (!inserted) return undefined;
+  const children = (inserted.control['Children'] as Array<Record<string, unknown>> | undefined) ?? [];
+  const valueIndex = children.findIndex(c => c['t'] === 'fvc');
+  if (valueIndex < 0) return undefined;
+  const path = `${filcPath}/c[${inserted.index}]/c[${valueIndex}]`;
+  let value = children[valueIndex]!['StringValue'];
+  for (const e of events) {
+    if (e.type === 'PropertyChanged' && e.controlPath === path && ownForm(e) === formId && 'StringValue' in e.changes) {
+      value = e.changes['StringValue'];
+    }
+  }
+  return value ? undefined : path;
+}
+
+/**
+ * True when the SaveValue response does not echo a non-empty value for the filter value
+ * control at `path`. BC echoes a value that changed (`LogicalControlObserver`), and this
+ * one changes from '' (live BC 23.3: StringValue, ResolvedFilterValue, UserTypedFilterValue).
+ */
+function emptyValueAfter(events: readonly BCEvent[], path: string, formId: string): boolean {
+  let value: unknown;
+  for (const e of events) {
+    if (e.type === 'PropertyChanged' && e.controlPath === path && ownForm(e) === formId && 'StringValue' in e.changes) {
+      value = e.changes['StringValue'];
+    }
+  }
+  return !value;
 }
 
 export class FilterService {
@@ -91,6 +131,25 @@ export class FilterService {
       if (isErr(addResult)) return addResult;
       this.repo.applyToPage(pageContextId, addResult.value);
       this.filtered.add(pageContextId);
+
+      // BC 23.3 adds the line but ignores FilterValue (live: the
+      // inserted line's FilterValueControl comes back with StringValue '' and the rows stay
+      // unfiltered), while BC28 sets it in the same AddLine. Typing the value into that
+      // control (SaveValue) runs the filter on both. So when BC reports the new line with an
+      // empty value, write it there; otherwise the filter would silently not apply.
+      const valuePath = emptyFilterValuePath(addResult.value, fpath, currentResolved.form.formId);
+      if (valuePath) {
+        this.logger.info(`[Filter] AddLine left ${valuePath} empty; SaveValue "${filter.value}"`);
+        const saveResult = await this.session.invoke(
+          { type: 'SaveValue', formId: currentResolved.form.formId, controlPath: valuePath, newValue: filter.value },
+          (event) => event.type === 'InvokeCompleted' || event.type === 'DataLoaded',
+        );
+        if (isErr(saveResult)) return saveResult;
+        this.repo.applyToPage(pageContextId, saveResult.value);
+        if (emptyValueAfter(saveResult.value, valuePath, currentResolved.form.formId)) {
+          return err(new ProtocolError(`BC did not take the filter value '${filter.value}' for '${filter.column}': the filter line stayed empty, so the rows are unfiltered.`));
+        }
+      }
     }
 
     const updatedCtx = this.repo.get(pageContextId);

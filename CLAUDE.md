@@ -168,11 +168,11 @@ CardParts opened standalone may return a placeholder shell on some envs (Contini
 Reference: `src/protocol/captures/cuegroup-rolecenter-2026-04-28.json` (619 KB, 16 hosted CardParts, 50 cue tiles); `src/protocol/cue-detection.ts`; `src/protocol/form-node.ts` (StackGroupNode, CueFieldNode); decompiled `Microsoft.Dynamics.Framework.UI.Client.LogicalControlSerializer.cs` for the wire-property names.
 
 ### Filter Protocol
-Single-step: `Filter(AddLine)` with `FilterValue` in namedParameters. Two-step (AddLine + SaveValue) also works but is unnecessary.
+Single-step on BC28: `Filter(AddLine)` with `FilterValue` in namedParameters. BC 23.3 ignores `FilterValue` (verified live on a BC 23.3 server): it inserts the line with an empty value control and leaves the rows unfiltered. `FilterService` therefore reads the line from the AddLine response's `ChildInserted` change (decoded as `ControlInserted`: parent path, `Index`, control json) and, when its `fvc` `StringValue` is empty (in the insert or a PropertyChanged in the same response), sends `SaveValue` to `{filcPath}/c[Index]/c[<fvc child>]`, which runs the filter (live: `DataRefreshChange` with the filtered rows, `IsFiltered` on the column). The line index varies per page (live: `c[2]` on the Customer list, `c[1]` on a custom list page), so never hardcode it. A SaveValue that echoes no value fails the read instead of returning unfiltered rows.
 
 After AddLine, the filter line control structure is:
 ```
-{filcPath}/c[0]     -- FilterLineControl
+{filcPath}/c[Index] -- FilterLineControl (flc), Index from ChildInserted
   c[0]              -- SelectionControl (column selector)
   c[1]              -- FilterValueControl (value input)
 ```

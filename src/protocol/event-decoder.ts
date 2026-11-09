@@ -2,7 +2,7 @@ import { HANDLER_TYPES } from './handler-types.js';
 import { resolveChangeType, SESSION_EVENTS } from './wire-types.js';
 import type {
   BCEvent, FormCreatedEvent, DialogOpenedEvent, MessageToShowEvent,
-  DataLoadedEvent, RowDeltaEvent, PropertyChangedEvent, BookmarkChangedEvent, InvokeCompletedEvent,
+  DataLoadedEvent, RowDeltaEvent, PropertyChangedEvent, BookmarkChangedEvent, ControlInsertedEvent, InvokeCompletedEvent,
   SessionInfoEvent, FileDownloadReadyEvent,
 } from './types.js';
 
@@ -148,6 +148,13 @@ export class EventDecoder {
         case 'DataRowBookmarkChange':
           events.push({ type: 'BookmarkChanged', formId, controlPath, bookmark: (c.Bookmark as string) ?? '' } satisfies BookmarkChangedEvent);
           break;
+        case 'ChildInserted': {
+          const control = c.ControlInserted;
+          if (typeof c.Index === 'number' && control && typeof control === 'object') {
+            events.push({ type: 'ControlInserted', formId, controlPath, index: c.Index, control: control as Record<string, unknown>, ...refFormId } satisfies ControlInsertedEvent);
+          }
+          break;
+        }
       }
     }
     return events;

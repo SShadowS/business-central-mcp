@@ -192,6 +192,55 @@ describe('FilterService.clearFilters with a filter control (#57)', () => {
     expect(session.invoke).not.toHaveBeenCalled();
   });
 
+  // BC 23.3 (live, Customer list 22): AddLine inserts the line but leaves
+  // its value control empty and the rows unfiltered; SaveValue on that control filters them.
+  const insertedLine = (value: string): BCEvent => ({
+    type: 'ControlInserted', formId: 'L1', refFormId: 'L1', controlPath: 'server:c[2]', index: 2,
+    control: { t: 'flc', Children: [{ t: 'sec', StringValue: 'No.' }, { t: 'fvc', Caption: 'No.', StringValue: value }] },
+  });
+  const valueEcho = (value: string): BCEvent => ({
+    type: 'PropertyChanged', formId: 'L1', refFormId: 'L1', controlPath: 'server:c[2]/c[2]/c[1]',
+    changes: { ResolvedFilterValue: value, UserTypedFilterValue: value, StringValue: value, ObjectValue: value },
+  });
+
+  it('writes the value into the new filter line when AddLine leaves it empty (BC 23.3)', async () => {
+    const repo = new PageContextRepository();
+    makeFilteredList(repo);
+    const session = makeSession();
+    session.invoke
+      .mockResolvedValueOnce(ok([insertedLine('')]))
+      .mockResolvedValueOnce(ok([valueEcho('103293')]));
+    const result = await new FilterService(session as any, repo, createNullLogger()).applyFilters('pc:list', [{ column: 'No.', value: '103293' }]);
+    expect(result.ok).toBe(true);
+    expect(session.invoke.mock.calls.map(c => c[0])).toMatchObject([
+      { type: 'Filter', formId: 'L1', controlPath: 'server:c[2]', filterOperation: FilterOperation.AddLine, filterValue: '103293' },
+      { type: 'SaveValue', formId: 'L1', controlPath: 'server:c[2]/c[2]/c[1]', newValue: '103293' },
+    ]);
+  });
+
+  it('sends only AddLine when BC set the value (in the insert or a PropertyChanged)', async () => {
+    for (const events of [[insertedLine('103293')], [insertedLine(''), valueEcho('103293')]]) {
+      const repo = new PageContextRepository();
+      makeFilteredList(repo);
+      const session = makeSession(ok(events));
+      const result = await new FilterService(session as any, repo, createNullLogger()).applyFilters('pc:list', [{ column: 'No.', value: '103293' }]);
+      expect(result.ok).toBe(true);
+      expect(session.invoke).toHaveBeenCalledOnce();
+    }
+  });
+
+  it('fails when BC does not take the value on SaveValue either', async () => {
+    const repo = new PageContextRepository();
+    makeFilteredList(repo);
+    const session = makeSession();
+    session.invoke
+      .mockResolvedValueOnce(ok([insertedLine('')]))
+      .mockResolvedValueOnce(ok([]));
+    const result = await new FilterService(session as any, repo, createNullLogger()).applyFilters('pc:list', [{ column: 'No.', value: '103293' }]);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain('unfiltered');
+  });
+
   it('bc_close_page clears the filters this session added before closing', async () => {
     const repo = new PageContextRepository();
     makeFilteredList(repo);
