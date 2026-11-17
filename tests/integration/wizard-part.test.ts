@@ -58,5 +58,11 @@ describe.sequential('Wizard with a list part on a hidden step (fixture page 5099
     const ctx = repo.get(pcId)!;
     const root = ctx.forms.get(ctx.rootFormId)!.root;
     expect(findField(root, 'Selected Bank Account')?.properties.stringValue).toBe(firstNo);
+
+    // BC's own Close (systemAction 350) closes the wizard: State 0 on the root only.
+    unwrap(await actions.executeWizardNav(pcId, 'cancel'));
+    const closed = repo.get(pcId)!;
+    expect([...closed.sections.values()].map(s => `${s.sectionId}:${s.valid}`)).toEqual(['header:false', 'lines:false']);
+    pcId = undefined;
   }, 90000);
 });

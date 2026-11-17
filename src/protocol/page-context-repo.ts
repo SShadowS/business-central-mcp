@@ -350,11 +350,13 @@ export class PageContextRepository {
     // A child FormClosed must never tear down the page's own root form.
     const isRoot = formId === page.rootFormId;
 
-    // Mark any sections that reference this formId as invalid.
+    // Mark any sections that reference this formId as invalid. A root close takes its
+    // parts with it: BC sends State 0 for the root only (live cronus28: closing fixture
+    // wizard 50990 left its list part's section valid, serving stale rows).
     let changed = false;
     const sections = new Map(page.sections);
     for (const [sectionId, section] of sections) {
-      if (section.formId === formId && section.valid) {
+      if ((isRoot || section.formId === formId) && section.valid) {
         sections.set(sectionId, { ...section, valid: false });
         changed = true;
       }
