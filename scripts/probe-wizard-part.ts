@@ -90,6 +90,15 @@ async function main(): Promise<void> {
     dumpCtx(repo, pcId);
   }
 
+  for (let n = 1; n <= 2; n++) {
+    const res = await actions.executeWizardNav(pcId, 'cancel');
+    if (isErr(res)) { console.log(`CANCEL#${n} ERR`, res.error.message); break; }
+    console.log(`\nCANCEL#${n} success=${res.value.success} ${res.value.events.length} events:`);
+    dumpEvents(res.value.events);
+    console.log(`  page context still present: ${repo.get(pcId) !== undefined} rootFormId=${repo.get(pcId)?.rootFormId}`);
+    dumpCtx(repo, pcId);
+  }
+
   await session.close();
   process.exit(0);
 }
