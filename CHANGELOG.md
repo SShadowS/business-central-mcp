@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.9] - 2026-11-17
+
 ### Fixed
 
 - **Parts on wizard pages are readable.** A NavigatePage's root arrives as a `DialogOpened`,
