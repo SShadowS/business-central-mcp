@@ -17,7 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   part on a hidden wizard step arrives). The part reads as `lines` with its rows from open
   on, BC refreshes them on each Next, and the page stays a `NavigatePage` (a lines part no
   longer relabels it `Document`). A part with a blank caption takes its AL control name.
-  `Section … not found` errors now list the available section ids. Verified live on
+  `Section … not found` errors now list the available section ids. Closing a page now
+  invalidates its parts' sections too (BC reports the close on the root form only).
+  Verified live on
   cronus28 with a fixture wizard (`tests/integration/fixtures/al/wizard-part`).
 
 ## [2.4.8] - 2026-11-09
