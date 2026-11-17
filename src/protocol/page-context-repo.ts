@@ -287,11 +287,9 @@ export class PageContextRepository {
     const sections = new Map(page.sections);
     sections.set(section.sectionId, section);
 
-    // Infer Document page type if we have a lines section
+    // Infer Document page type if we have a lines section and the root did not name its type
     let pageType = page.pageType;
-    for (const s of sections.values()) {
-      if (s.kind === 'lines') { pageType = 'Document'; break; }
-    }
+    if (pageType === 'Unknown' && [...sections.values()].some(s => s.kind === 'lines')) pageType = 'Document';
 
     this.store.set(pcId, {
       ...page,
@@ -442,7 +440,7 @@ export class PageContextRepository {
 
     // Derive section: use IsSubForm to distinguish lines from factboxes
     const section = child.isSubForm
-      ? this.sectionResolver.deriveSection(page, child.serverId, child.controlTree)
+      ? this.sectionResolver.deriveSection(page, child.serverId, child.controlTree, child.caption)
       : this.deriveFactboxSection(page, child);
 
     const forms = new Map(page.forms);
@@ -451,8 +449,10 @@ export class PageContextRepository {
     const sections = new Map(page.sections);
     sections.set(section.sectionId, section);
 
+    // Infer Document only when the root did not name its type: a wizard (NavigatePage)
+    // with a lines part must stay a NavigatePage, classifyWizardNav keys off it.
     let pageType = page.pageType;
-    if (section.kind === 'lines') pageType = 'Document';
+    if (section.kind === 'lines' && pageType === 'Unknown') pageType = 'Document';
 
     this.store.set(pcId, {
       ...page,

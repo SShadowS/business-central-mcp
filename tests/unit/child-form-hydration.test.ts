@@ -40,4 +40,35 @@ describe('ChildFormHydrationStrategy', () => {
     const col = [...treeRepeaters(lines.root).values()][0]!.columns[0]!;
     expect(col.properties.enabled).toBe(true);
   });
+
+  it('discovers a part on a wizard (DialogOpened root), opens it and keeps the page a NavigatePage', async () => {
+    // Live cronus28 fixture page 50990: the NavigatePage root is an ownerless DialogOpened and the
+    // step-2 ListPart arrives Built (State=1), so LoadForm must carry openForm:true to load it.
+    const openEvents = [
+      {
+        type: 'DialogOpened', formId: 'W',
+        controlTree: {
+          t: 'lf', ServerId: 'W', PageType: 9,
+          Children: [{
+            t: 'fhc', DesignName: 'SetupBankAccountList', Caption: ' ',
+            Children: [{
+              t: 'lf', ServerId: 'P', IsSubForm: true, IsPart: true, Caption: ' ', State: 1,
+              Children: [{ t: 'rc', Columns: [{ t: 'rcc', Caption: 'No.', ColumnBinder: { Name: 'no' } }] }],
+            }],
+          }],
+        },
+      },
+    ] as BCEvent[];
+
+    const repo = new PageContextRepository();
+    repo.create('pc', 'W', { isModal: true });
+    repo.applyToPage('pc', openEvents);
+    const session = { invoke: vi.fn(async () => ok([])) };
+    await new ChildFormHydrationStrategy(session as never, repo, logger).hydrate('pc', openEvents);
+
+    const ctx = repo.get('pc')!;
+    expect(ctx.pageType).toBe('NavigatePage');
+    expect(ctx.sections.get('lines')).toMatchObject({ formId: 'P', caption: 'SetupBankAccountList' });
+    expect(session.invoke).toHaveBeenCalledWith(expect.objectContaining({ type: 'LoadForm', formId: 'P', openForm: true }), expect.anything());
+  });
 });

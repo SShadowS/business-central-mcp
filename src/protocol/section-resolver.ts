@@ -33,6 +33,8 @@ export class SectionResolver {
     parentPageContext: PageContext,
     childFormId: string,
     childControlTree: unknown,
+    /** The hosting fhc's caption fallback (see buildFormHost), used when the part's own caption is blank. */
+    hostCaption?: string,
   ): SectionDescriptor {
     // Build the child form's tree to inspect repeater structure. Note: BC sends
     // child form trees as raw lf JSON in FormCreated/DialogOpened payloads,
@@ -53,13 +55,14 @@ export class SectionResolver {
       : {};
     const isSubForm = raw['IsSubForm'] === true;
     const isPart = raw['IsPart'] === true;
+    const ownCaption = childRoot.properties.caption?.trim() || hostCaption || '';
 
     if (reps.size > 0 && (isSubForm || !isPart)) {
       const [repeaterPath] = reps.keys();
       const id = this.uniqueSectionId(parentPageContext, 'lines');
       return {
         sectionId: id, kind: 'lines',
-        caption: childRoot.properties.caption || 'Lines',
+        caption: ownCaption || 'Lines',
         formId: childFormId,
         repeaterControlPath: repeaterPath,
         valid: true,
@@ -67,12 +70,12 @@ export class SectionResolver {
     }
 
     if (isPart && !isSubForm) {
-      const caption = childRoot.properties.caption || 'FactBox';
+      const caption = ownCaption || 'FactBox';
       const id = this.uniqueSectionId(parentPageContext, `factbox:${caption}`);
       return { sectionId: id, kind: 'factbox', caption, formId: childFormId, valid: true };
     }
 
-    const caption = childRoot.properties.caption || 'Subpage';
+    const caption = ownCaption || 'Subpage';
     const id = this.uniqueSectionId(parentPageContext, `subpage:${caption}`);
     return { sectionId: id, kind: 'subpage', caption, formId: childFormId, valid: true };
   }
@@ -94,7 +97,8 @@ export function resolveSection(
   const id = sectionId ?? defaultSection ?? 'header';
   const section = ctx.sections.get(id);
   if (!section) {
-    return { error: `Section '${id}' not found.`, availableSections: Array.from(ctx.sections.keys()) };
+    const available = Array.from(ctx.sections.keys());
+    return { error: `Section '${id}' not found. Available sections: ${JSON.stringify(available)}.`, availableSections: available };
   }
   if (!section.valid) {
     return {

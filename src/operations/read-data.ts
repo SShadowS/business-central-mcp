@@ -92,8 +92,10 @@ export class ReadDataOperation {
 
     const section = buildSection(ctx, sectionId);
     if (!section) {
-      return err(new ProtocolError(`Section '${sectionId}' not found.`, {
-        availableSections: Array.from(ctx.sections.keys()),
+      // The list rides in the message: ProtocolError context never reaches the MCP client.
+      const availableSections = Array.from(ctx.sections.keys());
+      return err(new ProtocolError(`Section '${sectionId}' not found. Available sections: ${JSON.stringify(availableSections)}.`, {
+        availableSections,
       }));
     }
 

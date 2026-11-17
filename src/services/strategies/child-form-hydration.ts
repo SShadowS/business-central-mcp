@@ -51,11 +51,14 @@ export class ChildFormHydrationStrategy {
       }
     }
 
-    // Source 2: Child forms embedded in root form's control tree as fhc -> lf nodes
-    const rootFormCreated = openEvents.find(e => e.type === 'FormCreated' && e.formId === ctx.rootFormId);
-    if (rootFormCreated?.type === 'FormCreated' && rootFormCreated.controlTree) {
+    // Source 2: Child forms embedded in root form's control tree as fhc -> lf nodes.
+    // A modal-rooted page (NavigatePage wizard, request page) arrives as an ownerless
+    // DialogOpened, not FormCreated; its parts are embedded the same way (live cronus28:
+    // fixture page 50990, a ListPart on step 2 as fhc -> lf IsSubForm=true IsPart=true).
+    const rootEvent = openEvents.find(e => (e.type === 'FormCreated' || e.type === 'DialogOpened') && e.formId === ctx.rootFormId);
+    if ((rootEvent?.type === 'FormCreated' || rootEvent?.type === 'DialogOpened') && rootEvent.controlTree) {
       try {
-        const rootTree = buildFormTree(rootFormCreated.controlTree);
+        const rootTree = buildFormTree(rootEvent.controlTree);
         for (const node of walkTree(rootTree)) {
           if (!isFormHostNode(node) || !node.hostedFormServerId) continue;
           this.repo.registerDiscoveredChildForm(pageContextId, {
@@ -111,13 +114,17 @@ export class ChildFormHydrationStrategy {
       const isRoleCenterChild =
         ctxForKind?.pageType === 'RoleCenter' &&
         (section.kind === 'subpage' || section.kind === 'factbox');
-      const isFactbox = section.kind === 'factbox';
+      // openForm:true for every part: LoadFormInteraction opens only a form in State Built
+      // (CanOpenForm) and loads data only for an Opened one (CanLoadData), so it is a no-op
+      // for parts BC already opened. A part on a hidden wizard step arrives Built (live
+      // cronus28, fixture page 50990: lf State=1); with openForm:false LoadForm and the
+      // repeater Refresh both answered a bare InvokeCompleted and the part had no rows.
       const loadInteraction: LoadFormInteraction = {
         type: 'LoadForm',
         formId: childFormId,
         loadData: true,
         delayed: false,
-        openForm: isFactbox || isRoleCenterChild,
+        openForm: true,
       };
 
       const loadResult = await this.session.invoke(

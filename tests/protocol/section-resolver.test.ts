@@ -125,6 +125,15 @@ describe('SectionResolver', () => {
     expect(section.kind).toBe('subpage');
   });
 
+  it("falls back to the host's caption when the part's own caption is blank", () => {
+    // Live cronus28 fixture page 50991: `Caption = ' ', Locked = true` arrives as lf Caption " ".
+    const ctx = makePageContext();
+    const childTree = { t: 'lf', ServerId: 'p', Caption: ' ', PageType: 0, IsSubForm: true, Children: [] };
+    const section = resolver.deriveSection(ctx, 'p', childTree, 'SetupBankAccountList');
+    expect(section.sectionId).toBe('subpage:SetupBankAccountList');
+    expect(section.caption).toBe('SetupBankAccountList');
+  });
+
   it('creates header section for root form', () => {
     const section = resolver.createHeaderSection('rootForm');
     expect(section.sectionId).toBe('header');
@@ -156,6 +165,13 @@ describe('resolveSection', () => {
     if ('error' in result) {
       expect(result.error).toContain('nonexistent');
     }
+  });
+
+  it('names the available sections in the error text (the MCP client only sees the message)', () => {
+    const header: SectionDescriptor = { sectionId: 'header', kind: 'header', caption: 'Header', formId: 'root', valid: true };
+    const ctx = makePageContext(new Map([['header', header]]), new Map([['root', makeFormState('root')]]));
+    const result = resolveSection(ctx, 'lines');
+    expect('error' in result && result.error).toBe(`Section 'lines' not found. Available sections: ["header"].`);
   });
 
   it('defaults to header when no sectionId given', () => {

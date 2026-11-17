@@ -238,7 +238,9 @@ function buildFormHost(obj: Record<string, unknown>, controlPath: string): FormH
     controlPath,
     properties: readProperties(obj),
     hostedFormServerId: (lf?.ServerId as string) ?? '',
-    hostedFormCaption: (lf?.Caption as string) ?? (obj.Caption as string) ?? '',
+    // A part with a blank caption (`Caption = ' ', Locked = true`) falls back to its
+    // AL control name (fhc DesignName, e.g. "SetupBankAccountList").
+    hostedFormCaption: [lf?.Caption, obj.Caption, obj.DesignName].map(v => (typeof v === 'string' ? v.trim() : '')).find(Boolean) ?? '',
     hostedFormIsSubForm: (lf?.IsSubForm as boolean) ?? false,
     hostedFormIsPart: (lf?.IsPart as boolean) ?? false,
     hostedFormControlTree: lf,
