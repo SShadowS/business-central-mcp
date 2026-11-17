@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Parts on wizard pages are readable.** A NavigatePage's root arrives as a `DialogOpened`,
+  not a `FormCreated`, so its parts were never discovered: a list part on a wizard step
+  had no section, and `bc_read_data` answered `Section '…' not found` for every id. Parts
+  on modal-rooted pages are now discovered like any other, and every part is loaded with
+  `LoadForm { openForm: true }` (BC only opens a part still in state Built, which is how a
+  part on a hidden wizard step arrives). The part reads as `lines` with its rows from open
+  on, BC refreshes them on each Next, and the page stays a `NavigatePage` (a lines part no
+  longer relabels it `Document`). A part with a blank caption takes its AL control name.
+  `Section … not found` errors now list the available section ids. Verified live on
+  cronus28 with a fixture wizard (`tests/integration/fixtures/al/wizard-part`).
+
 ## [2.4.8] - 2026-11-09
 
 ### Fixed
