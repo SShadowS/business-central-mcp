@@ -194,6 +194,28 @@ export class BCMcpClient {
           { status: 412 },
         );
       }
+      // We send no Company / McpServer / ConfigurationName header, so the one 400 BC 29.1 can
+      // answer an initialize with is McpConfiguration.GetOrCreateConfigurationAsync: no active
+      // default row in "MCP Server Configurations" (table 2000000292, page 8350).
+      if (e.code === 400) {
+        return new BCMcpUnavailableError(
+          `BC has no active MCP Server Configuration to use: ${e.message}. Create or activate one on the `
+          + '"Model Context Protocol (MCP) Server Configurations" page (8350).',
+          'no-configuration',
+          { status: 400 },
+        );
+      }
+    }
+    // Nothing listens at the URL: a wrong host or port, or the OData port is not reachable from
+    // here although the web client is. Retrying does not help.
+    const cause = networkCause(e);
+    if (cause === 'ECONNREFUSED' || cause === 'ENOTFOUND' || cause === 'EHOSTUNREACH' || cause === 'UND_ERR_CONNECT_TIMEOUT') {
+      return new BCMcpUnavailableError(
+        `Nothing answers at ${this.config.mcpUrl} (${cause}). BC serves its MCP server on the OData port, `
+        + 'which can be unreachable while the web client works; set BC_MCP_URL (or BC_ODATA_URL) to the reachable endpoint.',
+        'endpoint-unreachable',
+        { cause },
+      );
     }
     return this.mapError(e);
   }
@@ -208,6 +230,13 @@ export class BCMcpClient {
       return new TimeoutError(`BC MCP request timed out after ${this.config.requestTimeoutMs}ms`);
     }
     const message = e instanceof Error ? e.message : String(e);
-    return new ConnectionError(`BC MCP request failed: ${message}`);
+    const cause = networkCause(e);
+    return new ConnectionError(`BC MCP request to ${this.config.mcpUrl} failed: ${message}${cause ? ` (${cause})` : ''}`, cause ? { cause } : undefined);
   }
+}
+
+/** Node's fetch throws `TypeError('fetch failed')` with the socket error as `cause`. */
+function networkCause(e: unknown): string | undefined {
+  const code = (e as { cause?: { code?: unknown } } | null)?.cause?.code;
+  return typeof code === 'string' ? code : undefined;
 }

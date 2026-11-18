@@ -17,7 +17,7 @@ export type ToolScript = (args: Record<string, unknown>) => CallToolResult;
 export interface FakeBCMcpServerOptions {
   /** Tools BC lists. Defaults to the data query tools + list_companies. */
   tools?: string[];
-  /** Answer every initialize with this HTTP status instead (e.g. 412 feature gate). */
+  /** Answer every initialize with this HTTP status instead (e.g. 412 feature gate, 400 no configuration). */
   initializeStatus?: number;
 }
 

@@ -286,7 +286,7 @@ export class CompanyNotFoundError extends BCError {
  * or the MCP configuration does not enable that tool family, so BC never lists
  * it ("Data Query Tools" = `EnableAlQueryTools`, API tools = `EnableApiTools`).
  */
-export type BCMcpUnavailableReason = 'endpoint-missing' | 'mcp-disabled' | 'tools-disabled';
+export type BCMcpUnavailableReason = 'endpoint-missing' | 'endpoint-unreachable' | 'mcp-disabled' | 'no-configuration' | 'tools-disabled';
 export class BCMcpUnavailableError extends BCError {
   public readonly reason: BCMcpUnavailableReason;
   constructor(message: string, reason: BCMcpUnavailableReason, context?: Record<string, unknown>) {

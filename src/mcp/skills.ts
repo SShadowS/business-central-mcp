@@ -251,9 +251,11 @@ group by, e.g. sales per year with a \`Sum\` column next to it.
   field on the wrong table: check \`bc_data_get_table_schema\` and fix it.
   Do not guess field names; read the schema.
 - \`BC_MCP_UNAVAILABLE\` has \`details.reason\`: \`endpoint-missing\`
-  (BC < 29), \`mcp-disabled\` (MCP Server capability off) or
-  \`tools-disabled\` (Data Query Tools off). An admin has to fix it in BC;
-  retrying does not help.
+  (BC < 29), \`endpoint-unreachable\` (nothing answers at the MCP URL, often
+  the OData port; set BC_MCP_URL), \`mcp-disabled\` (MCP Server capability
+  off), \`no-configuration\` (no active MCP Server Configuration) or
+  \`tools-disabled\` (Data Query Tools off). An admin has to fix it in BC or
+  the server config; retrying does not help.
 `;
 
 // Verified against BC 29.1 (Cronus291, 2026-10-30) with customers API page

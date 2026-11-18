@@ -3,6 +3,8 @@
 // bc_data_* operations + BCMcpClient against a real in-process MCP server
 // (tests/helpers/fake-bc-mcp-server.ts). Tool answers are live BC 29.1 texts.
 
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
 import { BCMcpClient, type BCMcpClientConfig } from '../../src/bcmcp/bc-mcp-client.js';
 import { DataQueryOperation } from '../../src/operations/data-query.js';
@@ -186,6 +188,25 @@ describe('BCMcpClient', () => {
     expect(!second.ok && second.error.code).toBe('BC_MCP_UNAVAILABLE');
     expect(server.initializeCount).toBe(2);
   });
+
+  it('reports BC_MCP_UNAVAILABLE (no-configuration) when BC answers initialize with 400', async () => {
+    // BC 29.1 McpConfiguration.GetOrCreateConfigurationAsync: no active MCP Server Configuration.
+    const { op } = await setup({ sessionCompany: COMPANY, serverOptions: { initializeStatus: 400 } });
+    const r = await op.query({ queryText: QUERY });
+    expect(!r.ok && (r.error as BCMcpUnavailableError).reason).toBe('no-configuration');
+  });
+
+  it('reports BC_MCP_UNAVAILABLE (endpoint-unreachable) when nothing listens at the MCP URL', async () => {
+    const closed = createServer();
+    await new Promise<void>((resolve) => closed.listen(0, '127.0.0.1', resolve));
+    const { port } = closed.address() as AddressInfo;
+    await new Promise<void>((resolve) => closed.close(() => resolve()));
+    const { op } = await setup({ sessionCompany: COMPANY, url: () => `http://127.0.0.1:${port}/BC/mcp` });
+    const r = await op.query({ queryText: QUERY });
+    expect(!r.ok && r.error.code).toBe('BC_MCP_UNAVAILABLE');
+    expect(!r.ok && (r.error as BCMcpUnavailableError).reason).toBe('endpoint-unreachable');
+    expect(!r.ok && r.error.message).toContain(`127.0.0.1:${port}`);
+  }, 15000);
 
   it('sends the Bearer token when the auth provider has one', async () => {
     const { server, op } = await setup({ sessionCompany: COMPANY, client: { getAuthorization: async () => 'Bearer tok-1' } });
