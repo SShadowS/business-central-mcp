@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **ListPart FactBoxes show up as sections.** A FactBox with only a repeater (an extension's
+  ListPart, the Notes system part) was dropped as an empty stub, so a Card or List page
+  answered with `header` only. It now reads as `factbox:<caption>` with its rows. Each part's
+  rows are routed by the part BC names in the change (`ControlReference.formId`), not by
+  path: every part's repeater sits at `server:c[0]`, so two ListPart FactBoxes overwrote each
+  other's rows. Verified live on cronus28 (Bank Account Card 370 / list 371 with a fixture
+  ListPart FactBox) and cronus29.
+- **`bc_data_*` / `bc_api_*` report `BC_MCP_UNAVAILABLE` when BC's MCP server can't be used.**
+  A BC with no active MCP Server Configuration answers HTTP 400; that is now reason
+  `no-configuration`. An MCP URL where nothing answers (refused, unknown host, connect
+  timeout: often the OData port is not reachable although the web client is) is reason
+  `endpoint-unreachable`, naming the URL and `BC_MCP_URL`. Both were reported as a retryable
+  `ENDPOINT_UNREACHABLE`. Other network errors now name the URL and the socket error.
+
 ## [2.4.9] - 2026-11-17
 
 ### Fixed
