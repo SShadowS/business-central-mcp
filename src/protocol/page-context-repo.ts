@@ -15,6 +15,7 @@ import { SectionResolver, type SectionDescriptor } from './section-resolver.js';
 import { buildFormTree } from './form-tree-builder.js';
 import { isLogicalFormNode, type FormNode } from './form-node.js';
 import { applyPropertyChange } from './form-tree-mutator.js';
+import { repeaters as treeRepeaters } from './form-views.js';
 import { PageContextStore } from './page-context-store.js';
 import { PageEventRouter } from './page-event-router.js';
 import { FormStateReducer } from './form-state-reducer.js';
@@ -443,7 +444,7 @@ export class PageContextRepository {
     // Derive section: use IsSubForm to distinguish lines from factboxes
     const section = child.isSubForm
       ? this.sectionResolver.deriveSection(page, child.serverId, child.controlTree, child.caption)
-      : this.deriveFactboxSection(page, child);
+      : this.deriveFactboxSection(page, child, tree);
 
     const forms = new Map(page.forms);
     forms.set(child.serverId, childForm);
@@ -467,7 +468,7 @@ export class PageContextRepository {
     this.store.indexFormId(child.serverId, pcId);
   }
 
-  private deriveFactboxSection(page: PageContext, child: DiscoveredChildForm) {
+  private deriveFactboxSection(page: PageContext, child: DiscoveredChildForm, tree: FormNode | null) {
     const caption = child.caption || 'FactBox';
     const base = `factbox:${caption}`;
     let sectionId = base;
@@ -483,6 +484,8 @@ export class PageContextRepository {
       caption,
       formId: child.serverId,
       valid: true,
+      // A ListPart FactBox (an extension's part, the Notes system part) reads as rows.
+      repeaterControlPath: tree ? treeRepeaters(tree).keys().next().value : undefined,
     };
   }
 

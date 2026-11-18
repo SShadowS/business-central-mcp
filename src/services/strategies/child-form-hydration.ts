@@ -7,7 +7,7 @@ import type { BCEvent, LoadFormInteraction, InvokeActionInteraction } from '../.
 import { buildFormTree } from '../../protocol/form-tree-builder.js';
 import { walkTree } from '../../protocol/form-tree-walk.js';
 import { isFormHostNode } from '../../protocol/form-node.js';
-import { fields as treeFields, cues as treeCues } from '../../protocol/form-views.js';
+import { fields as treeFields, cues as treeCues, repeaters as treeRepeaters } from '../../protocol/form-views.js';
 import type { SectionKind } from '../../protocol/section-resolver.js';
 import { RoleCenterHydrationStrategy } from './role-center-hydration.js';
 import { FactboxHydrationStrategy } from './factbox-hydration.js';
@@ -193,7 +193,8 @@ export class ChildFormHydrationStrategy {
         if (sec.kind !== 'factbox') continue;
         const f = finalCtx.forms.get(sec.formId);
         if (!f) continue;
-        if (treeFields(f.root).length === 0 && treeCues(f.root).length === 0) {
+        // A ListPart FactBox has only repeater columns (live cronus28/29: page 370's Notes part).
+        if (treeFields(f.root).length === 0 && treeCues(f.root).length === 0 && treeRepeaters(f.root).size === 0) {
           this.repo.invalidateSection(pageContextId, sectionId);
         }
       }

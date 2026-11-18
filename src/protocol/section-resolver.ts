@@ -72,7 +72,12 @@ export class SectionResolver {
     if (isPart && !isSubForm) {
       const caption = ownCaption || 'FactBox';
       const id = this.uniqueSectionId(parentPageContext, `factbox:${caption}`);
-      return { sectionId: id, kind: 'factbox', caption, formId: childFormId, valid: true };
+      // A ListPart FactBox (an extension's part, the Notes system part) reads as rows.
+      const [repeaterPath] = reps.keys();
+      return {
+        sectionId: id, kind: 'factbox', caption, formId: childFormId, valid: true,
+        ...(repeaterPath ? { repeaterControlPath: repeaterPath } : {}),
+      };
     }
 
     const caption = ownCaption || 'Subpage';

@@ -218,7 +218,14 @@ export class PageEventRouter {
     let childRepeaterFormId: string | undefined;
     let factboxFormId: string | undefined;
 
-    if (controlPath) {
+    // A part's rows ride on the host's formId too, and refFormId names the part. Every
+    // part tree is rooted at `server:`, so the path alone is ambiguous: live cronus28,
+    // Bank Account Card 370 with an extension ListPart FactBox and the Notes part sends
+    // both parts' rows as formId=root `server:c[0]`.
+    if ((event.type === 'DataLoaded' || event.type === 'RowDelta') && event.refFormId
+        && event.refFormId !== formId && page.forms.has(event.refFormId)) {
+      childRepeaterFormId = event.refFormId;
+    } else if (controlPath) {
       // Child-repeater routing: BC sends DataLoaded with the root formId but
       // a controlPath that belongs to a child form's repeater.
       const childRepeater = findChildFormByRepeaterPath(page, formId, controlPath);

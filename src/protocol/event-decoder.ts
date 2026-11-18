@@ -98,7 +98,7 @@ export class EventDecoder {
 
       switch (resolved) {
         case 'DataRefreshChange':
-          events.push({ type: 'DataLoaded', formId, controlPath, currentRowOnly: (c.CurrentRowOnly as boolean) ?? false, rows: (c.RowChanges as unknown[]) ?? [] } satisfies DataLoadedEvent);
+          events.push({ type: 'DataLoaded', formId, controlPath, currentRowOnly: (c.CurrentRowOnly as boolean) ?? false, rows: (c.RowChanges as unknown[]) ?? [], ...refFormId } satisfies DataLoadedEvent);
           break;
         case 'DataRowInserted':
         case 'DataRowUpdated': {
@@ -110,7 +110,7 @@ export class EventDecoder {
           if (Array.isArray(arr) && arr.length >= 2 && arr[1] && typeof arr[1] === 'object') {
             const payload = arr[1] as Record<string, unknown>;
             events.push({
-              type: 'RowDelta', formId, controlPath,
+              type: 'RowDelta', formId, controlPath, ...refFormId,
               op: resolved === 'DataRowInserted' ? 'insert' : 'update',
               bookmark: (payload['bookmark'] ?? payload['Bookmark'] ?? '') as string,
               index: typeof arr[0] === 'number' ? (arr[0] as number) : undefined,
@@ -123,7 +123,7 @@ export class EventDecoder {
           // Removal is identified by bookmark only (no index). Wire: { t, ControlReference, Bookmark }.
           const bookmark = (c.Bookmark ?? c.bookmark) as string | undefined;
           if (bookmark) {
-            events.push({ type: 'RowDelta', formId, controlPath, op: 'remove', bookmark } satisfies RowDeltaEvent);
+            events.push({ type: 'RowDelta', formId, controlPath, op: 'remove', bookmark, ...refFormId } satisfies RowDeltaEvent);
           }
           break;
         }

@@ -110,6 +110,8 @@ export interface DataLoadedEvent {
   readonly controlPath: string;
   readonly currentRowOnly: boolean;
   readonly rows: unknown[];
+  /** `ControlReference.formId`: the hosted part whose repeater this is (see PropertyChangedEvent.refFormId). */
+  readonly refFormId?: string;
 }
 
 /**
@@ -128,6 +130,8 @@ export interface RowDeltaEvent {
   readonly controlPath: string;
   readonly op: 'insert' | 'update' | 'remove';
   readonly bookmark: string;
+  /** `ControlReference.formId` (see DataLoadedEvent.refFormId). */
+  readonly refFormId?: string;
   /** Viewport insertion index (inserts only). Absent for update/remove. */
   readonly index?: number;
   /** Row cell values (insert/update). Absent for remove. */

@@ -248,6 +248,22 @@ describe('EventDecoder', () => {
     ]);
   });
 
+  it('keeps ControlReference.formId as refFormId on a hosted part\'s rows', () => {
+    // cronus28 Bank Account Card 370: two ListPart FactBoxes' rows on the host's change set,
+    // both at the part-relative `server:c[0]`; only ControlReference.formId tells them apart.
+    const handlers = [{
+      handlerType: HANDLER_TYPES.LogicalClientChange,
+      parameters: ['63', [
+        { t: 'drch', ControlReference: { controlPath: 'server:c[0]', formId: '61' }, RowChanges: [] },
+        { t: 'DataRowRemoved', ControlReference: { controlPath: 'server:c[0]', formId: '62' }, Bookmark: 'bm1' },
+      ]],
+    }];
+    expect(decoder.decode(handlers)).toEqual([
+      { type: 'DataLoaded', formId: '63', controlPath: 'server:c[0]', currentRowOnly: false, rows: [], refFormId: '61' },
+      { type: 'RowDelta', formId: '63', controlPath: 'server:c[0]', op: 'remove', bookmark: 'bm1', refFormId: '62' },
+    ]);
+  });
+
   it('does not decode ClosePendingForm (ghost-form cache key) as a form close', () => {
     // CallbackHandler sends ClosePendingForm { FormCacheKey } for an unshown
     // pending ghost form; a real close is PropertyChanged State=0 (BCSession).

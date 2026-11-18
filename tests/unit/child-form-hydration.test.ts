@@ -41,6 +41,42 @@ describe('ChildFormHydrationStrategy', () => {
     expect(col.properties.enabled).toBe(true);
   });
 
+  it('keeps ListPart FactBoxes valid and routes each part\'s rows by refFormId', async () => {
+    // Live cronus28 Bank Account Card 370 + fixture page 50992: an extension ListPart FactBox and
+    // the Notes system part, both repeater-only; BC sends both parts' rows as formId=root server:c[0].
+    const listPart = (id: string, caption: string) => ({
+      t: 'fhc', Caption: caption,
+      Children: [{
+        t: 'lf', ServerId: id, IsPart: true, Caption: caption, State: 1,
+        Children: [{ t: 'rc', Columns: [{ t: 'rcc', Caption: 'No.', ColumnBinder: { Name: 'no' } }] }],
+      }],
+    });
+    const openEvents = [{
+      type: 'FormCreated', formId: 'R', isReload: false,
+      controlTree: { t: 'lf', ServerId: 'R', PageType: 0, Children: [listPart('A', 'Bank Connection'), listPart('N', 'Notes')] },
+    }] as BCEvent[];
+    const rowsFor = (refFormId: string, count: number): BCEvent => ({
+      type: 'DataLoaded', formId: 'R', refFormId, controlPath: 'server:c[0]', currentRowOnly: false,
+      rows: Array.from({ length: count }, (_, i) => ({ DataRowInserted: [i, { bookmark: `${refFormId}${i}`, cells: { no: { stringValue: String(i) } } }] })),
+    } as BCEvent);
+
+    const repo = new PageContextRepository();
+    repo.create('pc', 'R');
+    repo.applyToPage('pc', openEvents);
+    const session = {
+      invoke: vi.fn(async (i: { type: string; formId: string }) =>
+        ok(i.type === 'LoadForm' ? [rowsFor(i.formId, i.formId === 'A' ? 1 : 0)] : [])),
+    };
+    await new ChildFormHydrationStrategy(session as never, repo, logger).hydrate('pc', openEvents);
+
+    const ctx = repo.get('pc')!;
+    const bank = ctx.sections.get('factbox:Bank Connection')!;
+    expect(bank).toMatchObject({ valid: true, repeaterControlPath: 'server:c[0]' });
+    expect(ctx.sections.get('factbox:Notes')).toMatchObject({ valid: true });
+    expect(ctx.forms.get('A')!.rows.get('server:c[0]')).toHaveLength(1);
+    expect(ctx.forms.get('N')!.rows.get('server:c[0]')).toHaveLength(0);
+  });
+
   it('discovers a part on a wizard (DialogOpened root), opens it and keeps the page a NavigatePage', async () => {
     // Live cronus28 fixture page 50990: the NavigatePage root is an ownerless DialogOpened and the
     // step-2 ListPart arrives Built (State=1), so LoadForm must carry openForm:true to load it.
