@@ -16,6 +16,7 @@ import {
   groupVisibility as treeGroupVisibility,
   cues as treeCues,
   tabs as treeTabs,
+  plainCaption,
   fieldName,
 } from './form-views.js';
 import { isEffectivelyVisible } from './visibility.js';
@@ -63,10 +64,10 @@ export interface SectionField {
 }
 
 export interface SectionAction {
-  /** Action caption as shown in the BC client. */
+  /** Action caption without access-key markers (pass it as bc_execute_action's action). */
   readonly name: string;
-  /** SystemAction ordinal. See SystemAction enum in protocol/types.ts. 0 = no system role (custom AL action). */
-  readonly systemAction: number;
+  /** SystemAction ordinal (see SystemAction in protocol/types.ts); absent for a custom AL action. */
+  readonly systemAction?: number;
   /** Wizard role on a NavigatePage / StandardDialog. */
   readonly wizardNav?: 'back' | 'next' | 'finish' | 'cancel';
 }
@@ -221,7 +222,9 @@ export function buildSection(ctx: PageContext, sectionId: string): Section | nul
     if (draft) out.newRowBookmark = draft.bookmark;
   } else {
     // Tabs (FastTabs) are the captioned top-level groups; bc_read_data { tab } filters by them.
-    const tabList = treeTabs(root);
+    // Only the page itself has FastTabs: a part's top-level groups carry design names
+    // ("Control23", live cronus29), not tabs.
+    const tabList = isHeader ? treeTabs(root) : [];
     const tabOf = (path: string) => tabList.find(t => path.startsWith(`${t.controlPath}/`))?.caption;
     // A field known only by its design name that is read-only and empty is a control add-in
     // host (live cronus29: a chart part's "StatusText"/"BusinessChart"), nothing to read or
@@ -242,9 +245,11 @@ export function buildSection(ctx: PageContext, sectionId: string): Section | nul
         && isEffectivelyVisible(root, a.controlPath, groupVis, ws))
       .map(a => {
         const wn = classifyWizardNav(a, ctx.pageType);
+        // The name bc_execute_action matches (access keys stripped there too); systemAction 0
+        // (a custom AL action, most of them) says nothing.
         return {
-          name: a.properties.caption!,
-          systemAction: a.systemAction,
+          name: plainCaption(a.properties.caption!),
+          ...(a.systemAction ? { systemAction: a.systemAction } : {}),
           ...(wn ? { wizardNav: wn } : {}),
         };
       });

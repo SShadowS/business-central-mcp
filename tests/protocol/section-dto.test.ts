@@ -318,6 +318,28 @@ describe('buildSection', () => {
     expect(s.fields!.map(f => f.name)).toEqual(['SearchBox']);
   });
 
+  // Payload re-review 2026-11-24: parts showed tabs like ["Control23"] (design names of
+  // groups, not FastTabs). Tabs belong to the page itself.
+  it('a part section carries no tabs and no field tab', () => {
+    const part = { t: 'lf', ServerId: 'P', PageType: 3, Caption: 'Sales History', Children: [
+      { t: 'gc', Caption: 'Control23', Children: [{ t: 'sc', Caption: 'Orders', Visible: true, StringValue: '3' }] },
+    ] };
+    const ctx = makeCtx({
+      rootFormId: 'root',
+      forms: new Map<string, FormState>([
+        ['root', makeFormState('root', { t: 'lf', ServerId: 'root', PageType: 0, Children: [] })],
+        ['P', makeFormState('P', part)],
+      ]),
+      sections: new Map<string, SectionDescriptor>([
+        ['header', { sectionId: 'header', kind: 'header', caption: 'X', formId: 'root', valid: true }],
+        ['factbox:Sales History', { sectionId: 'factbox:Sales History', kind: 'factbox', caption: 'Sales History', formId: 'P', valid: true }],
+      ]),
+    });
+    const s = buildSection(ctx, 'factbox:Sales History')!;
+    expect(s).not.toHaveProperty('tabs');
+    expect(s.fields![0]).not.toHaveProperty('tab');
+  });
+
   it('returns null for an invalid (valid:false) section', () => {
     const ctx = makeCtx({
       rootFormId: 'root',

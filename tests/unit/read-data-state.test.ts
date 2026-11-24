@@ -95,7 +95,7 @@ describe('bc_read_data actions', () => {
 
   it('includeActions returns them, without an enabled flag (only enabled actions are listed)', async () => {
     const r = await op(cardRepo()).execute({ pageContextId: 'pc:card', includeActions: true });
-    expect(r.ok && r.value.section.actions).toEqual([{ name: 'Statistics', systemAction: 0 }]);
+    expect(r.ok && r.value.section.actions).toEqual([{ name: 'Statistics' }]);
   });
 });
 

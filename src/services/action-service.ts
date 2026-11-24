@@ -17,7 +17,7 @@ import { resolveSection } from '../protocol/section-resolver.js';
 import type { FormState } from '../protocol/form-state.js';
 import type { RepeaterNode } from '../protocol/form-node.js';
 import { isEffectivelyVisible } from '../protocol/visibility.js';
-import { actions as treeActions, groupVisibility as treeGroupVisibility, cues as treeCues } from '../protocol/form-views.js';
+import { actions as treeActions, groupVisibility as treeGroupVisibility, cues as treeCues, plainCaption } from '../protocol/form-views.js';
 import { classifyWizardNav } from '../protocol/wizard-classify.js';
 import type { Logger } from '../core/logger.js';
 import { ChildFormHydrationStrategy } from './strategies/child-form-hydration.js';
@@ -28,10 +28,7 @@ const ROW_TARGETING_ACTIONS: Set<number> = new Set([
   SystemAction.DrillDown, SystemAction.New,
 ]);
 
-/** A caption without its access-key markers ("Run N&ext Test" -> "Run Next Test"; "&&" is a literal "&"). */
-export function plainCaption(caption: string): string {
-  return caption.replace(/&(.)/g, '$1');
-}
+export { plainCaption };
 
 /** Caption match key: access keys stripped, case-insensitive (issue #43). */
 const actionKey = (caption: string): string => plainCaption(caption).toLowerCase();

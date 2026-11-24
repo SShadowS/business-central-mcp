@@ -278,7 +278,7 @@ const OpenedPage = z.strictObject({ pageContextId: z.string(), caption: z.string
 const SectionRow = z.strictObject({ bookmark: z.string(), cells: z.record(z.string(), z.string().nullable()) });
 const SectionAction = z.strictObject({
   name: z.string(),
-  systemAction: z.number(),
+  systemAction: z.number().optional(),
   wizardNav: z.enum(['back', 'next', 'finish', 'cancel']).optional(),
 });
 const SectionCue = z.strictObject({

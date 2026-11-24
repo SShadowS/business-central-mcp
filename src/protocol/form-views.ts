@@ -35,6 +35,15 @@ export function fields(root: FormNode): readonly FieldNode[] {
 }
 
 /**
+ * A caption without its access-key markers: "&X" is a marker ("Run N&ext Test" -> "Run Next
+ * Test"), "&&" a literal "&", and an "&" before a space or at the end marks nothing and stays
+ * ("Prices & Discounts Overview"; the old /&(.)/ dropped it).
+ */
+export function plainCaption(caption: string): string {
+  return caption.replace(/&([^\s])/g, '$1');
+}
+
+/**
  * A field's name in tool input and output: its caption, else its AL control name (wire
  * `DesignName`). A `ShowCaption = false` control has no caption on the wire, e.g. the
  * company name box of the Company Creation Wizard (live cronus291: `sc`, DesignName
