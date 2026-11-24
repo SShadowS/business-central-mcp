@@ -272,7 +272,7 @@ const Download = z.looseObject({
   savedPath: z.string().optional(),
 });
 const ExternalUri = z.object({ uri: z.string(), style: z.string() });
-const OpenedPage = z.object({ pageContextId: z.string(), caption: z.string() });
+const OpenedPage = z.object({ pageContextId: z.string(), caption: z.string(), pageType: z.string() });
 const Section = z.looseObject({});
 const Loose = z.looseObject({});
 const ShownMessage = z.object({ text: z.string(), type: z.string() });
@@ -338,9 +338,9 @@ export const SearchPagesOutputSchema = z.object({
 });
 
 export const NavigateOutputSchema = z.object({
-  targetPageContextId: z.string().optional(),
-  pageType: z.string().optional(),
+  openedPages: z.array(OpenedPage).optional(),
   sections: z.array(Section).optional(),
+  stateVersion: z.number().optional(),
   selectedBookmark: z.string().optional(),
   changedSections: z.array(z.string()),
   dialogsOpened: z.array(OpenedDialog),

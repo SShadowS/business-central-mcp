@@ -4,7 +4,7 @@ import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { PageContext } from '../protocol/page-context.js';
 import { SystemAction } from '../protocol/types.js';
-import { detectChangedSections, registerDialogs, collectMessages, type ShownMessage, type OpenedDialog } from '../protocol/mutation-result.js';
+import { detectChangedSections, registerDialogs, collectMessages, type ShownMessage, type OpenedDialog, type OpenedPage } from '../protocol/mutation-result.js';
 import { classifyBusinessError } from '../protocol/error-classifier.js';
 import { formClosed } from '../protocol/replay-safety.js';
 import { actions as treeActions } from '../protocol/form-views.js';
@@ -24,7 +24,7 @@ export interface RespondDialogOutput {
   /** Dialogs the answer opened (e.g. a follow-up confirm), each with its own pageContextId. */
   dialogsOpened: OpenedDialog[];
   requiresDialogResponse: boolean;
-  openedPages: Array<{ pageContextId: string; caption: string }>;
+  openedPages: OpenedPage[];
   /** AL Message() texts raised after the answer (Error/Fatal ones become an error instead); empty when none. */
   messages: ShownMessage[];
   /** Captured file downloads produced by this response (e.g. Open in Excel); empty when none. */
@@ -142,12 +142,12 @@ export class RespondDialogOperation {
     const newDialogs = registerDialogs(this.repo, reportPcId, events);
 
     // Check for new pages opened (e.g., posting creates a Posted Invoice)
-    const openedPages: Array<{ pageContextId: string; caption: string }> = [];
+    const openedPages: OpenedPage[] = [];
     for (const event of events) {
       if (event.type === 'FormCreated' && event.formId !== ctx.rootFormId) {
         const newCtx = this.repo.getByFormId(event.formId);
         if (newCtx && newCtx.pageContextId !== input.pageContextId && newCtx.pageContextId !== reportPcId) {
-          openedPages.push({ pageContextId: newCtx.pageContextId, caption: newCtx.caption });
+          openedPages.push({ pageContextId: newCtx.pageContextId, caption: newCtx.caption, pageType: newCtx.pageType });
         }
       }
     }

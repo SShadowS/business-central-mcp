@@ -8,7 +8,7 @@ export function createToolDefinition(ops: Operations): ToolDefinition {
 
 Action "select" (default): Positions the cursor on the specified row. Does NOT open the record or return new data -- it only moves the selection. Note: bc_execute_action can target a row directly via its own bookmark/rowIndex parameters, so you usually do not need a separate select before an action like Delete.
 
-Action "drill_down": Opens the record's detail page (e.g., drilling down from Customer List opens Customer Card, drilling down from Sales Orders opens Sales Order). Returns a NEW pageContextId for the opened Card/Document page with its full state. The original List page remains open. Remember to bc_close_page both pages when done.
+Action "drill_down": Opens the record's detail page (e.g., drilling down from Customer List opens Customer Card, drilling down from Sales Orders opens Sales Order). Returns the opened page as openedPages: [{ pageContextId, caption, pageType }] (the same shape bc_execute_action and bc_respond_dialog use), plus its sections and stateVersion. The original List page remains open. Remember to bc_close_page both pages when done.
 
 Section targeting: Use section (e.g., "lines") to navigate within a Document page's subpage repeater. Omit it for the header/default repeater.
 

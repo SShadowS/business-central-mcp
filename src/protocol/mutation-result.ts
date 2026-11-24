@@ -185,6 +185,13 @@ export function detectDialogs(events: BCEvent[]): DialogInfo[] {
     .map(e => describeDialog(e.formId, e.controlTree));
 }
 
+/** A page a call opened (drill-down, an action, a dialog answer): address it by pageContextId. */
+export interface OpenedPage {
+  pageContextId: string;
+  caption: string;
+  pageType: string;
+}
+
 /**
  * A dialog a call opened. `pageContextId` addresses it as a page context of its own:
  * fill its fields with bc_write_data against it, then answer it with bc_respond_dialog.

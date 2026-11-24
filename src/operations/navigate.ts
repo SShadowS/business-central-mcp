@@ -2,7 +2,7 @@ import { err, isErr, mapResult, type Result } from '../core/result.js';
 import { ProtocolError } from '../core/errors.js';
 import type { NavigationService } from '../services/navigation-service.js';
 import { buildAllSections, type Section } from '../protocol/section-dto.js';
-import type { OpenedDialog } from '../protocol/mutation-result.js';
+import type { OpenedDialog, OpenedPage } from '../protocol/mutation-result.js';
 
 export interface NavigateInput {
   pageContextId: string;
@@ -12,11 +12,12 @@ export interface NavigateInput {
 }
 
 export interface NavigateOutput {
-  /** Set when action='drill_down' lands on a new page. */
-  targetPageContextId?: string;
-  pageType?: string;
-  /** Sections of the target page (drill_down). */
+  /** drill_down: the page it opened (same shape as bc_execute_action's openedPages). */
+  openedPages?: OpenedPage[];
+  /** drill_down: the opened page's sections. */
   sections?: Section[];
+  /** drill_down: the opened page's stateVersion (for expectedStateVersion). */
+  stateVersion?: number;
   /** select: the row that is now current. */
   selectedBookmark?: string;
   changedSections: string[];
@@ -38,9 +39,13 @@ export class NavigateOperation {
     if (input.action === 'drill_down') {
       const result = await this.navigationService.drillDown(input.pageContextId, input.bookmark, input.section);
       return mapResult(result, (r) => ({
-        targetPageContextId: r.targetPageContext.pageContextId,
-        pageType: r.targetPageContext.pageType,
+        openedPages: [{
+          pageContextId: r.targetPageContext.pageContextId,
+          caption: r.targetPageContext.caption,
+          pageType: r.targetPageContext.pageType,
+        }],
         sections: buildAllSections(r.targetPageContext),
+        stateVersion: r.targetPageContext.generation,
         changedSections: [],
         dialogsOpened: [],
         requiresDialogResponse: false,

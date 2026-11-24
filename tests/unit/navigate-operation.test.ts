@@ -104,7 +104,7 @@ describe('NavigateOperation routing', () => {
 });
 
 describe('NavigateOperation output shape', () => {
-  it('drill_down output includes targetPageContextId, pageType, changedSections=[], dialogsOpened=[], requiresDialogResponse=false', async () => {
+  it('drill_down output reports the opened page in openedPages, with its stateVersion', async () => {
     const svc = makeNavigationService();
     const op = new NavigateOperation(svc);
 
@@ -112,8 +112,10 @@ describe('NavigateOperation output shape', () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value.targetPageContextId).toBe('pc:target:1');
-    expect(result.value.pageType).toBe('Card');
+    // One name for a page a call opened, as in bc_execute_action / bc_respond_dialog.
+    expect(result.value.openedPages).toEqual([{ pageContextId: 'pc:target:1', caption: expect.any(String), pageType: 'Card' }]);
+    expect(result.value).not.toHaveProperty('targetPageContextId');
+    expect(typeof result.value.stateVersion).toBe('number');
     expect(result.value.changedSections).toEqual([]);
     expect(result.value.dialogsOpened).toEqual([]);
     expect(result.value.requiresDialogResponse).toBe(false);

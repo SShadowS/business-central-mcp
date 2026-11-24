@@ -29,8 +29,8 @@ export interface SectionField {
   /** Display string. Undefined for fields that have no string projection (e.g. boolean tristate). */
   readonly value?: string;
   readonly editable: boolean;
-  /** Wire-level BC field type. See FieldType union in protocol/form-node.ts. */
-  readonly type: FieldType;
+  /** The field's value type: text, decimal, boolean, datetime, integer, option, progress or static (read-only text). */
+  readonly type: FieldTypeName;
   /** True if BC marked the field as mandatory. */
   readonly showMandatory?: boolean;
   /** True if the field has an AssistEdit/Lookup action attached. */
@@ -124,6 +124,19 @@ export interface Section {
   readonly cues?: readonly SectionCue[];
 }
 
+/** Readable field types for the wire control aliases (decompiled Client*Control TypeAlias attributes). */
+export type FieldTypeName = 'text' | 'decimal' | 'boolean' | 'datetime' | 'integer' | 'option' | 'progress' | 'static';
+const FIELD_TYPE_NAMES: Record<FieldType, FieldTypeName> = {
+  sc: 'text',          // StringControl
+  dc: 'decimal',       // DecimalControl
+  bc: 'boolean',       // BooleanControl
+  dtc: 'datetime',     // DateTimeControl (dates too)
+  i32c: 'integer',     // Int32Control
+  sec: 'option',       // SelectionControl (options/enums)
+  pc: 'progress',      // ProgressControl
+  ssc: 'static',       // StaticStringControl (read-only text)
+};
+
 /** The one MCP field shape, shared by page sections and dialogs. */
 export function toSectionField(f: FieldNode): SectionField {
   const opts = f.properties.options;
@@ -143,7 +156,7 @@ export function toSectionField(f: FieldNode): SectionField {
     name: fieldName(f),
     value: f.properties.stringValue,
     editable: f.properties.editable !== false,
-    type: f.type,
+    type: FIELD_TYPE_NAMES[f.type],
     ...(f.properties.showMandatory ? { showMandatory: true as const } : {}),
     ...(f.hasLookup ? { isLookup: true as const } : {}),
     ...(f.hasLookup && f.canShowSimpleLookup === false ? { lookupCustom: true as const } : {}),
@@ -185,7 +198,8 @@ export function buildSection(ctx: PageContext, sectionId: string): Section | nul
   } = {
     sectionId: section.sectionId,
     kind: section.kind,
-    caption: section.caption,
+    // The header is the page itself: its descriptor caption is the placeholder "Header".
+    caption: isHeader ? (ctx.caption || section.caption) : section.caption,
   };
 
   if (repeater) {
@@ -210,8 +224,12 @@ export function buildSection(ctx: PageContext, sectionId: string): Section | nul
     // Tabs (FastTabs) are the captioned top-level groups; bc_read_data { tab } filters by them.
     const tabList = treeTabs(root);
     const tabOf = (path: string) => tabList.find(t => path.startsWith(`${t.controlPath}/`))?.caption;
+    // A field known only by its design name that is read-only and empty is a control add-in
+    // host (live cronus29: a chart part's "StatusText"/"BusinessChart"), nothing to read or
+    // write. Captionless inputs stay (some dialogs only name their fields that way).
+    const addInHost = (f: FieldNode) => !f.properties.caption && f.properties.editable === false && !f.properties.stringValue;
     out.fields = treeFields(root)
-      .filter(f => fieldName(f) && isEffectivelyVisible(root, f.controlPath, groupVis, ws))
+      .filter(f => fieldName(f) && !addInHost(f) && isEffectivelyVisible(root, f.controlPath, groupVis, ws))
       .map(f => {
         const tab = tabOf(f.controlPath);
         return tab ? { ...toSectionField(f), tab } : toSectionField(f);
@@ -235,10 +253,12 @@ export function buildSection(ctx: PageContext, sectionId: string): Section | nul
 
   const cueList = treeCues(root);
   if (cueList.length > 0) {
+    // An unnamed AL cuegroup arrives captioned with its control name ("Control2", live cronus29
+    // Role Center 9022): that tells the reader nothing, so it is left out.
     out.cues = cueList.map(c => ({
       name: c.caption,
       value: c.value,
-      ...(c.groupCaption ? { groupCaption: c.groupCaption } : {}),
+      ...(c.groupCaption && !/^Control\d+$/.test(c.groupCaption) ? { groupCaption: c.groupCaption } : {}),
       ...(c.synopsis ? { synopsis: c.synopsis } : {}),
       hasAction: c.hasAction,
     }));

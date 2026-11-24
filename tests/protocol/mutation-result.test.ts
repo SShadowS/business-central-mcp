@@ -151,7 +151,7 @@ describe('detectDialogs', () => {
 
     const includeHeader = dialogs[0]!.fields!.find(f => f.name === 'Include Header');
     expect(includeHeader).toBeDefined();
-    expect(includeHeader!.type).toBe('bc');
+    expect(includeHeader!.type).toBe('boolean');
   });
 
   it('does not include fields when dialog has no parseable controls', () => {

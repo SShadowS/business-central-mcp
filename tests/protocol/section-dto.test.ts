@@ -46,7 +46,7 @@ describe('Section DTO shape', () => {
   });
 
   it('SectionField carries name, value, editable, type', () => {
-    const f: SectionField = { name: 'No.', value: '10000', editable: false, type: 'sc' };
+    const f: SectionField = { name: 'No.', value: '10000', editable: false, type: 'text' };
     expect(f.name).toBe('No.');
   });
 
@@ -281,6 +281,43 @@ describe('buildSection', () => {
     expect(s.fields!.map(f => [f.name, f.tab])).toEqual([['Name', 'General'], ['VAT Registration No.', 'Invoicing']]);
   });
 
+  // Recorded flow 2026-11-24: wire codes as field types ("sc", "ssc"), a list header captioned
+  // "Header", chart add-in hosts as empty captionless fields, cue groups named "Control2".
+  function cardCtx(children: unknown[]): PageContext {
+    return makeCtx({
+      rootFormId: 'root',
+      forms: new Map<string, FormState>([['root', makeFormState('root', { t: 'lf', ServerId: 'root', PageType: 0, Caption: 'Customer Card', Children: children })]]),
+      sections: new Map<string, SectionDescriptor>([['header', { sectionId: 'header', kind: 'header', caption: 'Header', formId: 'root', valid: true }]]),
+    });
+  }
+
+  it('field types are readable names, not wire codes', () => {
+    const s = buildSection(cardCtx([
+      { t: 'sc', Caption: 'Name', Visible: true, StringValue: 'A' },
+      { t: 'dc', Caption: 'Balance', Visible: true, StringValue: '1.00' },
+      { t: 'bc', Caption: 'Blocked', Visible: true, StringValue: 'No' },
+      { t: 'dtc', Caption: 'Created', Visible: true, StringValue: '1/1/2026' },
+      { t: 'i32c', Caption: 'Count', Visible: true, StringValue: '3' },
+      { t: 'sec', Caption: 'Type', Visible: true, StringValue: 'Item' },
+      { t: 'pc', Caption: 'Progress', Visible: true, StringValue: '50' },
+      { t: 'ssc', Caption: 'Note', Visible: true, StringValue: 'Read me' },
+    ]), 'header')!;
+    expect(s.fields!.map(f => f.type)).toEqual(['text', 'decimal', 'boolean', 'datetime', 'integer', 'option', 'progress', 'static']);
+  });
+
+  it('the header section carries the page caption', () => {
+    expect(buildSection(cardCtx([]), 'header')!.caption).toBe('Test Page');
+  });
+
+  it('drops captionless read-only empty fields (chart add-in hosts), keeps captionless inputs', () => {
+    const s = buildSection(cardCtx([
+      { t: 'sc', DesignName: 'StatusText', Visible: true, Editable: false, StringValue: '' },
+      { t: 'ssc', DesignName: 'BusinessChart', Visible: true, Editable: false },
+      { t: 'sc', DesignName: 'SearchBox', Visible: true, Editable: true },
+    ]), 'header')!;
+    expect(s.fields!.map(f => f.name)).toEqual(['SearchBox']);
+  });
+
   it('returns null for an invalid (valid:false) section', () => {
     const ctx = makeCtx({
       rootFormId: 'root',
@@ -355,6 +392,23 @@ describe('buildSection cues projection', () => {
       name: 'Sales Orders', value: '12', groupCaption: 'Ongoing Sales', hasAction: true,
     });
     expect(section!.cues![1]!.synopsis).toBeUndefined();
+  });
+
+  it('a cue group with only an AL control name (Control2) gets no groupCaption', () => {
+    const tree = {
+      t: 'lf', ServerId: 'root', PageType: 3, Caption: 'Activities',
+      Children: [{ t: 'stackgc', Caption: 'Control2', DesignName: 'Control2', Children: [{ t: 'gc', MappingHint: 'STACKGROUP', Children: [
+        { t: 'stackc', Caption: 'Open Orders', StringValue: '3', HasAction: true, ColumnBinder: { Name: 'a' } },
+      ] }] }],
+    };
+    const ctx = makeCtx({
+      rootFormId: 'root',
+      forms: new Map([['root', makeFormState('root', tree)]]),
+      sections: new Map([['header', { sectionId: 'header', kind: 'header' as const, caption: 'X', formId: 'root', valid: true }]]),
+    });
+    const cue = buildSection(ctx, 'header')!.cues![0]!;
+    expect(cue.name).toBe('Open Orders');
+    expect(cue).not.toHaveProperty('groupCaption');
   });
 
   it('header section without cuegroups omits cues', () => {

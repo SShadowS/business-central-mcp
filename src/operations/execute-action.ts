@@ -6,7 +6,7 @@ import type { NavigationService } from '../services/navigation-service.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { Download, DownloadService } from '../services/download-service.js';
 import { resolveSection } from '../protocol/section-resolver.js';
-import { detectChangedSections, registerDialogs, collectMessages, type ShownMessage, type OpenedDialog } from '../protocol/mutation-result.js';
+import { detectChangedSections, registerDialogs, collectMessages, type ShownMessage, type OpenedDialog, type OpenedPage } from '../protocol/mutation-result.js';
 import { isEffectivelyVisible } from '../protocol/visibility.js';
 import { fields as treeFields, groupVisibility as treeGroupVisibility } from '../protocol/form-views.js';
 import { isInvalidBookmarkError } from '../session/rpc-error-classifier.js';
@@ -44,7 +44,7 @@ export interface ExecuteActionOutput {
   dialog?: OpenedDialog;
   updatedFields?: Array<{ name: string; value?: string }>;
   changedSections: string[];
-  openedPages: Array<{ pageContextId: string; caption: string }>;
+  openedPages: OpenedPage[];
   dialogsOpened: OpenedDialog[];
   requiresDialogResponse: boolean;
   /** AL Message() texts the action raised (Error/Fatal ones become an error instead); empty when none. */
@@ -211,13 +211,13 @@ export class ExecuteActionOperation {
     const dialogsOpened = registerDialogs(this.repo, pageContextId, ar.events);
 
     // Detect opened pages from FormCreated events (excluding the source page's forms)
-    const openedPages: Array<{ pageContextId: string; caption: string }> = [];
+    const openedPages: OpenedPage[] = [];
     for (const event of ar.events) {
       if (event.type === 'FormCreated' && event.formId !== ctx?.rootFormId) {
         // New form opened -- check if repo has a page context for it
         const newCtx = this.repo.getByFormId(event.formId);
         if (newCtx && newCtx.pageContextId !== pageContextId) {
-          openedPages.push({ pageContextId: newCtx.pageContextId, caption: newCtx.caption });
+          openedPages.push({ pageContextId: newCtx.pageContextId, caption: newCtx.caption, pageType: newCtx.pageType });
         }
       }
     }
