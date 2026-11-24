@@ -477,8 +477,16 @@ export class BCSession {
           const retryEncoded = this.encoder.encode(interaction, this.encodeContext(callbackId));
           const retryRpc = await this.ws.sendRpc(retryEncoded.method, retryEncoded.params, timeoutMs);
           if (isErr(retryRpc)) {
-            this.markDead();
-            return err(new ModalReconcileError(`Retry after modal reconcile still failed: ${retryRpc.error.message}`, { originalError: msg }));
+            const retryMsg = retryRpc.error.message;
+            // Only a session-fatal error or the same violation again means reconcile did not
+            // work. Anything else is BC's ordinary answer to the retried interaction (live
+            // cronus29: OpenForm of a missing page answers NavPageBuildErrorException), and
+            // the session is fine: killing it would drop every open page context.
+            if (isFatalRpcError(retryMsg) || retryMsg.includes('LogicalModalityViolationException')) {
+              this.markDead();
+              return err(new ModalReconcileError(`Retry after modal reconcile still failed: ${retryMsg}`, { originalError: msg }));
+            }
+            return retryRpc;
           }
           if (Array.isArray(retryRpc.value)) {
             allEvents.push(...this.decoder.decode(retryRpc.value));

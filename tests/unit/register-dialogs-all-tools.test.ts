@@ -12,6 +12,7 @@ import { UploadFileOperation } from '../../src/operations/upload-file.js';
 import { DataService } from '../../src/services/data-service.js';
 import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
 import { ok } from '../../src/core/result.js';
+import { registerDialogs } from '../../src/protocol/mutation-result.js';
 import type { BCEvent } from '../../src/protocol/types.js';
 
 const logger = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
@@ -125,5 +126,22 @@ describe('dialogs opened outside bc_execute_action get a pageContextId (#52)', (
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expectRegistered(repo, result.value.dialogsOpened[0]!, 'pc:page');
+  });
+});
+
+describe('a registered dialog context goes away when its form closes', () => {
+  // Live cronus29 2026-11-24: a discard confirm closed by modal reconcile (FormClosed via
+  // onReconciledClose -> applyEvents) stayed listed as an open page context.
+  it('removes the dialog context, keeps the owner page', () => {
+    const repo = new PageContextRepository();
+    makePage(repo, 'pc:card', 'CARD', 0);
+    const [dlg] = registerDialogs(repo, 'pc:card', [opened('C1', 'CARD', confirmTree)]);
+    expect(repo.get(dlg!.pageContextId)).toBeDefined();
+
+    repo.applyEvents([{ type: 'FormClosed', formId: 'C1' } as BCEvent]);
+
+    expect(repo.get(dlg!.pageContextId)).toBeUndefined();
+    expect(repo.listPageContextIds()).not.toContain(dlg!.pageContextId);
+    expect(repo.get('pc:card')).toBeDefined();
   });
 });

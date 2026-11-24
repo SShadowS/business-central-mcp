@@ -396,6 +396,41 @@ describe('BCSession invoke with auto-recovery', () => {
     expect((s as any).dead).toBe(true);
   });
 
+  // Live cronus29 2026-11-24: OpenForm page 999999 behind a stale discard confirm -> reconcile
+  // closed it -> the retry got BC's ordinary NavPageBuildErrorException. Killing the session
+  // there dropped every page context (later "Page context not found" for a page never closed).
+  it('returns an ordinary retry error as-is and keeps the session alive', async () => {
+    const s = new ReconcileProbe();
+    s.feed([{ type: 'DialogOpened', formId: 'M1', controlTree: CONFIRM }]);
+    const missing = 'JSON-RPC error: {"errorType":"Microsoft.Dynamics.Nav.Types.NavPageBuildErrorException","message":"The metadata object Page 999999 was not found."}';
+    let n = 0;
+    (s as any).ws.sendRpc = vi.fn(async () => (++n === 1
+      ? { ok: false, error: { message: 'LogicalModalityViolationException: There is a dialog open' } }
+      : { ok: false, error: { message: missing } }));
+    (s as any).reconcileModalStack = vi.fn(async () => { s.feed([closed('M1')]); return ok(undefined); });
+
+    const result = await s.invoke({ type: 'OpenForm', query: 'page=999999&tenant=default' } as any, () => true);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.name).not.toBe('ModalReconcileError');
+      expect(result.error.message).toContain('NavPageBuildErrorException');
+    }
+    expect((s as any).dead).toBe(false);
+  });
+
+  it('marks the session dead when the retry hits a fatal RPC error', async () => {
+    const s = new ReconcileProbe();
+    s.feed([{ type: 'DialogOpened', formId: 'M1', controlTree: CONFIRM }]);
+    let n = 0;
+    (s as any).ws.sendRpc = vi.fn(async () => (++n === 1
+      ? { ok: false, error: { message: 'LogicalModalityViolationException: x' } }
+      : { ok: false, error: { message: 'InvalidSessionException' } }));
+    (s as any).reconcileModalStack = vi.fn(async () => ok(undefined));
+    const result = await s.invoke({ type: 'OpenForm', query: 'page=22&tenant=default' } as any, () => true);
+    expect(!result.ok && result.error.name).toBe('ModalReconcileError');
+    expect((s as any).dead).toBe(true);
+  });
+
   it('marks session dead with ModalReconcileError when reconciliation itself fails', async () => {
     const s = new ReconcileProbe();
     s.feed([{ type: 'DialogOpened', formId: 'M1', controlTree: CONFIRM }]);

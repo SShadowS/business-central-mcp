@@ -172,8 +172,16 @@ export class PageContextRepository {
         return decision.pcId;
 
       case 'FormClosed': {
-        const changed = this.markFormClosed(decision.pcId, decision.formId);
+        const page = this.store.get(decision.pcId);
         this.dropClosedDialogFromOwners(decision.pcId, decision.formId);
+        // A dialog registered as its own context (registerDialogs) is gone once its form
+        // closes: keeping it listed it as open (live cronus29: a discard confirm closed by
+        // modal reconcile still showed up in SESSION_LOST's impacted contexts).
+        if (page?.ownerPageContextId && page.rootFormId === decision.formId) {
+          this.store.removePage(decision.pcId);
+          return decision.pcId;
+        }
+        const changed = this.markFormClosed(decision.pcId, decision.formId);
         return changed ? decision.pcId : undefined;
       }
 

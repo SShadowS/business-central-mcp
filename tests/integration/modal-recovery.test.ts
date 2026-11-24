@@ -224,4 +224,28 @@ describe('Modal stack reconciliation (integration)', () => {
     expect(session.modalStackSnapshot()).toEqual([]);
     expect(session.isAlive).toBe(true);
   }, 60_000);
+
+  // Recorded flow 2026-11-24, step 28: a stale dialog, then OpenForm of a missing page. The
+  // retry after reconcile gets BC's ordinary NavPageBuildErrorException; that must come back
+  // as that error with the session (and its other forms) intact, not as a session reset.
+  it('a missing page behind a stale dialog fails as page-not-found, the session survives', async () => {
+    const list = unwrap(await session.invoke(
+      { type: 'OpenForm', query: 'page=22&tenant=default', controlPath: 'server:c[0]' },
+      (e) => e.type === 'InvokeCompleted',
+    ));
+    const listForm = list.find(e => e.type === 'FormCreated')!;
+    await openRequestPage(session);
+    const missing = await session.invoke(
+      { type: 'OpenForm', query: 'page=999999&tenant=default', controlPath: 'server:c[0]' },
+      (e) => e.type === 'InvokeCompleted',
+    );
+    expect(isOk(missing)).toBe(false);
+    if (!isOk(missing)) {
+      expect(missing.error.message).toContain('NavPageBuildErrorException');
+      expect(missing.error.code).not.toBe('MODAL_RECONCILE_ERROR');
+    }
+    expect(session.isAlive).toBe(true);
+    expect(session.modalStackSnapshot()).toEqual([]);
+    expect(session.openFormIds.has((listForm as { formId: string }).formId)).toBe(true);
+  }, 90_000);
 });
