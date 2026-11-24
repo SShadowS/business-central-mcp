@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Breaking output changes from a review of a recorded session (`scripts/record-flow.ts`). Needs
+`@sshadows/bc-toolbox-envelope` 0.2.0.
+
+### Fixed
+
+- **Errors reach MCP clients.** Error results carried `structuredContent` that violated every
+  tool's output schema, and the MCP SDK client validates it even on errors, so it threw instead
+  of showing the error. The body now rides only in the text.
+- **A missing page no longer resets the session.** After a stale dialog was closed, BC's
+  ordinary error on the retried call (page not found) killed the session and dropped every open
+  page. It now returns `PAGE_NOT_FOUND` with the session intact.
+- **`bc_close_page` no longer reports success when nothing closed.** A discard confirm kept the
+  page open behind `success: true`; the result is now `closed: false` with the dialog.
+- **`bc_write_data` results no longer carry BC's raw event array** and control paths.
+- **`bc_query` `hasMore`** was false when more rows existed below BC's page size.
+
+### Changed
+
+- Error `details` hold arrays and objects instead of JSON strings; field errors name the field
+  by caption. New codes: `PAGE_CONTEXT_NOT_FOUND`, `ACTION_NOT_FOUND` (lists the available
+  actions), `ACTION_DISABLED`, `SECTION_NOT_FOUND`, `TAB_NOT_FOUND`, `FIELD_NOT_FOUND`,
+  `PAGE_NOT_FOUND`. `SESSION_LOST` is category `state`.
+- Dialogs have one shape everywhere: `kind`, `title`, `message` (the actual question),
+  `responses` (valid answers) and page-style `fields`. `bc_respond_dialog` reports `closed`.
+- `bc_search_pages` results carry `pageId`; it takes `limit` (default 15) and says `truncated`.
+- Row cells are always a display string or null; picture cells are dropped; empty new-line
+  draft rows fold into `newRowBookmark`. `bc_lookup` rows are `{ bookmark, cells }` with
+  `returned` / `truncated`.
+- `totalRowCount` (never sent by BC) is replaced by `hasMore` on range reads; list sections
+  echo the active `filters` and `sort`. `bc_query` takes `skip`.
+- Card sections list `tabs` and tag fields with their `tab`. Field `type` is a readable name.
+- `bc_navigate` drill-down returns `openedPages` (like the other tools); `select` returns
+  `selectedBookmark` only. `openedPages` entries carry `pageType`.
+- Smaller payloads: compact JSON text, the `operationId` explanation sent once in the server
+  instructions, `bc_read_data` actions only with `includeActions`, no `enabled` on actions.
+- Output schemas are strict.
+
 ## [2.4.10] - 2026-11-18
 
 ### Fixed
