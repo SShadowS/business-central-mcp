@@ -67,8 +67,6 @@ export interface SectionAction {
   readonly name: string;
   /** SystemAction ordinal. See SystemAction enum in protocol/types.ts. 0 = no system role (custom AL action). */
   readonly systemAction: number;
-  /** True if BC marks the action as currently invokable. */
-  readonly enabled: boolean;
   /** Wizard role on a NavigatePage / StandardDialog. */
   readonly wizardNav?: 'back' | 'next' | 'finish' | 'cancel';
 }
@@ -230,7 +228,6 @@ export function buildSection(ctx: PageContext, sectionId: string): Section | nul
         return {
           name: a.properties.caption!,
           systemAction: a.systemAction,
-          enabled: a.properties.enabled ?? true,
           ...(wn ? { wizardNav: wn } : {}),
         };
       });

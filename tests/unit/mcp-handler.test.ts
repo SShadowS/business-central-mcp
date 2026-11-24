@@ -6,6 +6,11 @@ import type { ToolDefinition } from '../../src/mcp/tool-registry.js';
 import { SessionLostError, BusinessError, BusinessValidationError, SignInRequiredError, UrlElicitationRequiredError } from '../../src/core/errors.js';
 import { ClientElicitationPort } from '../../src/mcp/elicitation-port.js';
 import { errorBody } from '../helpers/error-body.js';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { IdempotencyGate } from '../../src/mcp/idempotency-gate.js';
+import { OperationLedger } from '../../src/mcp/operation-ledger.js';
 
 const pkgVersion = (createRequire(import.meta.url)('../../package.json') as { version: string }).version;
 
@@ -523,5 +528,26 @@ describe('MCPHandler.handleRequest — JSON-RPC envelope', () => {
     const handler = new MCPHandler([], makeLogger());
     const res = await handler.handleRequest(makeRequest('initialize', undefined, null));
     expect(res.id).toBeNull();
+  });
+});
+
+// Recorded flow 2026-11-24: every response carried its value twice (pretty-printed text +
+// structuredContent), and the same ~1.1 KB operationId description sat on 11 tools.
+describe('MCPHandler payload size', () => {
+  it('renders success text as compact JSON', async () => {
+    const handler = new MCPHandler([makeTool('bc_x', z.object({}), vi.fn().mockResolvedValue({ ok: true, value: { a: 1, b: [1, 2] } }))], makeLogger());
+    const res = await handler.handleRequest(makeRequest('tools/call', { name: 'bc_x', arguments: {} }));
+    expect((res.result as { content: Array<{ text: string }> }).content[0]!.text).toBe('{"a":1,"b":[1,2]}');
+  });
+
+  it('explains operationId once in the server instructions, not on every tool', async () => {
+    const mutating = { ...makeTool('bc_w'), annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false } } as ToolDefinition;
+    const gate = new IdempotencyGate(new OperationLedger(mkdtempSync(join(tmpdir(), 'bcmcp-size-'))), makeLogger() as never);
+    const handler = new MCPHandler([mutating], makeLogger(), [], { gate });
+    const init = await handler.handleRequest(makeRequest('initialize', {}));
+    expect((init.result as { instructions?: string }).instructions).toMatch(/operationId[\s\S]*OPERATION_IN_DOUBT[\s\S]*replaySafe/);
+    const list = await handler.handleRequest(makeRequest('tools/list'));
+    const tool = (list.result as { tools: Array<{ inputSchema: { properties: Record<string, { description: string }> } }> }).tools[0]!;
+    expect(tool.inputSchema.properties['operationId']!.description.length).toBeLessThan(200);
   });
 });

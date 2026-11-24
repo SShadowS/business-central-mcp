@@ -116,6 +116,7 @@ export class MCPHandler {
       result: {
         protocolVersion: MCP_PROTOCOL_VERSION,
         serverInfo: { name: 'bc-mcp', version: SERVER_VERSION },
+        ...(this.gate ? { instructions: SERVER_INSTRUCTIONS } : {}),
         capabilities: {
           tools: { listChanged: false },
           resources: { subscribe: false, listChanged: false },
@@ -296,7 +297,7 @@ export class MCPHandler {
     if (failure && result?.isError && !tool.annotations.readOnlyHint && isAmbiguousFailure(failure.code)) {
       const body = JSON.parse(result.content[0]!.text) as ErrorBody;
       body.error.details = { ...body.error.details, replaySafe: false };
-      result.content = [{ type: 'text', text: JSON.stringify(body, null, 2) }];
+      result.content = [{ type: 'text', text: JSON.stringify(body) }];
     }
     return outcome;
   }
@@ -351,7 +352,8 @@ interface ToolRun { response: JsonRpcResponse; value?: unknown; failure?: Failur
  * guard keeps the function total for a non-object or array value.
  */
 function successResult(value: unknown): { content: Array<{ type: 'text'; text: string }>; structuredContent?: Record<string, unknown> } {
-  const base = { content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }] };
+  // Compact: the same value also rides in structuredContent, so pretty-printing only doubled the bytes.
+  const base = { content: [{ type: 'text' as const, text: JSON.stringify(value) }] };
   return value && typeof value === 'object' && !Array.isArray(value)
     ? { ...base, structuredContent: value as Record<string, unknown> }
     : base;
@@ -361,19 +363,23 @@ const OPERATION_ID_SCHEMA = {
   type: 'string',
   minLength: 1,
   maxLength: 200,
-  description: 'Optional idempotency key (e.g. a UUID you generate). Retrying with the same operationId and the same '
+  description: 'Optional idempotency key (e.g. a UUID you generate): a retry with the same key and arguments returns the stored result instead of re-running. See the server instructions.',
+};
+
+/** Sent once in initialize instead of on every mutating tool (it was ~1.1 KB x 11 tools). */
+export const SERVER_INSTRUCTIONS = 'Idempotent retries: every tool that changes data takes an optional operationId '
+    + '(e.g. a UUID you generate). Retrying with the same operationId and the same '
     + 'arguments returns the first call\'s stored result instead of running the change again, so a retry after a '
     + 'dropped connection or timeout cannot double-post. Reusing it with different arguments is rejected '
     + '(OPERATION_ID_REUSED). If the first call\'s outcome is unknown, the retry returns OPERATION_IN_DOUBT: '
-    + 'check the record\'s state before acting again under a new operationId. Every result of this tool carries '
+    + 'check the record\'s state before acting again under a new operationId. Every result of such a tool carries '
     + 'replaySafe: true means BC\'s response proved that re-running the same call (even under a new operationId, '
     + 'after an unknown outcome) cannot apply the change twice -- the write was echoed as an absolute value, or '
     + 'the form it acted on is closed so BC rejects a re-run; false means a re-run may double-apply or nothing '
     + 'proved otherwise, so read the record back before retrying. Replay is time-limited: a completed entry is '
     + 'kept for BC_OPERATION_TTL (default 24h), after which the same operationId runs the call again; check with '
     + 'bc_get_operation before a late retry. A replayed result carries download metadata (fileName, contentType, '
-    + 'sizeBytes, savedPath) but not the file bytes.',
-};
+    + 'sizeBytes, savedPath) but not the file bytes.';
 
 function withOperationId(schema: Record<string, unknown>): Record<string, unknown> {
   const properties = (schema['properties'] ?? {}) as Record<string, unknown>;

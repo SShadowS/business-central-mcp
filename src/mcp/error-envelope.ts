@@ -225,7 +225,7 @@ export function bcErrorResult(
     jsonrpc: '2.0' as const,
     id,
     result: {
-      content: [{ type: 'text' as const, text: JSON.stringify(body, null, 2) }],
+      content: [{ type: 'text' as const, text: JSON.stringify(body) }],
       isError: true,
     },
   };

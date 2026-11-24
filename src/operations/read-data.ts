@@ -15,6 +15,8 @@ export interface ReadDataInput {
   sort?: { column: string; direction: 'asc' | 'desc' };
   columns?: string[];
   range?: { offset: number; limit: number };
+  /** Include the section's actions (bc_open_page already returned them). */
+  includeActions?: boolean;
 }
 
 export interface ReadDataOutput {
@@ -98,7 +100,13 @@ export class ReadDataOperation {
       return err(new SectionNotFoundError(`Section '${sectionId}' not found. Available sections: ${JSON.stringify(availableSections)}.`, availableSections));
     }
 
+    // The page's actions came with bc_open_page; resending them on every read cost up to
+    // 10 KB (Role Center). Ask with includeActions when they may have changed.
     let materialized: Section = section;
+    if (!input.includeActions && materialized.actions) {
+      const { actions: _actions, ...rest } = materialized;
+      materialized = rest;
+    }
 
     if (input.tab && materialized.fields) {
       const tabsResult = this.dataService.getTabs(input.pageContextId, input.section);

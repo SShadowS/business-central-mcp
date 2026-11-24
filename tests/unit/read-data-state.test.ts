@@ -71,6 +71,34 @@ describe('bc_read_data paging', () => {
   });
 });
 
+// Recorded flow 2026-11-24: every header read resent the page's actions (87 on a row select,
+// 157 on the Role Center), each with an always-true "enabled".
+describe('bc_read_data actions', () => {
+  function cardRepo() {
+    const repo = new PageContextRepository();
+    repo.create('pc:card', 'C');
+    repo.applyToPage('pc:card', [{
+      type: 'FormCreated', formId: 'C', isReload: false,
+      controlTree: { t: 'lf', ServerId: 'C', PageType: 0, Caption: 'Card', Children: [
+        { t: 'sc', Caption: 'Name', Editable: true, Visible: true },
+        { t: 'ac', Caption: 'Statistics', Enabled: true, Visible: true, SystemAction: 0 },
+      ] },
+    } as BCEvent]);
+    return repo;
+  }
+  const op = (repo: PageContextRepository) => new ReadDataOperation({ readRows: vi.fn(), getTabs: vi.fn(() => ok(null)) } as never, filters(), sorts(), repo);
+
+  it('are left out unless includeActions is true', async () => {
+    const r = await op(cardRepo()).execute({ pageContextId: 'pc:card' });
+    expect(r.ok && r.value.section).not.toHaveProperty('actions');
+  });
+
+  it('includeActions returns them, without an enabled flag (only enabled actions are listed)', async () => {
+    const r = await op(cardRepo()).execute({ pageContextId: 'pc:card', includeActions: true });
+    expect(r.ok && r.value.section.actions).toEqual([{ name: 'Statistics', systemAction: 0 }]);
+  });
+});
+
 describe('bc_read_data state echo', () => {
   it('a list section echoes the active filters and sort', async () => {
     const repo = listRepo(2);

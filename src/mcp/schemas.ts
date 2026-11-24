@@ -34,6 +34,7 @@ export const ReadDataSchema = z.object({
     offset: z.number().int().min(0).describe('0-based starting row index.'),
     limit: z.number().int().min(1).describe('Maximum number of rows to return.'),
   }).optional().describe('Slice a subset of repeater rows. Returns rows[offset..offset+limit]; the section then says hasMore: true when rows exist past the range (read on with offset + limit).'),
+  includeActions: z.boolean().optional().describe('Also return the section\'s actions. Off by default: bc_open_page already returned them; ask again only when they may have changed (e.g. after a write).'),
 });
 
 export const WriteDataSchema = z.object({

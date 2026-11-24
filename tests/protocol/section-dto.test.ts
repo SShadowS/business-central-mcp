@@ -50,8 +50,8 @@ describe('Section DTO shape', () => {
     expect(f.name).toBe('No.');
   });
 
-  it('SectionAction carries name, systemAction, enabled', () => {
-    const a: SectionAction = { name: 'Post', systemAction: 0, enabled: true };
+  it('SectionAction carries name and systemAction (only enabled actions are listed)', () => {
+    const a: SectionAction = { name: 'Post', systemAction: 0 };
     expect(a.systemAction).toBe(0);
   });
 
