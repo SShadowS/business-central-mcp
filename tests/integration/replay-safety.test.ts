@@ -71,10 +71,11 @@ describe('replaySafe verdicts (integration)', () => {
   it('cancelling a report request page closes the dialog form, so respond_dialog is replay-safe; run_report never is', async () => {
     const report = unwrap(await runReportOp.execute({ reportId: '6' }));
     expect(report.replaySafe).toBe(false);
-    expect(report.requestPage).toBeDefined();
+    const requestPage = report.dialogsOpened[0]!;
+    expect(requestPage.kind).toBe('requestPage');
     const out = unwrap(await respondDialogOp.execute({
-      pageContextId: report.requestPage!.pageContextId,
-      dialogFormId: report.requestPage!.formId,
+      pageContextId: requestPage.pageContextId,
+      dialogFormId: requestPage.formId,
       response: 'cancel',
     }));
     expect(out.replaySafe).toBe(true);

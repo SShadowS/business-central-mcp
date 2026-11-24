@@ -38,7 +38,7 @@ export const ReadDataSchema = z.object({
 });
 
 export const WriteDataSchema = z.object({
-  pageContextId: z.string().min(1).describe('Page context ID returned by bc_open_page. To fill a dialog or request page, use the pageContextId of its dialogsOpened entry (any tool that returns one) or requestPage (bc_run_report).'),
+  pageContextId: z.string().min(1).describe('Page context ID returned by bc_open_page. To fill a dialog or report request page, use the pageContextId of its dialogsOpened entry (any tool that returns one, bc_run_report included).'),
   fields: z.record(z.string(), z.string()).refine(f => Object.keys(f).length > 0, { message: 'fields must contain at least one field to write' }).describe('Key-value pairs of field names (the name a read lists: the caption, or for a caption-less control its AL control name, e.g. "CompanyName") or controlPaths, and string values to write (e.g., { "Name": "Contoso", "City": "London" }).'),
   section: z.string().optional().describe('Section to write to (e.g., "lines" for document line items). Omit for header fields.'),
   rowIndex: z.number().int().min(0).optional().describe('0-based row position in the repeater to write to. Use for line items. Prefer bookmark for stability.'),
@@ -82,7 +82,7 @@ export const NavigateSchema = z.object({
 
 export const RespondDialogSchema = z.object({
   pageContextId: z.string().min(1).describe('Page context ID of the page that triggered the dialog.'),
-  dialogFormId: z.string().min(1).describe('Dialog form ID from a dialogsOpened entry, or requestPage.formId returned by bc_run_report.'),
+  dialogFormId: z.string().min(1).describe('Dialog form ID (formId) from a dialogsOpened entry; a report request page is bc_run_report\'s first dialogsOpened entry.'),
   response: z.enum(['ok', 'cancel', 'yes', 'no', 'abort', 'close', 'print', 'preview']).describe('"ok" confirms, "cancel" dismisses, "yes"/"no" answers a question, "abort" force-closes, "close" closes a modal info page, "print"/"preview" press the Print or Preview button of a report request page.'),
 });
 
@@ -419,7 +419,6 @@ export const ListCompaniesOutputSchema = z.object({
 export const RunReportOutputSchema = z.object({
   success: z.boolean(),
   reportId: z.number(),
-  requestPage: OpenedDialog.optional(),
   dialogsOpened: z.array(OpenedDialog),
   requiresDialogResponse: z.boolean(),
   downloads: z.array(Download),

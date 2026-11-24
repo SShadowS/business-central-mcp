@@ -50,10 +50,10 @@ describe('advertised output schemas fit real payloads, and nothing else', () => 
     expect(ReadDataOutputSchema.safeParse({ section, stateVersion: 1 }).success).toBe(false);
   });
 
-  it('the captured report request page validates as run_report.requestPage', () => {
+  it('the captured report request page validates as a run_report dialogsOpened entry', () => {
     const ev = JSON.parse(readFileSync('tests/fixtures/dialogs/request-page-report6.json', 'utf8')) as DialogOpenedEvent;
     const requestPage = { pageContextId: 'session:page:report:1', ...describeDialog(ev.formId, ev.controlTree) };
-    const r = RunReportOutputSchema.safeParse({ success: true, reportId: 6, requestPage, dialogsOpened: [], requiresDialogResponse: true, downloads: [], externalUris: [], replaySafe: false });
+    const r = RunReportOutputSchema.safeParse({ success: true, reportId: 6, dialogsOpened: [requestPage], requiresDialogResponse: true, downloads: [], externalUris: [], replaySafe: false });
     expect(r.success, JSON.stringify(r.error?.issues?.slice(0, 3))).toBe(true);
   });
 

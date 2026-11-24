@@ -104,12 +104,13 @@ await call('close role center', 'bc_close_page', { pageContextId: rc?.pageContex
 // --- Report request page: invalid value, then a missing page while it is still open
 // (reconcile closes it; the session and the Customer List must survive), then a clean run + cancel.
 const rep = await call('run report 6 (request page)', 'bc_run_report', { reportId: 6 });
-const repPc = rep?.requestPage?.pageContextId;
+const repPc = rep?.dialogsOpened?.[0]?.pageContextId;
 if (repPc) await call('write invalid Maximum rows', 'bc_write_data', { pageContextId: repPc, fields: { 'Maximum rows': '-5' } });
 await call('open nonexistent page while a dialog is pending', 'bc_open_page', { pageId: 999999 });
 await call('read customer list after that (session alive?)', 'bc_read_data', { pageContextId: listPc, range: { offset: 0, limit: 2 } });
 const rep2 = await call('run report 6 again', 'bc_run_report', { reportId: 6 });
-if (rep2?.requestPage) await call('cancel request page', 'bc_respond_dialog', { pageContextId: rep2.requestPage.pageContextId, dialogFormId: rep2.requestPage.formId, response: 'cancel' });
+const rp2 = rep2?.dialogsOpened?.[0];
+if (rp2) await call('cancel request page', 'bc_respond_dialog', { pageContextId: rp2.pageContextId, dialogFormId: rp2.formId, response: 'cancel' });
 
 // --- OData query paging + error states
 await call('bc_query customers top 3', 'bc_query', { entity: 'customers', select: 'number,displayName,balanceDue', top: 3 });

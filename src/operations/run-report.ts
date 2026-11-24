@@ -14,9 +14,10 @@ export interface RunReportInput {
 export interface RunReportOutput {
   success: boolean;
   reportId: number;
-  /** The registered request page: fill it with bc_write_data and run or cancel it with bc_respond_dialog. */
-  requestPage?: OpenedDialog;
-  /** Any other dialog the run opened (besides the request page), each with its own pageContextId. */
+  /**
+   * The dialogs the run opened, each with its own pageContextId. The request page (kind
+   * "requestPage") comes first: fill it with bc_write_data, run or cancel it with bc_respond_dialog.
+   */
   dialogsOpened: OpenedDialog[];
   requiresDialogResponse: boolean;
   /** Captured report output(s) when format was specified; empty otherwise. */
@@ -52,27 +53,26 @@ export class RunReportOperation {
     if (isErr(result)) return result;
 
     const events = result.value;
-    const [first, ...others] = detectDialogs(events);
+    const [first] = detectDialogs(events);
 
     // The first dialog opened is the request page. Register it as a page context so
     // the caller can fill parameters with bc_write_data and run the report with
-    // bc_respond_dialog — without a pageContextId its formId is unaddressable.
-    let requestPage: OpenedDialog | undefined;
-    let dialogsOpened: OpenedDialog[] = [];
+    // bc_respond_dialog — without a pageContextId its formId is unaddressable. It is
+    // reported like any tool's dialog: first in dialogsOpened.
+    const dialogsOpened: OpenedDialog[] = [];
     if (first) {
       const pcId = `session:page:report:${uuid().substring(0, 8)}`;
       this.repo.create(pcId, first.formId);
       this.repo.applyToPage(pcId, events);
-      requestPage = { pageContextId: pcId, ...first };
-      dialogsOpened = registerDialogs(this.repo, pcId, events.filter(e => !(e.type === 'DialogOpened' && e.formId === first.formId)));
+      dialogsOpened.push({ pageContextId: pcId, ...first },
+        ...registerDialogs(this.repo, pcId, events.filter(e => !(e.type === 'DialogOpened' && e.formId === first.formId))));
     }
 
     return ok({
       success: true,
       reportId,
-      requestPage,
       dialogsOpened,
-      requiresDialogResponse: first !== undefined || others.length > 0,
+      requiresDialogResponse: dialogsOpened.length > 0,
       downloads: [],
       externalUris: [],
       replaySafe: false,

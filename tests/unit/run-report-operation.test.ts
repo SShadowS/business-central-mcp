@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { RunReportOperation } from '../../src/operations/run-report.js';
 import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
 import type { BCSession } from '../../src/session/bc-session.js';
@@ -35,6 +36,25 @@ function createMockDownloadService(overrides?: Partial<DownloadService>): Downlo
     ...overrides,
   } as unknown as DownloadService;
 }
+
+// Payload re-review 2026-11-24, step 31: the request page came as requestPage with
+// dialogsOpened: [] and requiresDialogResponse: true, so the rule every other tool follows
+// ("requiresDialogResponse -> answer dialogsOpened[0]") found nothing.
+describe('RunReportOperation request page', () => {
+  it('is the first dialogsOpened entry, with its own pageContextId', async () => {
+    const ev = JSON.parse(readFileSync('tests/fixtures/dialogs/request-page-report6.json', 'utf8'));
+    const session = createMockSession({ runReport: vi.fn().mockResolvedValue(ok([ev])) });
+    const repo = new PageContextRepository();
+    const r = await new RunReportOperation(session, repo, createMockDownloadService()).execute({ reportId: '6' });
+    expect(isOk(r)).toBe(true);
+    if (!isOk(r)) return;
+    expect(r.value).not.toHaveProperty('requestPage');
+    expect(r.value.requiresDialogResponse).toBe(true);
+    expect(r.value.dialogsOpened).toHaveLength(1);
+    expect(r.value.dialogsOpened[0]).toMatchObject({ formId: ev.formId, kind: 'requestPage' });
+    expect(repo.get(r.value.dialogsOpened[0]!.pageContextId)).toBeDefined();
+  });
+});
 
 describe('RunReportOperation format handling', () => {
   it('drives the download flow for format "pdf"', async () => {

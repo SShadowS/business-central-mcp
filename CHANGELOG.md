@@ -22,6 +22,13 @@ Breaking output changes from a review of a recorded session (`scripts/record-flo
   page open behind `success: true`; the result is now `closed: false` with the dialog.
 - **`bc_write_data` results no longer carry BC's raw event array** and control paths.
 - **`bc_query` `hasMore`** was false when more rows existed below BC's page size.
+- **A page BC closed** (a posted document, a card after "yes" on its discard confirm) answered
+  the next call with "Section 'header' not found. Available sections: [header, ...]". It is now
+  removed and listed in `closedPages`; the next call gets `PAGE_CONTEXT_NOT_FOUND`.
+- **`rowIndex` counts the rows the section shows**, so a folded draft row cannot shift a write
+  or a Delete onto the neighbouring record.
+- **`updatedFields`** listed every card field after any action; it lists only changed fields.
+- Cue examples named `subpage:Activities`; Role Center parts are `factbox:<caption>`.
 
 ### Changed
 
@@ -30,7 +37,11 @@ Breaking output changes from a review of a recorded session (`scripts/record-flo
   actions), `ACTION_DISABLED`, `SECTION_NOT_FOUND`, `TAB_NOT_FOUND`, `FIELD_NOT_FOUND`,
   `PAGE_NOT_FOUND`. `SESSION_LOST` is category `state`.
 - Dialogs have one shape everywhere: `kind`, `title`, `message` (the actual question),
-  `responses` (valid answers) and page-style `fields`. `bc_respond_dialog` reports `closed`.
+  `responses` (valid answers) and page-style `fields`. `bc_respond_dialog` reports `closed` and
+  `closedPages`. `bc_run_report`'s request page is its first `dialogsOpened` entry (the
+  `requestPage` field is gone).
+- Action names drop access-key markers; `systemAction` is omitted for custom actions. Tabs
+  appear only on the page header.
 - `bc_search_pages` results carry `pageId`; it takes `limit` (default 15) and says `truncated`.
 - Row cells are always a display string or null; picture cells are dropped; empty new-line
   draft rows fold into `newRowBookmark`. `bc_lookup` rows are `{ bookmark, cells }` with

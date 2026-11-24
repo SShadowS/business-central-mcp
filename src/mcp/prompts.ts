@@ -213,10 +213,10 @@ ${CORE_NOTE}`,
 
 Steps:
 ${has(a, 'parameters')
-        ? `1. bc_run_report { reportId: ${opt(a, 'reportId', '<id>')} } (no format) to open the request page. It returns a \`requestPage.pageContextId\`.
-2. bc_write_data on that pageContextId to set parameters/filters: ${a['parameters']}.
-3. Run it: bc_respond_dialog { dialogFormId: requestPage.formId, response: "ok" }${has(a, 'format') ? ' — note: inline output capture is only wired through the format path in step 4' : ''}.`
-        : `1. If the report needs no parameters, ${has(a, 'format') ? `capture directly: bc_run_report { reportId: ${opt(a, 'reportId', '<id>')}, format: "${a['format']}" } → returns \`download.bytes\` (base64), contentType, fileName.` : `bc_run_report { reportId: ${opt(a, 'reportId', '<id>')} } opens the request page; fill it via bc_write_data on \`requestPage.pageContextId\` then bc_respond_dialog { response: "ok" }.`}`}
+        ? `1. bc_run_report { reportId: ${opt(a, 'reportId', '<id>')} } (no format) to open the request page: the first \`dialogsOpened\` entry (kind "requestPage").
+2. bc_write_data on its pageContextId to set parameters/filters: ${a['parameters']}.
+3. Run it: bc_respond_dialog { pageContextId, dialogFormId: <its formId>, response: "ok" }${has(a, 'format') ? ' — note: inline output capture is only wired through the format path in step 4' : ''}.`
+        : `1. If the report needs no parameters, ${has(a, 'format') ? `capture directly: bc_run_report { reportId: ${opt(a, 'reportId', '<id>')}, format: "${a['format']}" } → returns \`downloads[]\` (bytes in base64, contentType, fileName).` : `bc_run_report { reportId: ${opt(a, 'reportId', '<id>')} } opens the request page (the first \`dialogsOpened\` entry); fill it via bc_write_data on its pageContextId, then bc_respond_dialog { response: "ok" }.`}`}
 ${has(a, 'format') ? `${has(a, 'parameters') ? '4' : '2'}. To capture output, bc_run_report { reportId: ${opt(a, 'reportId', '<id>')}, format: "${a['format']}" }. "pdf" is BC's default; "excel"/"word" require the report to have that layout (an error lists available formats). Set BC_REPORT_DIR to also save to disk.` : ''}
 Note: a report is a processing/printing object — do not confuse it with a page. Use bc_open_page/bc_read_data for viewing data.`,
     ),

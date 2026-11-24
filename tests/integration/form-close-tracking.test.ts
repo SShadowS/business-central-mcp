@@ -67,10 +67,12 @@ describe('form close tracking (integration)', () => {
 
   it('cancelling a report request page drops it from the modal stack and openFormIds', async () => {
     const report = unwrap(await runReportOp.execute({ reportId: '6' }));
-    const formId = report.requestPage!.formId;
+    const requestPage = report.dialogsOpened[0]!;
+    expect(requestPage.kind).toBe('requestPage');
+    const formId = requestPage.formId;
     expect(session.openFormIds.has(formId)).toBe(true);
 
-    unwrap(await respondDialogOp.execute({ pageContextId: report.requestPage!.pageContextId, dialogFormId: formId, response: 'cancel' }));
+    unwrap(await respondDialogOp.execute({ pageContextId: requestPage.pageContextId, dialogFormId: formId, response: 'cancel' }));
 
     expect(session.modalStackSnapshot()).toEqual([]);
     expect(session.openFormIds.has(formId)).toBe(false);
