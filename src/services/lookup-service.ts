@@ -45,7 +45,12 @@ export interface LookupResult {
   rows: LookupRow[];
   /** Number of rows returned. */
   returned: number;
-  /** True when the lookup list held more rows than maxRows: narrow with search. */
+  /**
+   * True when more rows were loaded than maxRows and the rest were cut. False does NOT mean the
+   * table holds no other candidates: BC delivers only the rows its lookup view loads (live
+   * cronus29: 1 inline row for Country/Region Code; ScrollRepeater on the lookup form loads
+   * nothing more), so use search to find a specific value.
+   */
   truncated: boolean;
 }
 
