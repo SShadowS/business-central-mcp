@@ -12,7 +12,7 @@ import { SystemAction } from '../protocol/types.js';
 import { findByControlPath } from '../protocol/form-tree-walk.js';
 import { isFieldNode, type NodeProperties, type RepeaterNode } from '../protocol/form-node.js';
 import { fieldNodeToControlField } from '../protocol/mcp-adapters.js';
-import { mapRowCellKeys } from '../protocol/row-mapping.js';
+import { mapRowCellKeys, visibleRows, isEmptyDraftRow } from '../protocol/row-mapping.js';
 import { valueEchoed } from '../protocol/replay-safety.js';
 
 export interface FieldWriteResult {
@@ -174,7 +174,7 @@ export class DataService {
     pageContextId: string,
     fieldName: string,
     value: string,
-    options?: { sectionId?: string; bookmark?: string; rowIndex?: number },
+    options?: { sectionId?: string; bookmark?: string; rowIndex?: number; rawRowIndex?: number },
   ): Promise<Result<FieldWriteResult, ProtocolError>> {
     const ctx = this.repo.get(pageContextId);
     if (!ctx) return err(new PageContextNotFoundError(pageContextId));
@@ -184,7 +184,7 @@ export class DataService {
     const { form } = resolved;
 
     // Line cell write: when targeting a specific row in a repeater section
-    if (resolved.repeater && (options?.bookmark !== undefined || options?.rowIndex !== undefined)) {
+    if (resolved.repeater && (options?.bookmark !== undefined || options?.rowIndex !== undefined || options?.rawRowIndex !== undefined)) {
       // Line interactions use the CHILD form's formId (the subpage form).
       // BC sends DataLoaded with root formId but SetCurrentRow/SaveValue use child formId.
       // Verified: SetCurrentRow with root formId -> InvalidBookmarkException;
@@ -250,7 +250,7 @@ export class DataService {
   async writeFields(
     pageContextId: string,
     fields: Record<string, string>,
-    options?: { sectionId?: string; bookmark?: string; rowIndex?: number },
+    options?: { sectionId?: string; bookmark?: string; rowIndex?: number; rawRowIndex?: number },
   ): Promise<Result<WriteFieldsResult, ProtocolError>> {
     const results: FieldWriteResult[] = [];
     const allEvents: BCEvent[] = [];
@@ -265,7 +265,8 @@ export class DataService {
       const resolved = ctx ? resolveSection(ctx, options.sectionId, 'header') : undefined;
       const index = resolved && !('error' in resolved) && resolved.repeater
         ? resolved.rows.findIndex(r => r.bookmark === bookmark) : -1;
-      if (index >= 0) options = { sectionId: options.sectionId, rowIndex: index };
+      // rawRowIndex: a position in BC's loaded rows (a draft row is not in the shown view).
+      if (index >= 0) options = { sectionId: options.sectionId, rawRowIndex: index };
     }
     for (const [name, value] of Object.entries(fields)) {
       const result = await this.writeField(pageContextId, name, value, options);
@@ -289,15 +290,22 @@ export class DataService {
     rows: readonly RepeaterRow[],
     fieldName: string,
     value: string,
-    options: { bookmark?: string; rowIndex?: number },
+    options: { bookmark?: string; rowIndex?: number; rawRowIndex?: number },
   ): Promise<Result<FieldWriteResult, ProtocolError>> {
     let bookmark = options.bookmark;
+    if (!bookmark && options.rawRowIndex !== undefined) {
+      bookmark = rows[options.rawRowIndex]?.bookmark;
+    }
     if (!bookmark && options.rowIndex !== undefined) {
-      const row = rows[options.rowIndex];
+      // rowIndex counts the rows bc_read_data shows (empty draft rows left out).
+      const shown = visibleRows(rows);
+      const row = shown[options.rowIndex];
       if (!row) {
         const ctx = this.repo.get(pageContextId)!;
-        const loaded = rows.length === 0 ? 'No rows are loaded.' : `Loaded rows: 0-${rows.length - 1}.`;
-        return err(new ProtocolError(`Row index ${options.rowIndex} out of range. ${loaded}${emptyRowsHint(ctx, rows.length)}`));
+        const loaded = shown.length === 0 ? 'No rows are loaded.' : `Loaded rows: 0-${shown.length - 1}.`;
+        const draft = rows.find(isEmptyDraftRow);
+        const newLine = draft ? ` To add a line, write to bookmark '${draft.bookmark}' (the section's newRowBookmark).` : emptyRowsHint(ctx, rows.length);
+        return err(new ProtocolError(`Row index ${options.rowIndex} out of range. ${loaded}${newLine}`));
       }
       bookmark = row.bookmark;
     }

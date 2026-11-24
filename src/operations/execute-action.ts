@@ -6,6 +6,7 @@ import type { NavigationService } from '../services/navigation-service.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { Download, DownloadService } from '../services/download-service.js';
 import { resolveSection } from '../protocol/section-resolver.js';
+import { visibleRows } from '../protocol/row-mapping.js';
 import { detectChangedSections, registerDialogs, collectMessages, type ShownMessage, type OpenedDialog, type OpenedPage } from '../protocol/mutation-result.js';
 import { isEffectivelyVisible } from '../protocol/visibility.js';
 import { fields as treeFields, groupVisibility as treeGroupVisibility } from '../protocol/form-views.js';
@@ -177,7 +178,8 @@ export class ExecuteActionOperation {
       if (!resolved.repeater) {
         return err(new ProtocolError('rowIndex/bookmark supplied but the target section has no repeater.'));
       }
-      const rows = resolved.form.rows.get(resolved.repeater.controlPath) ?? [];
+      // rowIndex counts the rows bc_read_data shows (empty draft rows left out).
+      const rows = visibleRows(resolved.form.rows.get(resolved.repeater.controlPath) ?? []);
       const row = rows[input.rowIndex];
       if (!row) {
         // Caller input, not a protocol fault: retrying the same call cannot succeed (#51).

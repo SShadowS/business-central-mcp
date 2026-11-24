@@ -19,7 +19,7 @@ import {
   fieldName,
 } from './form-views.js';
 import { isEffectivelyVisible } from './visibility.js';
-import { mapRowCellKeys } from './row-mapping.js';
+import { mapRowCellKeys, isEmptyDraftRow, visibleRows } from './row-mapping.js';
 import { classifyWizardNav } from './wizard-classify.js';
 import type { PageContext } from './page-context.js';
 
@@ -216,9 +216,8 @@ export function buildSection(ctx: PageContext, sectionId: string): Section | nul
     ).map(r => ({ bookmark: r.bookmark, cells: r.cells }));
     // BC keeps empty DraftRecordN rows ready for new lines (live cronus29: 1 real Sales Order
     // line + 15 drafts of 38 empty cells each). Collapse them into one bookmark to write to.
-    const isEmptyDraft = (r: SectionRow) => r.bookmark.startsWith('DraftRecord') && Object.values(r.cells).every(v => v === null);
-    const draft = out.rows.find(isEmptyDraft);
-    out.rows = out.rows.filter(r => !isEmptyDraft(r));
+    const draft = out.rows.find(isEmptyDraftRow);
+    out.rows = visibleRows(out.rows);
     if (draft) out.newRowBookmark = draft.bookmark;
   } else {
     // Tabs (FastTabs) are the captioned top-level groups; bc_read_data { tab } filters by them.

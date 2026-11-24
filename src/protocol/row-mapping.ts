@@ -58,6 +58,20 @@ export function remapCells(
 }
 
 /**
+ * An empty new-line row BC keeps ready (DraftRecordN with no value in any cell). Sections fold
+ * these into newRowBookmark, so every rowIndex must skip them too: one view, or a rowIndex taken
+ * from bc_read_data lands on the neighbouring record.
+ */
+export function isEmptyDraftRow(row: { bookmark: string; cells: Record<string, unknown> }): boolean {
+  return row.bookmark.startsWith('DraftRecord') && Object.values(row.cells).every(c => cellDisplay(c) === null);
+}
+
+/** The rows a section shows (and rowIndex addresses): empty draft rows left out. */
+export function visibleRows<T extends { bookmark: string; cells: Record<string, unknown> }>(rows: readonly T[]): T[] {
+  return rows.filter(r => !isEmptyDraftRow(r));
+}
+
+/**
  * One form for every cell: BC's display string, or null when the cell is empty. BC omits
  * stringValue for a blanked zero ({ objectValue: 0 }, BlankZero) and some selections
  * ({ objectValue: false }), so those are formatted here the way the column shows them elsewhere.
