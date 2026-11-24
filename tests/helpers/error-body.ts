@@ -8,5 +8,5 @@ export function errorBody(result: unknown): ErrorBodyView {
   const r = result as { content: Array<{ text: string }>; isError?: boolean; structuredContent?: unknown };
   if (!r.isError) throw new Error('errorBody: result is not an error');
   if (r.structuredContent !== undefined) throw new Error('errorBody: error result must not carry structuredContent');
-  return JSON.parse(r.content[0].text) as ErrorBodyView;
+  return JSON.parse(r.content[0]!.text) as ErrorBodyView;
 }

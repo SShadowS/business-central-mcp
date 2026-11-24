@@ -354,7 +354,6 @@ describe('MCPHandler.handleRequest — tools/call: thrown BCError', () => {
     const handler = new MCPHandler([makeTool('bc_gone', z.object({}), execute)], makeLogger());
 
     const res = await handler.handleRequest(makeRequest('tools/call', { name: 'bc_gone', arguments: {} }));
-    const result = res.result as { structuredContent: { nextSteps: string[] }; isError: boolean };
     expect(errorBody(res.result).nextSteps[0]).toContain('bc_open_page');
   });
 

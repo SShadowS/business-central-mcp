@@ -73,7 +73,7 @@ const call = (h: MCPHandler, name: string, args: Record<string, unknown> = {}) =
   h.handleRequest({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } })
     .then(r => {
       const res = r.result as { content: Array<{ text: string }>; isError?: boolean; structuredContent?: Record<string, unknown> };
-      return { ...res, body: res.isError ? JSON.parse(res.content[0].text) as unknown : undefined };
+      return { ...res, body: res.isError ? JSON.parse(res.content[0]!.text) as unknown : undefined };
     });
 
 /**
