@@ -1,6 +1,7 @@
 // Issue #43: captions carry access-key markers ("Run N&ext Test"); callers type
 // the plain caption. Matching strips "&" on both sides.
 import { describe, it, expect, vi } from 'vitest';
+import type { ActionNotFoundError } from '../../src/core/errors.js';
 import { ActionService, plainCaption } from '../../src/services/action-service.js';
 import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
 import { ok } from '../../src/core/result.js';
@@ -35,7 +36,7 @@ describe('action caption access keys', () => {
     const { service } = makeService();
     const res = await service.executeAction('pc:1', 'Run Nxt Test');
     expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.error.context?.['availableActions']).toEqual(['Run Next Test']);
+    if (!res.ok) expect((res.error as ActionNotFoundError).availableActions).toEqual(['Run Next Test']);
     const { service: s2, invoke } = makeService();
     await s2.executeAction('pc:1', 'Run N&ext Test');
     expect(invoke).toHaveBeenCalled();

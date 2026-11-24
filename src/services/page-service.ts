@@ -1,6 +1,6 @@
 import { v4 as uuid } from 'uuid';
 import { ok, err, isOk, type Result } from '../core/result.js';
-import { ProtocolError } from '../core/errors.js';
+import { ProtocolError, PageNotFoundError, PageContextNotFoundError } from '../core/errors.js';
 import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { PageContext } from '../protocol/page-context.js';
@@ -94,7 +94,15 @@ export class PageService {
       (event) => event.type === 'InvokeCompleted',
     );
 
-    if (!isOk(result)) return result;
+    if (!isOk(result)) {
+      // A missing page: NavPageBuildErrorException "The metadata object Page N was not found"
+      // (live cronus29, page 999999). Other build errors pass through as they are.
+      const m = result.error.message;
+      if (m.includes('NavPageBuildErrorException') && /was not found/i.test(m)) {
+        return err(new PageNotFoundError(pageId));
+      }
+      return result;
+    }
 
     const events = result.value;
     const pageContextId = `session:page:${pageId}:${uuid().substring(0, 8)}`;
@@ -145,7 +153,7 @@ export class PageService {
 
   async closePage(pageContextId: string, options?: { discardChanges?: boolean }): Promise<Result<ClosePageResult, ProtocolError>> {
     const ctx = this.repo.get(pageContextId);
-    if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
+    if (!ctx) return err(new PageContextNotFoundError(pageContextId));
 
     const allEvents: BCEvent[] = [];
     let blockingDialog = false;

@@ -31,7 +31,7 @@ import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { BCHttpClient } from '../connection/bc-http.js';
 import type { BCEvent } from '../protocol/types.js';
 import { ok, err, isErr, type Result } from '../core/result.js';
-import { ProtocolError } from '../core/errors.js';
+import { ProtocolError, PageContextNotFoundError } from '../core/errors.js';
 
 /**
  * Build the relative upload URL. `handlerSessionId` is the ServerSessionId
@@ -93,7 +93,7 @@ export class UploadService {
     opts: { formId?: string; timeoutMs?: number } = {},
   ): Promise<Result<UploadResult, ProtocolError>> {
     const ctx = this.repo.get(pageContextId);
-    if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
+    if (!ctx) return err(new PageContextNotFoundError(pageContextId));
 
     const dialogs = ctx.dialogs as ReadonlyArray<{ formId: string; controlTree?: unknown }>;
     const dialog = opts.formId !== undefined

@@ -1,5 +1,5 @@
 import { ok, err, isErr, type Result } from '../core/result.js';
-import { ProtocolError, TestRunnerNotInstalledError } from '../core/errors.js';
+import { ProtocolError, TestRunnerNotInstalledError, PageNotFoundError } from '../core/errors.js';
 import type { Logger } from '../core/logger.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import { fields as treeFields } from '../protocol/form-views.js';
@@ -134,9 +134,9 @@ export class RunTestsOperation {
 
     const opened = await this.pages.openPage(TEST_TOOL_PAGE);
     if (isErr(opened)) {
-      // BC answers an unknown page with a "does not exist" error; anything else
-      // (session loss, timeout) passes through unchanged.
-      return /exist|not found/i.test(opened.error.message)
+      // A missing page is PageNotFoundError; anything else (session loss, timeout)
+      // passes through unchanged.
+      return opened.error instanceof PageNotFoundError
         ? err(new TestRunnerNotInstalledError(`Page ${TEST_TOOL_PAGE} "${TEST_TOOL_CAPTION}" is not available: ${opened.error.message}`))
         : opened;
     }

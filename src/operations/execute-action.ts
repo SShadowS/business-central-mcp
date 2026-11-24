@@ -1,5 +1,5 @@
 import { err, ok, isOk, isErr, type Result } from '../core/result.js';
-import { ProtocolError, StaleContextError, InvalidBookmarkError, InputValidationError, type BCError } from '../core/errors.js';
+import { ProtocolError, StaleContextError, InvalidBookmarkError, InputValidationError, PageContextNotFoundError, SectionNotFoundError, type BCError } from '../core/errors.js';
 import { classifyBusinessError } from '../protocol/error-classifier.js';
 import type { ActionService, ActionResult } from '../services/action-service.js';
 import type { NavigationService } from '../services/navigation-service.js';
@@ -99,10 +99,10 @@ export class ExecuteActionOperation {
       }
 
       const ctx = this.repo.get(input.pageContextId);
-      if (!ctx) return err(new ProtocolError(`Page context not found: ${input.pageContextId}`));
+      if (!ctx) return err(new PageContextNotFoundError(input.pageContextId));
       const resolved = resolveSection(ctx, input.section);
       if ('error' in resolved) {
-        return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
+        return err(new SectionNotFoundError(resolved.error, resolved.availableSections));
       }
       if (!resolved.repeater) {
         return err(new ProtocolError('bookmarks supplied but the target section has no repeater.'));
@@ -169,10 +169,10 @@ export class ExecuteActionOperation {
     let bookmark = input.bookmark;
     if (bookmark === undefined && input.rowIndex !== undefined) {
       const ctx = this.repo.get(input.pageContextId);
-      if (!ctx) return err(new ProtocolError(`Page context not found: ${input.pageContextId}`));
+      if (!ctx) return err(new PageContextNotFoundError(input.pageContextId));
       const resolved = resolveSection(ctx, input.section);
       if ('error' in resolved) {
-        return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
+        return err(new SectionNotFoundError(resolved.error, resolved.availableSections));
       }
       if (!resolved.repeater) {
         return err(new ProtocolError('rowIndex/bookmark supplied but the target section has no repeater.'));

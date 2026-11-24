@@ -8,7 +8,7 @@
 // (decompiled Microsoft.Dynamics.Framework.UI / BC28).
 
 import { ok, err, isErr, type Result } from '../core/result.js';
-import { ProtocolError } from '../core/errors.js';
+import { ProtocolError, PageContextNotFoundError, SectionNotFoundError, FieldNotFoundError } from '../core/errors.js';
 import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { PageContext } from '../protocol/page-context.js';
@@ -43,10 +43,10 @@ export class SortService {
     sectionId?: string,
   ): Promise<Result<PageContext, ProtocolError>> {
     const ctx = this.repo.get(pageContextId);
-    if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
+    if (!ctx) return err(new PageContextNotFoundError(pageContextId));
 
     const resolved = resolveSection(ctx, sectionId);
-    if ('error' in resolved) return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
+    if ('error' in resolved) return err(new SectionNotFoundError(resolved.error, resolved.availableSections));
     if (!resolved.repeater) return err(new ProtocolError('Page has no repeater -- cannot sort'));
 
     // Resolve the rcc column node by caption (case-insensitive), same as FilterService.
@@ -54,7 +54,7 @@ export class SortService {
       (c.properties.caption ?? '').toLowerCase() === columnName.toLowerCase()
     );
     if (!column) {
-      return err(new ProtocolError(`Sort column not found: ${columnName}`, {
+      return err(new FieldNotFoundError(`Sort column not found: ${columnName}`, {
         availableColumns: resolved.repeater.columns.map(c => c.properties.caption ?? '').filter(Boolean),
       }));
     }

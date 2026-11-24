@@ -1,5 +1,5 @@
 import { ok, err, isOk, type Result } from '../core/result.js';
-import { ProtocolError, InputValidationError, type BCError } from '../core/errors.js';
+import { ProtocolError, InputValidationError, PageContextNotFoundError, type BCError } from '../core/errors.js';
 import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { PageContext } from '../protocol/page-context.js';
@@ -60,7 +60,7 @@ export class RespondDialogOperation {
 
   async execute(input: RespondDialogInput): Promise<Result<RespondDialogOutput, BCError>> {
     const ctx = this.repo.get(input.pageContextId);
-    if (!ctx) return err(new ProtocolError(`Page context not found: ${input.pageContextId}`));
+    if (!ctx) return err(new PageContextNotFoundError(input.pageContextId));
 
     // "close" uses CloseForm instead of InvokeAction
     if (input.response === 'close') {

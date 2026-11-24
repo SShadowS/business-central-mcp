@@ -1,5 +1,5 @@
 import { ok, err, isErr, type Result } from '../core/result.js';
-import { ProtocolError } from '../core/errors.js';
+import { ProtocolError, PageContextNotFoundError, SectionNotFoundError, FieldNotFoundError } from '../core/errors.js';
 import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { PageContext } from '../protocol/page-context.js';
@@ -84,10 +84,10 @@ export class FilterService {
 
   async applyFilters(pageContextId: string, filters: Filter[], sectionId?: string): Promise<Result<PageContext, ProtocolError>> {
     const ctx = this.repo.get(pageContextId);
-    if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
+    if (!ctx) return err(new PageContextNotFoundError(pageContextId));
 
     const resolved = resolveSection(ctx, sectionId);
-    if ('error' in resolved) return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
+    if ('error' in resolved) return err(new SectionNotFoundError(resolved.error, resolved.availableSections));
     if (!resolved.repeater) return err(new ProtocolError('Page has no repeater -- cannot filter'));
 
     const initialFilterPath = filterControlPath(resolved.form.root);
@@ -107,7 +107,7 @@ export class FilterService {
       if (!currentCtx) return err(new ProtocolError('State lost during filter application'));
 
       const currentResolved = resolveSection(currentCtx, sectionId);
-      if ('error' in currentResolved) return err(new ProtocolError(currentResolved.error, { availableSections: currentResolved.availableSections }));
+      if ('error' in currentResolved) return err(new SectionNotFoundError(currentResolved.error, currentResolved.availableSections));
       if (!currentResolved.repeater) return err(new ProtocolError('State lost during filter application'));
 
       const fpath = filterControlPath(currentResolved.form.root);
@@ -118,7 +118,7 @@ export class FilterService {
         (c.properties.caption ?? '').toLowerCase() === filter.column.toLowerCase()
       );
       if (!column) {
-        return err(new ProtocolError(`Filter column not found: ${filter.column}`, {
+        return err(new FieldNotFoundError(`Filter column not found: ${filter.column}`, {
           availableColumns: currentResolved.repeater.columns.map(c => c.properties.caption ?? '').filter(Boolean),
         }));
       }
@@ -190,10 +190,10 @@ export class FilterService {
 
   async clearFilters(pageContextId: string, sectionId?: string): Promise<Result<PageContext, ProtocolError>> {
     const ctx = this.repo.get(pageContextId);
-    if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
+    if (!ctx) return err(new PageContextNotFoundError(pageContextId));
 
     const resolved = resolveSection(ctx, sectionId);
-    if ('error' in resolved) return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
+    if ('error' in resolved) return err(new SectionNotFoundError(resolved.error, resolved.availableSections));
     if (!resolved.repeater) return err(new ProtocolError('Page has no repeater -- cannot clear filters'));
 
     const formId = resolved.form.formId;

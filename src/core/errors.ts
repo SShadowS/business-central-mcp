@@ -148,6 +148,65 @@ export class CardPartStubError extends ProtocolError {
   }
 }
 
+/**
+ * Local "not found / not allowed" answers. Nothing was sent to BC, so none of them is an
+ * ambiguous failure: no replaySafe:false stamp, and the replay gate frees the operationId.
+ */
+export class PageContextNotFoundError extends ProtocolError {
+  constructor(public readonly pageContextId: string) {
+    super(`Page context not found: ${pageContextId}`, undefined, 'PAGE_CONTEXT_NOT_FOUND');
+  }
+}
+
+export class ActionNotFoundError extends ProtocolError {
+  public readonly availableActions?: string[];
+  public readonly availableCues?: string[];
+  public readonly foundInSection?: string;
+  constructor(message: string, opts: { availableActions?: string[]; availableCues?: string[]; foundInSection?: string }) {
+    super(message, undefined, 'ACTION_NOT_FOUND');
+    this.availableActions = opts.availableActions;
+    this.availableCues = opts.availableCues;
+    this.foundInSection = opts.foundInSection;
+  }
+}
+
+/** BC reports the action Enabled=false (e.g. while the page holds a rejected value): invoking it would be a silent no-op. */
+export class ActionDisabledError extends ProtocolError {
+  constructor(public readonly action: string, message = `Action is disabled: ${action}`) {
+    super(message, undefined, 'ACTION_DISABLED');
+  }
+}
+
+export class SectionNotFoundError extends ProtocolError {
+  constructor(message: string, public readonly availableSections: string[]) {
+    super(message, undefined, 'SECTION_NOT_FOUND');
+  }
+}
+
+export class TabNotFoundError extends ProtocolError {
+  constructor(public readonly tab: string, public readonly availableTabs: string[]) {
+    super(`Tab '${tab}' not found.`, undefined, 'TAB_NOT_FOUND');
+  }
+}
+
+/** A field (card) or column (list) caption that the section does not have. */
+export class FieldNotFoundError extends ProtocolError {
+  public readonly availableFields?: string[];
+  public readonly availableColumns?: string[];
+  constructor(message: string, opts: { availableFields?: string[]; availableColumns?: string[] }) {
+    super(message, undefined, 'FIELD_NOT_FOUND');
+    this.availableFields = opts.availableFields;
+    this.availableColumns = opts.availableColumns;
+  }
+}
+
+/** OpenForm answered NavPageBuildErrorException "The metadata object Page N was not found". */
+export class PageNotFoundError extends ProtocolError {
+  constructor(public readonly pageId: string, detail?: string) {
+    super(`Page ${pageId} does not exist or you lack permission to open it.${detail ? ` BC: ${detail}` : ''}`, undefined, 'PAGE_NOT_FOUND');
+  }
+}
+
 /** bc_run_tests: page 130455 "Command Line Test Tool" (Microsoft's Test Runner app) is not available. */
 export class TestRunnerNotInstalledError extends ProtocolError {
   constructor(message: string) {
@@ -330,7 +389,14 @@ export class DataQueryError extends BCError {
 }
 
 const ERROR_HINTS: Record<string, string> = {
-  VALIDATION_ERROR: 'Correct the field value(s) and retry with bc_write_data.',
+  VALIDATION_ERROR: 'BC rejected the value, but it stays on the page: BC disables most actions and asks to discard on close until you write a valid value with bc_write_data, or close the page and answer the discard confirm "yes".',
+  PAGE_CONTEXT_NOT_FOUND: 'This pageContextId is closed or was dropped (e.g. after SESSION_LOST). Open the page again with bc_open_page.',
+  ACTION_NOT_FOUND: 'Use one of availableActions (or availableCues), or pass the section named in foundInSection.',
+  ACTION_DISABLED: 'BC has disabled this action: the page holds a rejected value (fix the field or discard it), or the action does not apply to this record. Re-read the page with bc_read_data and retry.',
+  SECTION_NOT_FOUND: 'Use one of availableSections.',
+  TAB_NOT_FOUND: 'Use one of availableTabs, or omit tab to read all fields.',
+  PAGE_NOT_FOUND: 'Check the page ID, or find the page with bc_search_pages.',
+  FIELD_NOT_FOUND: 'Use a caption from availableFields / availableColumns (case-insensitive).',
   BUSINESS_ERROR: 'BC rejected the operation. Read the message, adjust inputs, and retry.',
   SESSION_LOST: 'The session was reconnected. Re-open any pages with bc_open_page, then retry.',
   MODAL_RECONCILE_ERROR: 'A stuck modal was cleared by resetting the session. Re-open the page and retry.',

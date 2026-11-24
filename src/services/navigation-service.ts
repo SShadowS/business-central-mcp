@@ -1,6 +1,6 @@
 import { v4 as uuid } from 'uuid';
 import { ok, err, isErr, isOk, type Result } from '../core/result.js';
-import { ProtocolError, InvalidBookmarkError } from '../core/errors.js';
+import { ProtocolError, InvalidBookmarkError, PageContextNotFoundError, SectionNotFoundError } from '../core/errors.js';
 import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { PageContext } from '../protocol/page-context.js';
@@ -41,9 +41,9 @@ export class NavigationService {
     if (!bookmarks.includes(anchor)) return err(new ProtocolError('Internal: anchor not in selection set.'));
 
     const ctx = this.repo.get(pageContextId);
-    if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
+    if (!ctx) return err(new PageContextNotFoundError(pageContextId));
     const resolved = resolveSection(ctx, sectionId);
-    if ('error' in resolved) return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
+    if ('error' in resolved) return err(new SectionNotFoundError(resolved.error, resolved.availableSections));
     if (!resolved.repeater) return err(new ProtocolError('Page has no repeater'));
 
     const interaction: SetCurrentRowInteraction = {
@@ -81,7 +81,7 @@ export class NavigationService {
     const ctx = this.repo.get(pageContextId);
     if (!ctx) return err(new ProtocolError('State lost after select'));
     const resolved = resolveSection(ctx, sectionId);
-    if ('error' in resolved) return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
+    if ('error' in resolved) return err(new SectionNotFoundError(resolved.error, resolved.availableSections));
     if (!resolved.repeater) return err(new ProtocolError('Page has no repeater'));
 
     // Step 2: InvokeAction with SystemAction.Edit (40) -- opens the card page

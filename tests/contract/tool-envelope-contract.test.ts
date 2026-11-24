@@ -169,15 +169,14 @@ describe('tool envelope contract — the four required failure classes', () => {
     expect(body.error.message).toContain('AL0345');
   });
 
-  it('4. server disconnect (thrown SessionLostError) -> SESSION_LOST (network), ids as JSON detail', async () => {
+  it('4. server disconnect (thrown SessionLostError) -> SESSION_LOST (state), ids as an array detail', async () => {
     const h = new MCPHandler([makeTool('bc_execute_action',
       vi.fn().mockRejectedValue(new SessionLostError('reconnected', ['pc1', 'pc2'])))], logger());
     const res = await call(h, 'bc_execute_action');
     assertEnvelope(res);
     const body = res.body as { error: { code: string; category: string; details: Record<string, unknown> } };
     expect(body.error.code).toBe('SESSION_LOST');
-    expect(body.error.category).toBe('network');
-    // Arrays are scalar-illegal in details, so they are JSON-stringified.
+    expect(body.error.category).toBe('state');
     expect(body.error.details.impactedPageContextIds).toEqual(['pc1', 'pc2']);
     expect(body.error.details).not.toHaveProperty('bcCode');
   });

@@ -1,5 +1,5 @@
 import { isOk, isErr, ok, err, type Result } from '../core/result.js';
-import { ProtocolError } from '../core/errors.js';
+import { ProtocolError, PageContextNotFoundError, SectionNotFoundError, TabNotFoundError } from '../core/errors.js';
 import type { DataService } from '../services/data-service.js';
 import type { FilterService } from '../services/filter-service.js';
 import type { SortService } from '../services/sort-service.js';
@@ -41,7 +41,7 @@ export class ReadDataOperation {
 
     // Fast-fail for unknown pageContextId before any service calls.
     if (!this.repo.get(input.pageContextId)) {
-      return err(new ProtocolError(`Page context not found: ${input.pageContextId}`));
+      return err(new PageContextNotFoundError(input.pageContextId));
     }
 
     if (input.clearFilters) {
@@ -88,15 +88,13 @@ export class ReadDataOperation {
     // calls is stale and would cause buildSection to project pre-filter /
     // pre-scroll state.
     const ctx = this.repo.get(input.pageContextId);
-    if (!ctx) return err(new ProtocolError(`Page context not found: ${input.pageContextId}`));
+    if (!ctx) return err(new PageContextNotFoundError(input.pageContextId));
 
     const section = buildSection(ctx, sectionId);
     if (!section) {
       // The list rides in the message: ProtocolError context never reaches the MCP client.
       const availableSections = Array.from(ctx.sections.keys());
-      return err(new ProtocolError(`Section '${sectionId}' not found. Available sections: ${JSON.stringify(availableSections)}.`, {
-        availableSections,
-      }));
+      return err(new SectionNotFoundError(`Section '${sectionId}' not found. Available sections: ${JSON.stringify(availableSections)}.`, availableSections));
     }
 
     let materialized: Section = section;
@@ -106,9 +104,7 @@ export class ReadDataOperation {
       if (isOk(tabsResult) && tabsResult.value) {
         const matchingTab = tabsResult.value.find(t => t.caption.toLowerCase() === input.tab!.toLowerCase());
         if (!matchingTab) {
-          return err(new ProtocolError(`Tab '${input.tab}' not found.`, {
-            availableTabs: tabsResult.value.map(t => t.caption),
-          }));
+          return err(new TabNotFoundError(input.tab, tabsResult.value.map(t => t.caption)));
         }
         const tabFieldCaptions = new Set(matchingTab.fields.map(f => f.caption.toLowerCase()));
         materialized = {

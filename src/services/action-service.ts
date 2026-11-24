@@ -1,6 +1,13 @@
 import { v4 as uuid } from 'uuid';
 import { ok, err, isOk, isErr, type Result } from '../core/result.js';
-import { ProtocolError, MultiRowActionUnavailableError } from '../core/errors.js';
+import {
+  ProtocolError,
+  MultiRowActionUnavailableError,
+  PageContextNotFoundError,
+  SectionNotFoundError,
+  ActionNotFoundError,
+  ActionDisabledError,
+} from '../core/errors.js';
 import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { PageContext } from '../protocol/page-context.js';
@@ -89,11 +96,11 @@ export class ActionService {
     selection?: RowSelection,
   ): Promise<Result<ActionResult, ProtocolError>> {
     const ctx = this.repo.get(pageContextId);
-    if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
+    if (!ctx) return err(new PageContextNotFoundError(pageContextId));
 
     // Resolve the section to find actions in that form
     const resolved = resolveSection(ctx, sectionId, 'header');
-    if ('error' in resolved) return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
+    if ('error' in resolved) return err(new SectionNotFoundError(resolved.error, resolved.availableSections));
 
     const { form, repeater } = resolved;
     const allActions = treeActions(form.root);
@@ -120,14 +127,14 @@ export class ActionService {
         if (otherId === (sectionId ?? 'header')) continue;
         const otherForm = ctx.forms.get(otherSection.formId);
         if (otherForm && treeActions(otherForm.root).some(a => actionKey(a.properties.caption ?? '') === lower)) {
-          return err(new ProtocolError(
+          return err(new ActionNotFoundError(
             `Action '${actionName}' not found in section '${sectionId ?? 'header'}'. It exists in section '${otherId}'. Use section: '${otherId}' to target it.`,
-            { availableSections: Array.from(ctx.sections.keys()) },
+            { foundInSection: otherId },
           ));
         }
       }
       const groupVis = treeGroupVisibility(form.root);
-      return err(new ProtocolError(`Action not found: ${actionName}`, {
+      return err(new ActionNotFoundError(`Action not found: ${actionName}`, {
         availableActions: allActions
           .filter(a => (a.properties.enabled ?? true) && isEffectivelyVisible(form.root, a.controlPath, groupVis, ctx.wizardState))
           .map(a => plainCaption(a.properties.caption ?? ''))
@@ -135,7 +142,10 @@ export class ActionService {
       }));
     }
     if (actionNode.properties.enabled === false) {
-      return err(new ProtocolError(`Action is disabled: ${actionName}`));
+      // BC computes Enabled server-side (ActionControl.Enabled = Action.CanInvoke); invoking a
+      // disabled action is a silent no-op. Live cronus29: a rejected SaveValue on the Customer
+      // Card disables 41 of its 90 actions, "Dimensions" among them, until the value is fixed.
+      return err(new ActionDisabledError(actionName));
     }
     return this.invokeAction(pageContextId, form, actionNode.controlPath, actionNode.systemAction, 'action', selection);
   }
@@ -159,13 +169,11 @@ export class ActionService {
     cueName: string,
   ): Promise<Result<ActionResult, ProtocolError>> {
     const ctx = this.repo.get(pageContextId);
-    if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
+    if (!ctx) return err(new PageContextNotFoundError(pageContextId));
 
     const section = ctx.sections.get(sectionId);
     if (!section || !section.valid) {
-      return err(new ProtocolError(`Section '${sectionId}' not found.`, {
-        availableSections: Array.from(ctx.sections.keys()),
-      }));
+      return err(new SectionNotFoundError(`Section '${sectionId}' not found.`, Array.from(ctx.sections.keys())));
     }
 
     const form = ctx.forms.get(section.formId);
@@ -175,12 +183,12 @@ export class ActionService {
     const cueList = treeCues(form.root);
     const cue = cueList.find((c) => c.caption.toLowerCase() === want);
     if (!cue) {
-      return err(new ProtocolError(`Cue '${cueName}' not found in section '${sectionId}'.`, {
+      return err(new ActionNotFoundError(`Cue '${cueName}' not found in section '${sectionId}'.`, {
         availableCues: cueList.map((c) => c.caption),
       }));
     }
     if (!cue.hasAction) {
-      return err(new ProtocolError(`Cue '${cueName}' is not drill-downable (HasAction=false).`));
+      return err(new ActionDisabledError(cueName, `Cue '${cueName}' is not drill-downable (HasAction=false).`));
     }
 
     // invokeAction registers any ownerless FormCreated the drill-down opens as
@@ -200,7 +208,7 @@ export class ActionService {
     nav: 'back' | 'next' | 'finish' | 'cancel',
   ): Promise<Result<ActionResult, ProtocolError>> {
     const ctx = this.repo.get(pageContextId);
-    if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
+    if (!ctx) return err(new PageContextNotFoundError(pageContextId));
 
     const root = ctx.forms.get(ctx.rootFormId);
     if (!root) return err(new ProtocolError(`Root form not found for page ${pageContextId}`));
@@ -215,9 +223,9 @@ export class ActionService {
     const actionNode = allActions.find(a => classifyWizardNav(a, ctx.pageType) === nav);
     if (!actionNode) {
       const available = allActions.map(a => classifyWizardNav(a, ctx.pageType)).filter(Boolean);
-      return err(new ProtocolError(
+      return err(new ActionNotFoundError(
         `No wizard action of type '${nav}' on this page (page is ${ctx.pageType}, isModal=${ctx.isModal})`,
-        { availableWizardNav: available },
+        { availableActions: available.filter((a): a is NonNullable<typeof a> => !!a) },
       ));
     }
     if (actionNode.properties.enabled === false) {
@@ -251,10 +259,10 @@ export class ActionService {
 
   async executeSystemAction(pageContextId: string, systemAction: number, sectionId?: string): Promise<Result<ActionResult, ProtocolError>> {
     const ctx = this.repo.get(pageContextId);
-    if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
+    if (!ctx) return err(new PageContextNotFoundError(pageContextId));
 
     const resolved = resolveSection(ctx, sectionId);
-    if ('error' in resolved) return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
+    if ('error' in resolved) return err(new SectionNotFoundError(resolved.error, resolved.availableSections));
 
     const { form, repeater } = resolved;
     const controlPath = this.resolveActionControlPath(form, repeater, systemAction);

@@ -3,9 +3,7 @@ import { errorHint, DeviceLoginRequiredError, SignInRequiredError, UrlElicitatio
 
 describe('errorHint', () => {
   it('maps VALIDATION_ERROR', () => {
-    expect(errorHint('VALIDATION_ERROR')).toBe(
-      'Correct the field value(s) and retry with bc_write_data.',
-    );
+    expect(errorHint('VALIDATION_ERROR')).toMatch(/stays on the page.*bc_write_data/);
   });
 
   it('maps BUSINESS_ERROR', () => {

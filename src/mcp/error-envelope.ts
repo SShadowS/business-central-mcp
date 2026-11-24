@@ -19,6 +19,12 @@ import {
   ConnectionError,
   BCMcpUnavailableError,
   ApiActionError,
+  ActionNotFoundError,
+  ActionDisabledError,
+  SectionNotFoundError,
+  TabNotFoundError,
+  PageNotFoundError,
+  FieldNotFoundError,
 } from '../core/errors.js';
 
 /**
@@ -45,6 +51,13 @@ export const BC_EXTENSION_CODES = [
   'BC_MCP_UNAVAILABLE',
   'DATA_QUERY_ERROR',
   'API_ACTION_ERROR',
+  'PAGE_CONTEXT_NOT_FOUND',
+  'ACTION_NOT_FOUND',
+  'ACTION_DISABLED',
+  'SECTION_NOT_FOUND',
+  'TAB_NOT_FOUND',
+  'PAGE_NOT_FOUND',
+  'FIELD_NOT_FOUND',
 ] as const;
 
 interface Rule {
@@ -70,7 +83,14 @@ const RULES: Record<string, Rule> = {
   COMPANY_NOT_FOUND: { code: 'NOT_FOUND', category: 'validation', retryable: false },
   VALIDATION_ERROR: { code: 'VALIDATION_ERROR', category: 'validation', retryable: false },
   BUSINESS_ERROR: { code: 'BUSINESS_ERROR', category: 'server', retryable: false },
-  SESSION_LOST: { code: 'SESSION_LOST', category: 'network', retryable: true },
+  SESSION_LOST: { code: 'SESSION_LOST', category: 'state', retryable: true },
+  PAGE_CONTEXT_NOT_FOUND: { code: 'PAGE_CONTEXT_NOT_FOUND', category: 'state', retryable: false },
+  ACTION_NOT_FOUND: { code: 'ACTION_NOT_FOUND', category: 'validation', retryable: false },
+  ACTION_DISABLED: { code: 'ACTION_DISABLED', category: 'state', retryable: false },
+  SECTION_NOT_FOUND: { code: 'SECTION_NOT_FOUND', category: 'validation', retryable: false },
+  TAB_NOT_FOUND: { code: 'TAB_NOT_FOUND', category: 'validation', retryable: false },
+  PAGE_NOT_FOUND: { code: 'PAGE_NOT_FOUND', category: 'validation', retryable: false },
+  FIELD_NOT_FOUND: { code: 'FIELD_NOT_FOUND', category: 'validation', retryable: false },
   MODAL_RECONCILE_ERROR: { code: 'MODAL_RECONCILE_ERROR', category: 'state', retryable: true },
   CARDPART_STUB: { code: 'CARDPART_STUB', category: 'state', retryable: false },
   STALE_CONTEXT: { code: 'STALE_CONTEXT', category: 'state', retryable: true },
@@ -144,6 +164,21 @@ function detailsFor(e: unknown): ErrorDetails {
     d.reason = e.reason;
   } else if (e instanceof ApiActionError && e.odataCode) {
     d.odataCode = e.odataCode;
+  } else if (e instanceof ActionNotFoundError) {
+    if (e.availableActions) d.availableActions = e.availableActions;
+    if (e.availableCues) d.availableCues = e.availableCues;
+    if (e.foundInSection) d.foundInSection = e.foundInSection;
+  } else if (e instanceof ActionDisabledError) {
+    d.action = e.action;
+  } else if (e instanceof SectionNotFoundError) {
+    d.availableSections = e.availableSections;
+  } else if (e instanceof TabNotFoundError) {
+    d.availableTabs = e.availableTabs;
+  } else if (e instanceof PageNotFoundError) {
+    d.pageId = e.pageId;
+  } else if (e instanceof FieldNotFoundError) {
+    if (e.availableFields) d.availableFields = e.availableFields;
+    if (e.availableColumns) d.availableColumns = e.availableColumns;
   } else if (e instanceof ConnectionError && e.status != null) {
     d.status = e.status;
   }

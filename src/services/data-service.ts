@@ -1,5 +1,5 @@
 import { ok, err, isErr, type Result } from '../core/result.js';
-import { ProtocolError } from '../core/errors.js';
+import { ProtocolError, PageContextNotFoundError, SectionNotFoundError, FieldNotFoundError } from '../core/errors.js';
 import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { BCEvent, RepeaterRow, ControlField, TabGroup, SaveValueInteraction, SetCurrentRowInteraction, ScrollRepeaterInteraction } from '../protocol/types.js';
@@ -94,9 +94,9 @@ export class DataService {
 
   readRows(pageContextId: string, sectionId?: string): Result<RepeaterRow[], ProtocolError> {
     const ctx = this.repo.get(pageContextId);
-    if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
+    if (!ctx) return err(new PageContextNotFoundError(pageContextId));
     const resolved = resolveSection(ctx, sectionId);
-    if ('error' in resolved) return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
+    if ('error' in resolved) return err(new SectionNotFoundError(resolved.error, resolved.availableSections));
     if (!resolved.repeater) return ok([]);
     const cols = resolved.repeater.columns.map(c => ({
       controlPath: c.controlPath,
@@ -118,9 +118,9 @@ export class DataService {
 
   getTabs(pageContextId: string, sectionId?: string): Result<TabGroup[] | undefined, ProtocolError> {
     const ctx = this.repo.get(pageContextId);
-    if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
+    if (!ctx) return err(new PageContextNotFoundError(pageContextId));
     const resolved = resolveSection(ctx, sectionId, 'header');
-    if ('error' in resolved) return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
+    if ('error' in resolved) return err(new SectionNotFoundError(resolved.error, resolved.availableSections));
     const ts = treeTabs(resolved.form.root);
     if (ts.length === 0) return ok(undefined);
     return ok(ts.map(t => ({
@@ -136,9 +136,9 @@ export class DataService {
    */
   async scrollRepeater(pageContextId: string, delta: number, sectionId?: string): Promise<Result<RepeaterRow[], ProtocolError>> {
     const ctx = this.repo.get(pageContextId);
-    if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
+    if (!ctx) return err(new PageContextNotFoundError(pageContextId));
     const resolved = resolveSection(ctx, sectionId);
-    if ('error' in resolved) return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
+    if ('error' in resolved) return err(new SectionNotFoundError(resolved.error, resolved.availableSections));
     if (!resolved.repeater) return ok([]);
 
     const interaction: ScrollRepeaterInteraction = {
@@ -162,18 +162,18 @@ export class DataService {
 
   readField(pageContextId: string, fieldName: string, sectionId?: string): Result<ControlField | undefined, ProtocolError> {
     const ctx = this.repo.get(pageContextId);
-    if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
+    if (!ctx) return err(new PageContextNotFoundError(pageContextId));
     const resolved = resolveSection(ctx, sectionId, 'header');
-    if ('error' in resolved) return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
+    if ('error' in resolved) return err(new SectionNotFoundError(resolved.error, resolved.availableSections));
     const node = findField(resolved.form.root, fieldName);
     return ok(node ? fieldNodeToControlField(resolved.form.root, node) : undefined);
   }
 
   getFields(pageContextId: string, sectionId?: string): Result<ControlField[], ProtocolError> {
     const ctx = this.repo.get(pageContextId);
-    if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
+    if (!ctx) return err(new PageContextNotFoundError(pageContextId));
     const resolved = resolveSection(ctx, sectionId, 'header');
-    if ('error' in resolved) return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
+    if ('error' in resolved) return err(new SectionNotFoundError(resolved.error, resolved.availableSections));
     return ok(treeFields(resolved.form.root).map(f => fieldNodeToControlField(resolved.form.root, f)));
   }
 
@@ -184,9 +184,9 @@ export class DataService {
     options?: { sectionId?: string; bookmark?: string; rowIndex?: number },
   ): Promise<Result<FieldWriteResult, ProtocolError>> {
     const ctx = this.repo.get(pageContextId);
-    if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
+    if (!ctx) return err(new PageContextNotFoundError(pageContextId));
     const resolved = resolveSection(ctx, options?.sectionId, 'header');
-    if ('error' in resolved) return err(new ProtocolError(resolved.error, { availableSections: resolved.availableSections }));
+    if ('error' in resolved) return err(new SectionNotFoundError(resolved.error, resolved.availableSections));
 
     const { form } = resolved;
 
@@ -210,8 +210,7 @@ export class DataService {
       ));
     }
     if (!fieldNode) {
-      return err(new ProtocolError(`Field not found: ${fieldName}`, {
-        pageContextId,
+      return err(new FieldNotFoundError(`Field not found: ${fieldName}`, {
         availableFields: treeFields(form.root).map(f => nameOf(f) || f.controlPath),
       }));
     }
@@ -313,7 +312,7 @@ export class DataService {
 
     const col = repeater.columns.find(c => (c.properties.caption ?? '').toLowerCase() === fieldName.toLowerCase());
     if (!col) {
-      return err(new ProtocolError(`Column '${fieldName}' not found in repeater.`, {
+      return err(new FieldNotFoundError(`Column '${fieldName}' not found in repeater.`, {
         availableColumns: repeater.columns.map(c => c.properties.caption ?? '').filter(Boolean),
       }));
     }

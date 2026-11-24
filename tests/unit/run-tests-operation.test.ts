@@ -5,7 +5,7 @@ import { RunTestsOperation, rowsFromCodeunitJson } from '../../src/operations/ru
 import { buildFormTree } from '../../src/protocol/form-tree-builder.js';
 import { fields } from '../../src/protocol/form-views.js';
 import { ok, err } from '../../src/core/result.js';
-import { ProtocolError, TimeoutError } from '../../src/core/errors.js';
+import { ProtocolError, TimeoutError, PageNotFoundError } from '../../src/core/errors.js';
 
 const logger = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
 
@@ -99,7 +99,8 @@ describe('RunTestsOperation', () => {
   });
 
   it('maps a missing page or a foreign page 130455 to TEST_RUNNER_NOT_INSTALLED', async () => {
-    const missing = await harness({ openError: new ProtocolError('JSON-RPC error: {"errorType":"Microsoft.Dynamics.Nav.Types.NavPageBuildErrorException","message":"Cannot build the page 130455. The metadata object Page 130455 was not found."}'), runs: [] }).op.execute({ codeunits: '1' });
+    // PageService maps BC's NavPageBuildErrorException "was not found" to PageNotFoundError (typed-errors.test.ts).
+    const missing = await harness({ openError: new PageNotFoundError('130455'), runs: [] }).op.execute({ codeunits: '1' });
     expect(!missing.ok && missing.error.code).toBe('TEST_RUNNER_NOT_INSTALLED');
     const foreign = await harness({ caption: 'Something Else', runs: [] }).op.execute({ codeunits: '1' });
     expect(!foreign.ok && foreign.error.code).toBe('TEST_RUNNER_NOT_INSTALLED');

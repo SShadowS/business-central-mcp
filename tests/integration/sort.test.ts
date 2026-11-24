@@ -21,6 +21,7 @@
 // Rules: uses integrationPool; no 2>/dev/null; no emojis.
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import type { FieldNotFoundError } from '../../src/core/errors.js';
 import { createNullLogger } from '../../src/core/logger.js';
 import type { BCSession } from '../../src/session/bc-session.js';
 import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
@@ -144,8 +145,7 @@ describe.sequential('bc_read_data sort — integration (Cronus28)', () => {
     expect(isOk(result)).toBe(false);
     if (isOk(result)) return;
     expect(result.error.message).toContain('NoSuchColumnXYZ');
-    expect(result.error.context).toBeDefined();
-    const ctx = result.error.context as Record<string, unknown>;
-    expect(Array.isArray(ctx.availableColumns)).toBe(true);
+    expect(result.error.code).toBe('FIELD_NOT_FOUND');
+    expect(Array.isArray((result.error as FieldNotFoundError).availableColumns)).toBe(true);
   }, 30000);
 });

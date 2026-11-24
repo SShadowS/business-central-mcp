@@ -22,7 +22,7 @@
 //   remaps to column captions ("Code", "Name") via buildBinderToCaptionMap.
 
 import { ok, err, isErr, type Result } from '../core/result.js';
-import { ProtocolError } from '../core/errors.js';
+import { ProtocolError, PageContextNotFoundError } from '../core/errors.js';
 import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { Logger } from '../core/logger.js';
@@ -65,7 +65,7 @@ export class LookupService {
 
     // 1. Resolve page context
     const ctx = this.repo.get(pageContextId);
-    if (!ctx) return err(new ProtocolError(`Page context not found: ${pageContextId}`));
+    if (!ctx) return err(new PageContextNotFoundError(pageContextId));
 
     const rootForm = ctx.forms.get(ctx.rootFormId);
     if (!rootForm) return err(new ProtocolError(`Root form not loaded for page: ${pageContextId}`));

@@ -24,7 +24,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { ReadDataOperation } from '../../src/operations/read-data.js';
 import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
 import { ok, err } from '../../src/core/result.js';
-import { ProtocolError } from '../../src/core/errors.js';
+import { ProtocolError, SectionNotFoundError, TabNotFoundError } from '../../src/core/errors.js';
 import type { BCEvent, RepeaterRow } from '../../src/protocol/types.js';
 
 // Build a minimal list page context with a repeater section.
@@ -183,9 +183,8 @@ describe('ReadDataOperation — section resolution (uncovered)', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      // context.availableSections should contain 'header' at minimum
-      expect(result.error.context).toBeDefined();
-      expect((result.error.context as any).availableSections).toContain('header');
+      expect(result.error).toBeInstanceOf(SectionNotFoundError);
+      expect((result.error as SectionNotFoundError).availableSections).toContain('header');
     }
   });
 });
@@ -242,7 +241,7 @@ describe('ReadDataOperation — tab filtering (uncovered)', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.message).toMatch(/nonexistent-tab/);
-    expect((result.error.context as { availableTabs?: string[] })?.availableTabs).toContain('General');
+    expect((result.error as TabNotFoundError).availableTabs).toContain('General');
   });
 
   it('is case-insensitive for tab name matching', async () => {
