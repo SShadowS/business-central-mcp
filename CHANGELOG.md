@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-11-24
+
 Breaking output changes from a review of a recorded session (`scripts/record-flow.ts`). Needs
 `@sshadows/bc-toolbox-envelope` 0.2.0.
 
