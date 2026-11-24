@@ -6,7 +6,7 @@ import { applyElicitationCapabilities, type ClientElicitationPort } from './elic
 import { SERVER_VERSION } from '../core/version.js';
 import { IdempotencyGate, invalidOperationId, isAmbiguousFailure, type Failure } from './idempotency-gate.js';
 import { bcErrorResult } from './error-envelope.js';
-import type { ErrorBody } from '@sshadows/bc-toolbox-envelope';
+import type { ErrorBody, ErrorDetails } from '@sshadows/bc-toolbox-envelope';
 import type { SkillDefinition } from './skills.js';
 import { SKILL_TTL_MS, SKILL_CACHE_SCOPE, findSkillResource } from './skills.js';
 
@@ -279,8 +279,8 @@ export class MCPHandler {
           operationId: String(gated.state.operationId),
           status: String(gated.state.status),
           createdAt: Number(gated.state.createdAt) || 0,
-          ...(gated.state.target ? { target: JSON.stringify(gated.state.target) } : {}),
-          ...(gated.state.error ? { error: JSON.stringify(gated.state.error) } : {}),
+          ...(gated.state.target ? { target: gated.state.target as ErrorDetails[string] } : {}),
+          ...(gated.state.error ? { error: gated.state.error as ErrorDetails[string] } : {}),
         });
     }
   }

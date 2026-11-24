@@ -69,12 +69,13 @@ describe('operationId replay gate', () => {
     expect(gated.isError).toBe(true);
     // The verdict rides in the strict envelope's scalar `error.details`.
     expect(errorBody(gated).error)
-      .toMatchObject({ code: 'TIMEOUT', details: { bcCode: 'TIMEOUT_ERROR', replaySafe: false } });
+      .toMatchObject({ code: 'TIMEOUT', details: { replaySafe: false } });
+    expect(errorBody(gated).error.details).not.toHaveProperty('bcCode');
 
     const lost = vi.fn().mockRejectedValue(new SessionLostError('dropped', ['pc:1']));
     const plain = await call(new MCPHandler([mutatingTool(lost)], logger(), []), { value: 'x' });
     expect(errorBody(plain).error)
-      .toMatchObject({ code: 'SESSION_LOST', details: { impactedPageContextIds: '["pc:1"]', replaySafe: false } });
+      .toMatchObject({ code: 'SESSION_LOST', details: { impactedPageContextIds: ['pc:1'], replaySafe: false } });
 
     // Definite failures and read-only tools carry an envelope but no replaySafe verdict.
     const invalid = vi.fn().mockResolvedValue({ ok: false, error: new BusinessValidationError([{ description: 'bad' }]) });
@@ -103,7 +104,7 @@ describe('operationId replay gate', () => {
     expect(r.isError).toBe(true);
     const sc = errorBody(r);
     expect(sc.error).toMatchObject({ code: 'OPERATION_IN_DOUBT', details: { operationId: 'op-3', status: 'unknown' } });
-    expect(JSON.parse(sc.error.details.error as string).code).toBe('TIMEOUT_ERROR');
+    expect((sc.error.details.error as { code: string }).code).toBe('TIMEOUT_ERROR');
   });
 
   it('frees the id after a definite failure so a retry executes again', async () => {

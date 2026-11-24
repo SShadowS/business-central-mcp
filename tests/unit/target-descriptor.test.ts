@@ -152,8 +152,7 @@ describe('replay gate stores the target descriptor', () => {
 
     const retry = errorBody((await call()).result);
     expect(retry.error.code).toBe('OPERATION_IN_DOUBT');
-    // target is a scalar-only detail, so it rides as a JSON string.
-    expect(JSON.parse(retry.error.details.target as string).args.action).toBe('Post');
+    expect((retry.error.details.target as { args: { action: string } }).args.action).toBe('Post');
     expect(execute).toHaveBeenCalledTimes(1);
   });
 });

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { EventDecoder } from '../../src/protocol/event-decoder.js';
 import { classifyBusinessError } from '../../src/protocol/error-classifier.js';
 import type { BCEvent } from '../../src/protocol/types.js';
+import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
 import type { BusinessValidationError, BusinessError } from '../../src/core/errors.js';
 
 // Helper: build a PropertyChanged event carrying ValidationResults
@@ -44,8 +45,24 @@ describe('classifyBusinessError', () => {
       const vErr = result as BusinessValidationError;
       expect(vErr.fieldErrors).toHaveLength(1);
       expect(vErr.fieldErrors[0]!.description).toBe('The value must be positive.');
-      expect(vErr.fieldErrors[0]!.field).toBe('server:c[2]/c[0]');
+      expect(vErr.fieldErrors[0]!.controlPath).toBe('server:c[2]/c[0]');
+      expect(vErr.fieldErrors[0]!.field).toBeUndefined(); // no repo: caption unknown
       expect(vErr.fieldErrors[0]!.descriptionShort).toBe('Enter a positive number.');
+    });
+
+    it('names the field by its caption when the repo holds the originating form', () => {
+      const repo = new PageContextRepository();
+      repo.create('pc:card', 'f1');
+      repo.applyToPage('pc:card', [{
+        type: 'FormCreated', formId: 'f1', isReload: false,
+        controlTree: { t: 'lf', ServerId: 'f1', PageType: 1, Children: [{ t: 'gc', Children: [
+          { t: 'sc', Caption: 'Name', Editable: true, Visible: true, StringValue: '' },
+          { t: 'sc', Caption: 'Payment Terms Code', Editable: true, Visible: true, StringValue: '' },
+        ] }] },
+      } as BCEvent]);
+      const events = [makeValidationEvent([{ Id: 5, Description: 'No such code.', Severity: 'Error', OriginatingControl: { controlPath: 'server:c[0]/c[1]', formId: 'f1' } }])];
+      const vErr = classifyBusinessError(events, repo) as BusinessValidationError;
+      expect(vErr.fieldErrors[0]).toMatchObject({ field: 'Payment Terms Code', controlPath: 'server:c[0]/c[1]', description: 'No such code.' });
     });
 
     it('returns null when only Warning/Info ValidationResults present', () => {

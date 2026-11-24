@@ -52,7 +52,7 @@ export class WizardNavigateOperation {
 
     // A finish/next that raises a BC error (message or error dialog) must
     // not be reported as success.
-    const bizErr = classifyBusinessError(result.value.events);
+    const bizErr = classifyBusinessError(result.value.events, this.repo);
     if (bizErr !== null) return err(bizErr);
 
     const ar = result.value;

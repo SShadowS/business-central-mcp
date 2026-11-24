@@ -160,9 +160,17 @@ export class TestRunnerNotInstalledError extends ProtocolError {
  * Maps to BC `ValidationResults` with Severity='Error' in PropertyChanged events.
  * Use `fieldErrors` to surface per-field messages to the MCP caller.
  */
+export interface FieldError {
+  field?: string;
+  controlPath?: string;
+  description: string;
+  descriptionShort?: string | null;
+}
+
 export class BusinessValidationError extends BCError {
-  public readonly fieldErrors: Array<{ field?: string; description: string; descriptionShort?: string }>;
-  constructor(fieldErrors: Array<{ field?: string; description: string; descriptionShort?: string }>) {
+  /** `field` is the control's caption when known; `controlPath` is BC's OriginatingControl path. */
+  public readonly fieldErrors: FieldError[];
+  constructor(fieldErrors: FieldError[]) {
     super(fieldErrors.map(e => e.description).join('; '), 'VALIDATION_ERROR');
     this.fieldErrors = fieldErrors;
   }

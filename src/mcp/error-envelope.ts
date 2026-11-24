@@ -105,15 +105,19 @@ const DEFAULT_NEXT: Record<string, string> = {
   INTERNAL_ERROR: 'Unexpected server error. Retry; if it persists, check the server logs.',
 };
 
-/** Scalar extras pulled off a rich BCError (arrays/objects -> JSON strings). */
-function detailsFor(e: unknown, originalCode?: string): ErrorDetails {
+/** Structured extras pulled off a rich BCError (lists stay arrays, records stay objects). */
+function detailsFor(e: unknown): ErrorDetails {
   const d: ErrorDetails = {};
-  if (originalCode) d.bcCode = originalCode;
   if (e instanceof SessionLostError) {
-    d.impactedPageContextIds = JSON.stringify(e.impactedPageContextIds);
+    d.impactedPageContextIds = [...e.impactedPageContextIds];
     d.reconnectFailed = e.reconnectFailed;
   } else if (e instanceof BusinessValidationError) {
-    d.fieldErrors = JSON.stringify(e.fieldErrors);
+    d.fieldErrors = e.fieldErrors.map(f => ({
+      ...(f.field ? { field: f.field } : {}),
+      ...(f.controlPath ? { controlPath: f.controlPath } : {}),
+      message: f.description,
+      ...(f.descriptionShort ? { hint: f.descriptionShort } : {}),
+    }));
   } else if (e instanceof BusinessError) {
     d.severity = e.severity;
     d.source = e.source;
@@ -162,7 +166,7 @@ export function toBcErrorBody(
       ? 'The session was lost and reconnecting to BC failed. Check that BC is reachable, then retry; re-open any pages with bc_open_page.'
       : (like.code && errorHint(like.code)) || DEFAULT_NEXT[rule.code] || 'Retry the operation.',
   ];
-  const details = { ...detailsFor(like, like.code), ...extraDetails };
+  const details = { ...detailsFor(like), ...extraDetails };
   return errorBody(
     tool,
     new ToolboxError(rule.code, String(like.message ?? 'Unknown error'), rule.category, rule.retryable, details),

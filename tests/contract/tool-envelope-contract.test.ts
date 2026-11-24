@@ -178,7 +178,8 @@ describe('tool envelope contract — the four required failure classes', () => {
     expect(body.error.code).toBe('SESSION_LOST');
     expect(body.error.category).toBe('network');
     // Arrays are scalar-illegal in details, so they are JSON-stringified.
-    expect(body.error.details.impactedPageContextIds).toBe('["pc1","pc2"]');
+    expect(body.error.details.impactedPageContextIds).toEqual(['pc1', 'pc2']);
+    expect(body.error.details).not.toHaveProperty('bcCode');
   });
 });
 
@@ -200,7 +201,7 @@ describe('tool envelope contract — gate failures become envelopes', () => {
     expect(body.error.category).toBe('state');
     expect(body.error.details.operationId).toBe('op-1');
     expect(body.error.details.status).toBe('unknown');
-    expect(JSON.parse(body.error.details.error as string).code).toBe('TIMEOUT_ERROR');
+    expect((body.error.details.error as { code: string }).code).toBe('TIMEOUT_ERROR');
   });
 });
 

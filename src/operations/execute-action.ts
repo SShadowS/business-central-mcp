@@ -119,7 +119,7 @@ export class ExecuteActionOperation {
         }
         return result;
       }
-      const bizErr = classifyBusinessError(result.value.events);
+      const bizErr = classifyBusinessError(result.value.events, this.repo);
       if (bizErr !== null) return err(bizErr);
       const out = this.buildOutput(input.pageContextId, result.value);
       const captured = await this.downloadService.capture(result.value.events);
@@ -132,7 +132,7 @@ export class ExecuteActionOperation {
       }
       const result = await this.actionService.executeOnCue(input.pageContextId, input.section, input.cue);
       if (!isOk(result)) return result;
-      const bizErr = classifyBusinessError(result.value.events);
+      const bizErr = classifyBusinessError(result.value.events, this.repo);
       if (bizErr !== null) return err(bizErr);
       const out = this.buildOutput(input.pageContextId, result.value);
       const captured = await this.downloadService.capture(result.value.events);
@@ -152,7 +152,7 @@ export class ExecuteActionOperation {
 
     const result = await this.actionService.executeAction(input.pageContextId, input.action, input.section);
     if (!isOk(result)) return result;
-    const bizErr = classifyBusinessError(result.value.events);
+    const bizErr = classifyBusinessError(result.value.events, this.repo);
     if (bizErr !== null) return err(bizErr);
     const out = this.buildOutput(input.pageContextId, result.value);
     const captured = await this.downloadService.capture(result.value.events);

@@ -69,7 +69,7 @@ export class WriteDataOperation {
     const { results, events } = result.value;
 
     // Classify business errors before building the ok output.
-    const bizErr = classifyBusinessError(events);
+    const bizErr = classifyBusinessError(events, this.repo);
     if (bizErr !== null) return err(bizErr);
 
     const ctx = this.repo.get(input.pageContextId);

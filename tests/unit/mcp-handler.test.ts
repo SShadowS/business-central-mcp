@@ -367,7 +367,7 @@ describe('MCPHandler.handleRequest — tools/call: thrown BCError', () => {
     expect(result.isError).toBe(true);
     expect(errorBody(res.result).error.code).toBe('SESSION_LOST');
     // Array -> JSON string (scalar-only details); reconnectFailed stays a boolean.
-    expect(errorBody(res.result).error.details.impactedPageContextIds).toBe('["pcA","pcB"]');
+    expect(errorBody(res.result).error.details.impactedPageContextIds).toEqual(['pcA', 'pcB']);
     expect(errorBody(res.result).error.details.reconnectFailed).toBe(true);
     expect(JSON.parse(result.content[0]!.text).error.details.reconnectFailed).toBe(true);
   });
@@ -419,7 +419,7 @@ describe('MCPHandler.handleRequest — tools/call: thrown BCError', () => {
   });
 
   it('forwards BusinessValidationError as BCError with VALIDATION_ERROR code', async () => {
-    const validationErr = new BusinessValidationError([{ description: 'Name too long', field: 'Name' }]);
+    const validationErr = new BusinessValidationError([{ description: 'Name too long', field: 'Name', controlPath: 'server:c[1]/c[0]', descriptionShort: null }]);
     const execute = vi.fn().mockRejectedValue(validationErr);
     const logger = makeLogger();
     const handler = new MCPHandler([makeTool('bc_val', z.object({}), execute)], logger);
@@ -429,7 +429,8 @@ describe('MCPHandler.handleRequest — tools/call: thrown BCError', () => {
     expect(result.isError).toBe(true);
     expect(errorBody(res.result).error.code).toBe('VALIDATION_ERROR');
     expect(errorBody(res.result).error.message).toContain('Name too long');
-    expect(JSON.parse(errorBody(res.result).error.details.fieldErrors as string)[0].description).toBe('Name too long');
+    // One entry per field: caption, controlPath, message. A null descriptionShort is dropped.
+    expect(errorBody(res.result).error.details.fieldErrors).toEqual([{ field: 'Name', controlPath: 'server:c[1]/c[0]', message: 'Name too long' }]);
     expect(logger.error).toHaveBeenCalled();
   });
 });

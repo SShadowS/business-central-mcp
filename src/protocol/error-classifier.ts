@@ -2,6 +2,15 @@ import type { BCEvent, FormCreatedEvent } from './types.js';
 import { extractValidationErrors } from './mutation-result.js';
 import { extractRows } from './form-state.js';
 import { BusinessValidationError, BusinessError } from '../core/errors.js';
+import type { PageContextRepository } from './page-context-repo.js';
+import { fields as treeFields, fieldName } from './form-views.js';
+
+/** The caption of the field at `controlPath` on form `formId`, when a page context holds that form. */
+function controlCaption(repo: PageContextRepository, formId: string, controlPath: string): string | undefined {
+  const root = repo.getByFormId(formId)?.forms.get(formId)?.root;
+  const field = root && treeFields(root).find(f => f.controlPath === controlPath);
+  return (field && fieldName(field)) || undefined;
+}
 
 /**
  * Inspect a batch of BC events and return a typed business error if the
@@ -17,16 +26,21 @@ import { BusinessValidationError, BusinessError } from '../core/errors.js';
  */
 export function classifyBusinessError(
   events: BCEvent[],
+  repo?: PageContextRepository,
 ): BusinessValidationError | BusinessError | null {
   // 1. Field-level validation errors (highest precedence)
   const allValidation = extractValidationErrors(events);
   const errorItems = allValidation.filter(item => item.Severity === 'Error');
   if (errorItems.length > 0) {
-    const fieldErrors = errorItems.map(item => ({
-      field: item.OriginatingControl?.controlPath,
-      description: item.Description,
-      descriptionShort: item.DescriptionShort,
-    }));
+    const fieldErrors = errorItems.map(item => {
+      const origin = item.OriginatingControl;
+      return {
+        field: origin && repo ? controlCaption(repo, origin.formId, origin.controlPath) : undefined,
+        controlPath: origin?.controlPath,
+        description: item.Description,
+        descriptionShort: item.DescriptionShort,
+      };
+    });
     return new BusinessValidationError(fieldErrors);
   }
 

@@ -72,7 +72,7 @@ export class RespondDialogOperation {
 
       this.applyResponseEvents(ctx.rootFormId, input, closeResult.value);
 
-      const closeBizErr = classifyBusinessError(closeResult.value);
+      const closeBizErr = classifyBusinessError(closeResult.value, this.repo);
       if (closeBizErr !== null) return err(closeBizErr);
 
       const closeReportPcId = this.reportPcId(ctx, input);
@@ -122,7 +122,7 @@ export class RespondDialogOperation {
     const events = result.value;
     this.applyResponseEvents(ctx.rootFormId, input, events);
 
-    const bizErr = classifyBusinessError(events);
+    const bizErr = classifyBusinessError(events, this.repo);
     if (bizErr !== null) return err(bizErr);
 
     // BC runs Abort only on a dialog that has an Abort action (InvokeActionInteraction: session,
