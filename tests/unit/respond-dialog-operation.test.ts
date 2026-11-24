@@ -74,7 +74,7 @@ describe('RespondDialogOperation — "close" response', () => {
     expect(interaction.formId).toBe('dlg1');
   });
 
-  it('"close" response returns success=true with empty openedPages', async () => {
+  it('"close" response reports closed from the events, with empty openedPages', async () => {
     const session = makeSession();
     const repo = makeRepo();
     const op = new RespondDialogOperation(session, repo, makeDownloadService());
@@ -87,7 +87,7 @@ describe('RespondDialogOperation — "close" response', () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value.success).toBe(true);
+    expect(result.value.closed).toBe(false); // the scripted answer reports no State: 0 for the dialog
     expect(result.value.openedPages).toEqual([]);
     expect(result.value.requiresDialogResponse).toBe(false);
   });
@@ -159,7 +159,7 @@ describe('RespondDialogOperation — RESPONSE_MAP routing', () => {
 });
 
 describe('RespondDialogOperation — output shape', () => {
-  it('returns success=true with empty changedSections, dialogsOpened, openedPages when no events emitted', async () => {
+  it('returns closed=false with empty changedSections, dialogsOpened, openedPages when no events emitted', async () => {
     const session = makeSession();
     const repo = makeRepo();
     const op = new RespondDialogOperation(session, repo, makeDownloadService());
@@ -172,7 +172,7 @@ describe('RespondDialogOperation — output shape', () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value.success).toBe(true);
+    expect(result.value.closed).toBe(false);
     expect(result.value.changedSections).toEqual([]);
     expect(result.value.dialogsOpened).toEqual([]);
     expect(result.value.requiresDialogResponse).toBe(false);
@@ -202,7 +202,7 @@ describe('RespondDialogOperation — output shape', () => {
     expect(result.value.requiresDialogResponse).toBe(true);
     expect(result.value.dialogsOpened).toHaveLength(1);
     expect(result.value.dialogsOpened[0]!.formId).toBe('confirm-dlg');
-    expect(result.value.dialogsOpened[0]!.message).toBe('Confirm deletion');
+    expect(result.value.dialogsOpened[0]!.title).toBe('Confirm deletion');
   });
 
   it('propagates InvokeAction session error unchanged', async () => {

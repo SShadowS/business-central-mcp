@@ -3,8 +3,7 @@ import { ok, err, isErr, type Result } from '../core/result.js';
 import { ProtocolError } from '../core/errors.js';
 import type { BCSession } from '../session/bc-session.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
-import type { ControlField } from '../protocol/types.js';
-import { detectDialogs } from '../protocol/mutation-result.js';
+import { detectDialogs, registerDialogs, type OpenedDialog } from '../protocol/mutation-result.js';
 import type { Download, DownloadService } from '../services/download-service.js';
 
 export interface RunReportInput {
@@ -15,15 +14,10 @@ export interface RunReportInput {
 export interface RunReportOutput {
   success: boolean;
   reportId: number;
-  requestPage?: {
-    /** Page context of the registered request page — target bc_write_data /
-     * bc_respond_dialog against this to fill parameters and run the report. */
-    pageContextId: string;
-    formId: string;
-    fields?: ControlField[];
-    message?: string;
-  };
-  dialogsOpened: Array<{ formId: string; message?: string; fields?: ControlField[] }>;
+  /** The registered request page: fill it with bc_write_data and run or cancel it with bc_respond_dialog. */
+  requestPage?: OpenedDialog;
+  /** Any other dialog the run opened (besides the request page), each with its own pageContextId. */
+  dialogsOpened: OpenedDialog[];
   requiresDialogResponse: boolean;
   /** Captured report output(s) when format was specified; empty otherwise. */
   downloads: Download[];
@@ -58,24 +52,19 @@ export class RunReportOperation {
     if (isErr(result)) return result;
 
     const events = result.value;
-    const dialogsOpened = detectDialogs(events);
+    const [first, ...others] = detectDialogs(events);
 
-    // The first dialog opened is typically the request page. Register it as a
-    // page context so the caller can fill parameters with bc_write_data and run
-    // the report with bc_respond_dialog(response: "ok") — without a
-    // pageContextId the returned formId is unaddressable by those tools.
-    let requestPage: RunReportOutput['requestPage'] | undefined;
-    if (dialogsOpened.length > 0) {
-      const first = dialogsOpened[0]!;
+    // The first dialog opened is the request page. Register it as a page context so
+    // the caller can fill parameters with bc_write_data and run the report with
+    // bc_respond_dialog — without a pageContextId its formId is unaddressable.
+    let requestPage: OpenedDialog | undefined;
+    let dialogsOpened: OpenedDialog[] = [];
+    if (first) {
       const pcId = `session:page:report:${uuid().substring(0, 8)}`;
       this.repo.create(pcId, first.formId);
       this.repo.applyToPage(pcId, events);
-      requestPage = {
-        pageContextId: pcId,
-        formId: first.formId,
-        fields: first.fields,
-        message: first.message,
-      };
+      requestPage = { pageContextId: pcId, ...first };
+      dialogsOpened = registerDialogs(this.repo, pcId, events.filter(e => !(e.type === 'DialogOpened' && e.formId === first.formId)));
     }
 
     return ok({
@@ -83,7 +72,7 @@ export class RunReportOperation {
       reportId,
       requestPage,
       dialogsOpened,
-      requiresDialogResponse: dialogsOpened.length > 0,
+      requiresDialogResponse: first !== undefined || others.length > 0,
       downloads: [],
       externalUris: [],
       replaySafe: false,

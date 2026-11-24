@@ -6,6 +6,8 @@ export function createToolDefinition(ops: Operations): ToolDefinition {
     name: 'bc_close_page',
     description: `Closes an open Business Central page and frees its server-side resources including the WebSocket form session. Always call this when you are finished working with a page to prevent resource leaks on the BC server. Requires a pageContextId from bc_open_page.
 
+The result's "closed" says whether the page actually closed. If a dialog blocked it (typically "Do you want to discard these changes?" after BC rejected a value), "closed" is false, the page stays open, and dialogsOpened carries that dialog (kind, message, the valid responses): answer it with bc_respond_dialog ("yes" discards), after which the page is closed.
+
 After closing, the pageContextId becomes invalid -- any subsequent bc_read_data, bc_write_data, bc_execute_action, or bc_navigate calls using it will fail. It is safe to call this even if prior operations on the page encountered errors. If you opened a drill-down page via bc_navigate (which returns a new pageContextId), close both the drill-down page and the original list page when done.
 
 Do NOT call this on a dialog's pageContextId (from dialogsOpened): answer the dialog with bc_respond_dialog instead, e.g. "cancel" to dismiss it. Closing a modal can accept it, so this tool refuses.

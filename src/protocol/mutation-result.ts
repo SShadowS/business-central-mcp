@@ -1,25 +1,11 @@
 // src/protocol/mutation-result.ts
 import { v4 as uuid } from 'uuid';
-import type { BCEvent, DialogOpenedEvent, MessageToShowEvent, PropertyChangedEvent, ValidationResultItem, ControlField } from './types.js';
+import { SystemAction, type BCEvent, type DialogOpenedEvent, type MessageToShowEvent, type PropertyChangedEvent, type ValidationResultItem } from './types.js';
 import type { PageContext } from './page-context.js';
 import type { PageContextRepository } from './page-context-repo.js';
 import { buildFormTree } from './form-tree-builder.js';
-import { fields as treeFields } from './form-views.js';
-import { fieldNodeToControlField } from './mcp-adapters.js';
-
-/**
- * Shared envelope returned by all mutating operations (write-data, execute-action,
- * navigate, close-page). Surfaces which sections changed, whether dialogs opened,
- * and whether the caller must respond to a dialog before continuing.
- */
-export interface MutationResult<T = void> {
-  readonly success: boolean;
-  readonly value?: T;
-  readonly changedSections: string[];
-  readonly openedPages: Array<{ pageContextId: string; caption: string }>;
-  readonly dialogsOpened: Array<{ formId: string; message?: string; fields?: ControlField[] }>;
-  readonly requiresDialogResponse: boolean;
-}
+import { fields as treeFields, actions as treeActions, fieldName } from './form-views.js';
+import { toSectionField, type SectionField } from './section-dto.js';
 
 /**
  * After a mutating invoke, check which sections received events by matching
@@ -104,48 +90,107 @@ export function collectMessages(events: BCEvent[]): ShownMessage[] {
     .map(e => ({ text: e.text, type: e.messageType }));
 }
 
-/**
- * Extract dialog information from events. Tries to pull a human-readable
- * message from the dialog control tree (Caption or Message property).
- */
-export function detectDialogs(events: BCEvent[]): Array<{ formId: string; message?: string; fields?: ControlField[] }> {
-  return events
-    .filter((e): e is DialogOpenedEvent => e.type === 'DialogOpened')
-    .map(e => {
-      const raw = e.controlTree as Record<string, unknown> | undefined;
-      const message = (raw?.Caption as string) || (raw?.Message as string) || undefined;
+/** What a dialog is, from its `MappingHint` (MessageForm kinds, NavRequestPage), else a modal page. */
+export type DialogKind = 'confirm' | 'message' | 'error' | 'requestPage' | 'page';
+/** A `bc_respond_dialog` response. */
+export type DialogResponse = 'ok' | 'cancel' | 'yes' | 'no' | 'abort' | 'print' | 'preview';
 
-      // Build the dialog's FormNode tree to extract structured fields.
-      // Dialog controlTree nodes may arrive as a bare object (no `t` field) or
-      // as a proper `lf` LogicalForm node. Normalise to `lf` when absent so
-      // buildFormTree can process children in either case.
-      let fields: ControlField[] | undefined;
-      if (raw && typeof raw.Children !== 'undefined') {
-        const lfNode = raw.t === 'lf' ? raw : { ...raw, t: 'lf' };
-        try {
-          const root = buildFormTree(lfNode);
-          const nodeFields = treeFields(root);
-          if (nodeFields.length > 0) {
-            fields = nodeFields.map(f => fieldNodeToControlField(root, f));
-          }
-        } catch {
-          // Non-fatal: dialog field extraction failure should not abort the operation
+const KIND_BY_HINT: Record<string, DialogKind> = {
+  ConfirmDialog: 'confirm',
+  InfoDialog: 'message',
+  ErrorDialog: 'error',
+  RequestPage: 'requestPage',
+};
+
+/** The button SystemActions each response presses (inverse of respond-dialog's RESPONSE_MAP). */
+const RESPONSE_BY_ACTION: ReadonlyMap<number, DialogResponse> = new Map([
+  [SystemAction.Ok, 'ok'], [SystemAction.LookupOk, 'ok'],
+  [SystemAction.Cancel, 'cancel'], [SystemAction.LookupCancel, 'cancel'],
+  [SystemAction.Yes, 'yes'], [SystemAction.No, 'no'], [SystemAction.Abort, 'abort'],
+  [SystemAction.Print, 'print'], [SystemAction.ReportPreview, 'preview'],
+]);
+
+const DEFAULT_RESPONSES: Record<DialogKind, DialogResponse[]> = {
+  confirm: ['yes', 'no'],
+  message: ['ok'],
+  error: ['ok'],
+  requestPage: ['ok', 'cancel'],
+  page: ['ok', 'cancel'],
+};
+
+/** A dialog as the MCP caller sees it. */
+export interface DialogInfo {
+  formId: string;
+  kind: DialogKind;
+  /** The dialog's caption ("Confirm", the report name, ...). */
+  title?: string;
+  /** For a confirm/message/error: the text it shows (the question to answer). */
+  message?: string;
+  /** The answers bc_respond_dialog accepts here: the dialog's own buttons, else its kind's. */
+  responses: DialogResponse[];
+  /** Fillable or informative fields, in the page-section field shape. */
+  fields?: SectionField[];
+}
+
+/**
+ * Describe a dialog from its control tree. Dialog trees may arrive as a bare object (no `t`)
+ * or as an `lf` node; normalise to `lf` so buildFormTree processes the children.
+ */
+export function describeDialog(formId: string, controlTree: unknown): DialogInfo {
+  const raw = (controlTree ?? {}) as Record<string, unknown>;
+  const kind = KIND_BY_HINT[String(raw.MappingHint ?? raw.mappingHint ?? '')] ?? 'page';
+  const title = (raw.Caption as string) || undefined;
+  let message = (raw.Message as string) || undefined;
+  let fields: SectionField[] = [];
+  let responses: DialogResponse[] = [];
+  if (typeof raw.Children !== 'undefined') {
+    try {
+      const root = buildFormTree(raw.t === 'lf' ? raw : { ...raw, t: 'lf' });
+      let shown = treeFields(root).filter(f => f.properties.visible !== false && (fieldName(f) || f.properties.stringValue));
+      if (kind === 'confirm' || kind === 'message' || kind === 'error') {
+        // A MessageForm shows its text as a static string control (live cronus29: the discard
+        // confirm's question is the caption of an `ssc` under server:c[0]/c[0]).
+        const text = shown.find(f => f.type === 'ssc');
+        if (text) {
+          message ??= fieldName(text) || text.properties.stringValue;
+          shown = shown.filter(f => f !== text);
         }
       }
+      fields = shown.map(toSectionField);
+      responses = [...new Set(treeActions(root)
+        .filter(a => a.properties.visible !== false && a.properties.enabled !== false)
+        .map(a => RESPONSE_BY_ACTION.get(a.systemAction))
+        .filter((r): r is DialogResponse => r !== undefined))];
+    } catch {
+      // Non-fatal: a tree we cannot read still yields kind, title and default responses.
+    }
+  }
+  // A request page opened with OpenForm(report=N) has Print/Preview/Cancel buttons but no OK
+  // (live cronus29, report 6); OK on server:c[0] still runs it (CLAUDE.md "Report Execution Protocol").
+  if (kind === 'requestPage' && responses.length > 0 && !responses.includes('ok')) responses.unshift('ok');
+  return {
+    formId,
+    kind,
+    ...(title ? { title } : {}),
+    ...(message ? { message } : {}),
+    responses: responses.length > 0 ? responses : DEFAULT_RESPONSES[kind],
+    ...(fields.length > 0 ? { fields } : {}),
+  };
+}
 
-      return { formId: e.formId, message, fields };
-    });
+/** The dialogs a batch of events opened. */
+export function detectDialogs(events: BCEvent[]): DialogInfo[] {
+  return events
+    .filter((e): e is DialogOpenedEvent => e.type === 'DialogOpened')
+    .map(e => describeDialog(e.formId, e.controlTree));
 }
 
 /**
  * A dialog a call opened. `pageContextId` addresses it as a page context of its own:
  * fill its fields with bc_write_data against it, then answer it with bc_respond_dialog.
  */
-export interface OpenedDialog {
+export interface OpenedDialog extends DialogInfo {
   pageContextId: string;
-  formId: string;
-  message?: string;
-  fields?: ControlField[];
 }
 
 /**

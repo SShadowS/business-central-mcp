@@ -239,8 +239,27 @@ export function toMcpJsonSchema(schema: z.ZodType): Record<string, unknown> {
 // never breaks the advertised contract.
 // ---------------------------------------------------------------------------
 
-const Dialog = z.looseObject({ formId: z.string(), message: z.string().optional() });
-const OpenedDialog = Dialog.extend({ pageContextId: z.string() });
+const SectionField = z.object({
+  name: z.string(),
+  value: z.string().optional(),
+  editable: z.boolean(),
+  type: z.string(),
+  showMandatory: z.boolean().optional(),
+  isLookup: z.boolean().optional(),
+  lookupCustom: z.boolean().optional(),
+  options: z.array(z.object({ text: z.string(), value: z.string() })).optional(),
+  selectedOption: z.object({ text: z.string().optional(), value: z.string().optional() }).optional(),
+});
+const DialogResponse = z.enum(['ok', 'cancel', 'yes', 'no', 'abort', 'print', 'preview']);
+const OpenedDialog = z.object({
+  pageContextId: z.string(),
+  formId: z.string(),
+  kind: z.enum(['confirm', 'message', 'error', 'requestPage', 'page']),
+  title: z.string().optional(),
+  message: z.string().optional(),
+  responses: z.array(DialogResponse),
+  fields: z.array(SectionField).optional(),
+});
 const Download = z.looseObject({
   fileName: z.string(),
   contentType: z.string(),
@@ -294,7 +313,7 @@ export const ExecuteActionOutputSchema = z.object({
 });
 
 export const ClosePageOutputSchema = z.object({
-  success: z.boolean(),
+  closed: z.boolean(),
   dialogsOpened: z.array(OpenedDialog),
   requiresDialogResponse: z.boolean(),
   replaySafe: z.boolean(),
@@ -310,12 +329,12 @@ export const NavigateOutputSchema = z.object({
   pageType: z.string().optional(),
   sections: z.array(Section).optional(),
   changedSections: z.array(z.string()),
-  dialogsOpened: z.array(Dialog),
+  dialogsOpened: z.array(OpenedDialog),
   requiresDialogResponse: z.boolean(),
 });
 
 export const RespondDialogOutputSchema = z.object({
-  success: z.boolean(),
+  closed: z.boolean(),
   changedSections: z.array(z.string()),
   dialogsOpened: z.array(OpenedDialog),
   requiresDialogResponse: z.boolean(),
@@ -341,8 +360,8 @@ export const ListCompaniesOutputSchema = z.object({
 export const RunReportOutputSchema = z.object({
   success: z.boolean(),
   reportId: z.number(),
-  requestPage: z.looseObject({ pageContextId: z.string(), formId: z.string() }).optional(),
-  dialogsOpened: z.array(Dialog),
+  requestPage: OpenedDialog.optional(),
+  dialogsOpened: z.array(OpenedDialog),
   requiresDialogResponse: z.boolean(),
   downloads: z.array(Download),
   externalUris: z.array(ExternalUri),

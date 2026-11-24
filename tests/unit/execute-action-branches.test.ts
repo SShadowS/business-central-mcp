@@ -215,7 +215,7 @@ describe('ExecuteActionOperation — buildOutput (uncovered branches)', () => {
     expect(result.value.requiresDialogResponse).toBe(true);
     expect(result.value.dialogsOpened).toHaveLength(1);
     expect(result.value.dialogsOpened[0]!.formId).toBe('confirm-1');
-    expect(result.value.dialogsOpened[0]!.message).toBe('Confirm?');
+    expect(result.value.dialogsOpened[0]!.title).toBe('Confirm?');
   });
 
   it('returns requiresDialogResponse=false when no DialogOpened events', async () => {

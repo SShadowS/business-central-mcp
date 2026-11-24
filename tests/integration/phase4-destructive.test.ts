@@ -15,9 +15,18 @@ import { PageService } from '../../src/services/page-service.js';
 import { DataService } from '../../src/services/data-service.js';
 import { ActionService } from '../../src/services/action-service.js';
 import { RespondDialogOperation } from '../../src/operations/respond-dialog.js';
-import type { BCEvent, ControlField, FormCreatedEvent, SaveValueInteraction } from '../../src/protocol/types.js';
-import { detectDialogs } from '../../src/protocol/mutation-result.js';
-import { actions as treeActions } from '../../src/protocol/form-views.js';
+import type { BCEvent, DialogOpenedEvent, FormCreatedEvent, SaveValueInteraction } from '../../src/protocol/types.js';
+import { detectDialogs, type DialogInfo } from '../../src/protocol/mutation-result.js';
+import { actions as treeActions, fields as treeFields, fieldName } from '../../src/protocol/form-views.js';
+import { buildFormTree } from '../../src/protocol/form-tree-builder.js';
+
+/** A dialog field's controlPath, from the DialogOpened control tree (the DTO does not carry it). */
+function dialogFieldPath(events: BCEvent[], formId: string, name: string): string | undefined {
+  const ev = events.find((e): e is DialogOpenedEvent => e.type === 'DialogOpened' && e.formId === formId);
+  const raw = ev?.controlTree as Record<string, unknown> | undefined;
+  if (!raw) return undefined;
+  return treeFields(buildFormTree(raw.t === 'lf' ? raw : { ...raw, t: 'lf' })).find(f => fieldName(f) === name)?.controlPath;
+}
 import { isOk, isErr, unwrap } from '../../src/core/result.js';
 import { integrationPool, type PooledLease } from './helpers/session-pool.js';
 import { stubDownloadService } from './helpers/download-service.js';
@@ -248,7 +257,7 @@ describe.sequential('Destructive: Post Sales Order end-to-end', () => {
     //   1. "Ship and Invoice" option dialog -> select shipping option
     //   2. "Do you want to post?" confirmation -> yes
     //   3. If successful: FormCreated (Posted Sales Invoice opens) or FormClosed (order closes)
-    const dialogChain: Array<{ formId: string; message?: string; fields?: ControlField[] }> = [];
+    const dialogChain: DialogInfo[] = [];
 
     let currentDialogs = detectDialogs(ar.events);
     let maxDialogSteps = 5; // safety limit
@@ -263,7 +272,7 @@ describe.sequential('Destructive: Post Sales Order end-to-end', () => {
       if (dialog.fields) {
         console.error(`[Post]   fields (${dialog.fields.length}):`);
         for (const f of dialog.fields) {
-          console.error(`[Post]     "${f.caption}": "${f.stringValue ?? ''}" (editable=${f.editable}, type=${f.type})`);
+          console.error(`[Post]     "${f.name}": "${f.value ?? ''}" (editable=${f.editable}, type=${f.type})`);
         }
       }
 
@@ -294,7 +303,7 @@ describe.sequential('Destructive: Post Sales Order end-to-end', () => {
       }
 
       const dr = unwrap(dialogResult);
-      console.error(`[Post]   dialog response: success=${dr.success}, newDialogs=${dr.dialogsOpened.length}, openedPages=${dr.openedPages.length}, changedSections=${dr.changedSections.join(',')}`);
+      console.error(`[Post]   dialog response: closed=${dr.closed}, newDialogs=${dr.dialogsOpened.length}, openedPages=${dr.openedPages.length}, changedSections=${dr.changedSections.join(',')}`);
 
       // Check if a new page was opened (Posted Sales Invoice)
       if (dr.openedPages.length > 0) {
@@ -398,15 +407,15 @@ describe.sequential('Destructive: Copy Document dialog', () => {
     if (dialog.fields && dialog.fields.length > 0) {
       console.error(`[CopyDoc] Dialog fields (${dialog.fields.length}):`);
       for (const f of dialog.fields) {
-        console.error(`[CopyDoc]   "${f.caption}": value="${f.stringValue ?? ''}" editable=${f.editable} type=${f.type} path=${f.controlPath}`);
+        console.error(`[CopyDoc]   "${f.name}": value="${f.value ?? ''}" editable=${f.editable} type=${f.type}`);
       }
 
       // We expect fields like "Document Type", "Document No.", "Include Header", etc.
       const docTypeField = dialog.fields.find(f =>
-        f.caption.toLowerCase().includes('document type'),
+        f.name.toLowerCase().includes('document type'),
       );
       const docNoField = dialog.fields.find(f =>
-        f.caption.toLowerCase().includes('document no'),
+        f.name.toLowerCase().includes('document no'),
       );
 
       console.error(`[CopyDoc] Document Type field: ${docTypeField ? 'FOUND' : 'NOT FOUND'}`);
@@ -429,7 +438,7 @@ describe.sequential('Destructive: Copy Document dialog', () => {
 
     if (isOk(cancelResult)) {
       const cr = unwrap(cancelResult);
-      console.error(`[CopyDoc] Cancel result: success=${cr.success}`);
+      console.error(`[CopyDoc] Cancel result: closed=${cr.closed}`);
 
       // Handle any cascading dialogs from cancel
       if (cr.dialogsOpened.length > 0) {
@@ -471,22 +480,23 @@ describe.sequential('Destructive: Copy Document dialog', () => {
 
     const dialog = dialogs[0]!;
     const dialogFormId = dialog.formId;
+    const pathOf = (name: string) => dialogFieldPath(unwrap(actionResult).events, dialogFormId, name);
 
-    // Try to write to dialog fields using SaveValue directly on the dialog formId
-    // The dialog fields have controlPaths that we can write to.
+    // Try to write to dialog fields using SaveValue directly on the dialog formId.
+    // The DTO has no controlPath; take it from the dialog's control tree.
     if (dialog.fields && dialog.fields.length > 0) {
       // Find Document Type field
       const docTypeField = dialog.fields.find(f =>
-        f.caption.toLowerCase().includes('document type'),
+        f.name.toLowerCase().includes('document type'),
       );
 
       if (docTypeField && docTypeField.editable) {
-        console.error(`[CopyDoc-Fill] Writing Document Type = "Order" on dialog field path=${docTypeField.controlPath}...`);
+        console.error(`[CopyDoc-Fill] Writing Document Type = "Order" on dialog field path=${pathOf(docTypeField.name)}...`);
         const writeResult = await h.session.invoke(
           {
             type: 'SaveValue' as const,
             formId: dialogFormId,
-            controlPath: docTypeField.controlPath,
+            controlPath: pathOf(docTypeField.name)!,
             newValue: 'Order',
           } satisfies SaveValueInteraction,
           (event) => event.type === 'InvokeCompleted' || event.type === 'PropertyChanged',
@@ -503,16 +513,16 @@ describe.sequential('Destructive: Copy Document dialog', () => {
 
       // Find Document No. field
       const docNoField = dialog.fields.find(f =>
-        f.caption.toLowerCase().includes('document no'),
+        f.name.toLowerCase().includes('document no'),
       );
 
       if (docNoField && docNoField.editable && orderNo) {
-        console.error(`[CopyDoc-Fill] Writing Document No. = "${orderNo}" on dialog field path=${docNoField.controlPath}...`);
+        console.error(`[CopyDoc-Fill] Writing Document No. = "${orderNo}" on dialog field path=${pathOf(docNoField.name)}...`);
         const writeResult = await h.session.invoke(
           {
             type: 'SaveValue' as const,
             formId: dialogFormId,
-            controlPath: docNoField.controlPath,
+            controlPath: pathOf(docNoField.name)!,
             newValue: orderNo,
           } satisfies SaveValueInteraction,
           (event) => event.type === 'InvokeCompleted' || event.type === 'PropertyChanged',
@@ -537,7 +547,7 @@ describe.sequential('Destructive: Copy Document dialog', () => {
 
       if (isOk(okResult)) {
         const okr = unwrap(okResult);
-        console.error(`[CopyDoc-Fill] OK result: success=${okr.success}, changedSections=${okr.changedSections.join(',')}, newDialogs=${okr.dialogsOpened.length}, openedPages=${okr.openedPages.length}`);
+        console.error(`[CopyDoc-Fill] OK result: closed=${okr.closed}, changedSections=${okr.changedSections.join(',')}, newDialogs=${okr.dialogsOpened.length}, openedPages=${okr.openedPages.length}`);
 
         // After a successful copy, lines section should be updated
         if (okr.changedSections.length > 0) {

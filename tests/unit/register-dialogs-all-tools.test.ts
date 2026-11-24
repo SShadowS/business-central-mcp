@@ -59,11 +59,12 @@ describe('dialogs opened outside bc_execute_action get a pageContextId (#52)', (
     expect(nav.ok).toBe(true);
     if (!nav.ok) return;
     const dlg = nav.value.dialogsOpened[0]!;
-    expect(dlg.message).toBe('Set up SMTP Account');
+    expect(dlg.title).toBe('Set up SMTP Account');
     expectRegistered(repo, dlg, 'pc:wiz');
 
+    // "Account Name" sits at lf > gc > sc in smtpTree.
     const invoke = vi.fn(async () => ok([
-      { type: 'PropertyChanged', formId: 'E3A', controlPath: dlg.fields![0]!.controlPath, changes: { StringValue: 'Office' } }, done,
+      { type: 'PropertyChanged', formId: 'E3A', controlPath: 'server:c[0]/c[0]', changes: { StringValue: 'Office' } }, done,
     ] as BCEvent[]));
     const write = await new WriteDataOperation(new DataService({ invoke } as never, repo, logger), repo)
       .execute({ pageContextId: dlg.pageContextId, fields: { 'Account Name': 'Office' } });

@@ -1,0 +1,2430 @@
+{
+  "type": "DialogOpened",
+  "formId": "997",
+  "controlTree": {
+    "ServerId": "997",
+    "ServerFormHandle": "23426674-52a0-4fae-8cf0-99bb8e19c557",
+    "HasUserTour": true,
+    "t": "lf",
+    "Caption": "Trial Balance (Obsolete)",
+    "ControlIdentifier": "19790809-0006-0000-0000-000000000000",
+    "DesignName": "Trial Balance",
+    "MappingHint": "RequestPage",
+    "Importance": 1,
+    "AboutTitle": "About Trial Balance (Obsolete)",
+    "AboutText": "View a snapshot of your chart of accounts with a balance at date and net change in the specified period.** This report is obsolete and will be removed in a future release.** Please refer to the report documentation for alternative ways to retrieve this information.",
+    "InitialActiveControlPath": "server:c[3]",
+    "ViewMode": 2,
+    "PageMode": 1,
+    "IsTaskDialog": true,
+    "IsModal": true,
+    "QueryClose": true,
+    "DesignerLevels": 8,
+    "SupportsIsBookmarked": true,
+    "Bookmark": "10_dGZCI6BSrk-M8Jm7jhnFVw",
+    "SystemId": null,
+    "AppId": "437dbf0e-84ff-417a-965d-ed2bb9650972",
+    "AppName": "Base Application",
+    "AppPublisher": "Microsoft",
+    "AppVersion": "29.0.54011.56136",
+    "HasFiltersApplied": true,
+    "HelpUrl": "https://learn.microsoft.com/en-US/dynamics365/business-central/index",
+    "PersonalizationHelpUrl": "https://learn.microsoft.com/en-US/dynamics365/business-central/ui-personalization-locked",
+    "IsBoundToSourceTable": false,
+    "SharedLayout": false,
+    "ShowTitle": false,
+    "PageDataSourceType": 0,
+    "Children": [
+      {
+        "t": "gc",
+        "ControlIdentifier": "fb8cccf3-54ac-4d77-9ad8-136cec25583a",
+        "Name": "CommandBar",
+        "MappingHint": "TOOLBAR",
+        "Importance": 1,
+        "Children": [
+          {
+            "t": "gc",
+            "Caption": "&Actions",
+            "ControlIdentifier": "1ac622ac-c99e-40e1-8a10-9097e235ec6f",
+            "Name": "Control_Actions",
+            "Importance": 1,
+            "ActionContainerType": 1,
+            "Children": [
+              {
+                "t": "gc",
+                "Caption": "Page",
+                "ControlIdentifier": "cdba910d-e283-4a38-ad03-c9d42763c3ce",
+                "DesignName": "Page",
+                "Importance": 1
+              }
+            ]
+          },
+          {
+            "t": "gc",
+            "Caption": "Related &Information",
+            "Visible": false,
+            "LocalVisible": false,
+            "Name": "RelatedGroup",
+            "Importance": 1,
+            "ActionContainerType": 2
+          },
+          {
+            "t": "gc",
+            "Caption": "Views",
+            "Visible": false,
+            "LocalVisible": false,
+            "Name": "ViewsGroup",
+            "MappingHint": "PAGEVIEWS",
+            "Importance": 1
+          },
+          {
+            "t": "gc",
+            "Caption": "&Reports",
+            "Visible": false,
+            "LocalVisible": false,
+            "Name": "ReportsGroup",
+            "Importance": 1,
+            "ActionContainerType": 4
+          },
+          {
+            "t": "gc",
+            "ShowCaption": false,
+            "Name": "HelpGroup",
+            "MappingHint": "CommandBarHelpGroup",
+            "Importance": 1
+          },
+          {
+            "t": "gc",
+            "ShowCaption": false,
+            "Name": "LayoutGroup",
+            "MappingHint": "CommandBarLayoutGroup",
+            "Importance": 1
+          },
+          {
+            "t": "ssc",
+            "Editable": false,
+            "Visible": false,
+            "LocalVisible": false,
+            "Name": "SystemIndicator",
+            "Importance": 1,
+            "MaximumStringLength": 0,
+            "HelpUrl": "https://learn.microsoft.com/en-US/dynamics365/business-central/index"
+          },
+          {
+            "t": "gc",
+            "Caption": "Dynamics 365 Business Central",
+            "ControlIdentifier": "d7c9f73f-9844-47ff-b4f4-88a77eb4e103",
+            "DesignName": "Control_Microsoft_Dynamics_NAV",
+            "Importance": 1,
+            "Children": [
+              {
+                "t": "gc",
+                "Caption": "Page",
+                "ControlIdentifier": "cdab913b-e283-4a38-ad03-c9d42763c1ca",
+                "DesignName": "Page",
+                "Importance": 1
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "t": "sc",
+        "Caption": "Printer",
+        "StringValue": "(Handled by the browser)",
+        "TableEditable": true,
+        "ControlIdentifier": "7e331fe3-90f8-495c-ba66-bbbc3538289e",
+        "Name": "2000010031",
+        "MappingHint": "EmphasizedCaption",
+        "ColumnBinder": {
+          "Name": "2000010031_cPrinterName"
+        },
+        "Formatter": {},
+        "Synopsis": "Specifies a cloud-enabled printer selected for this report. You can change the default printer by using Printer Selections page. If no printer is selected, the browser will handle the printout and display a standard experience where a local printer can be chosen.",
+        "Importance": 2,
+        "ControlId": 2000010031,
+        "FieldBound": 1,
+        "LookupAction": {
+          "t": "lookac",
+          "SystemAction": 110,
+          "AllowFilterAsYouType": true,
+          "CanShowSimpleLookup": true
+        },
+        "ShowDetailsAction": {
+          "t": "clact",
+          "SystemAction": 125
+        },
+        "MaximumStringLength": 0,
+        "HelpUrl": "https://go.microsoft.com/fwlink/?linkid=2118801",
+        "QuickEntry": false,
+        "Actions": [
+          {
+            "t": "ac",
+            "Caption": "Show Details",
+            "ControlIdentifier": "0811f208-e9cf-4e36-804b-400aed95af4e",
+            "Name": "NavShowDetailsAction",
+            "Importance": 2,
+            "Icon": {
+              "Identifier": "Actions/Find/16.png"
+            },
+            "LargeIcon": {
+              "Identifier": "Actions/Find/32.png"
+            },
+            "SystemAction": 125,
+            "Action": {
+              "t": "clact",
+              "Enabled": false
+            }
+          }
+        ]
+      },
+      {
+        "t": "sc",
+        "Caption": "Report Layout",
+        "StringValue": "RDLCLayout",
+        "Editable": false,
+        "LocalEditable": false,
+        "TableEditable": true,
+        "ControlIdentifier": "b75e34f7-085f-4d68-a6e3-1958d8b55810",
+        "Name": "2000010036",
+        "MappingHint": "EmphasizedCaption",
+        "ColumnBinder": {
+          "Name": "2000010036_cLayoutName"
+        },
+        "Formatter": {},
+        "Synopsis": "Specifies the currently selected layout for this report. To use a different layout, select the field, then choose from a list of the available layouts for this report.",
+        "Importance": 2,
+        "ValidateTableRelation": false,
+        "ControlId": 2000010036,
+        "FieldBound": 1,
+        "AssistEditAction": {
+          "t": "clact",
+          "SystemAction": 100
+        },
+        "ShowDetailsAction": {
+          "t": "clact",
+          "Enabled": false,
+          "SystemAction": 125
+        },
+        "MaximumStringLength": 0,
+        "DefaultAction": {
+          "t": "clact",
+          "SystemAction": 100
+        },
+        "HelpUrl": "https://go.microsoft.com/fwlink/?linkid=2118801",
+        "QuickEntry": false,
+        "Actions": [
+          {
+            "t": "ac",
+            "Caption": "AssistEdit",
+            "ControlIdentifier": "072b0545-e0d6-4da6-a5b4-3f110de9e539",
+            "Name": "NavAssistEditAction",
+            "Importance": 2,
+            "Icon": {
+              "Identifier": "Actions/Action_AssistEdit.png"
+            },
+            "SystemAction": 100,
+            "Action": {
+              "t": "clact"
+            },
+            "ShortcutKeys": [
+              "SHIFT+F4"
+            ]
+          },
+          {
+            "t": "ac",
+            "Caption": "Show Details",
+            "Enabled": false,
+            "ControlIdentifier": "0811f208-e9cf-4e36-804b-400aed95af4e",
+            "Name": "NavShowDetailsAction",
+            "Importance": 2,
+            "Icon": {
+              "Identifier": "Actions/Find/16.png"
+            },
+            "LargeIcon": {
+              "Identifier": "Actions/Find/32.png"
+            },
+            "SystemAction": 125,
+            "Action": {
+              "t": "clact",
+              "Enabled": false
+            }
+          }
+        ]
+      },
+      {
+        "t": "sc",
+        "Caption": "Use default values from",
+        "StringValue": "Last used options and filters",
+        "TableEditable": true,
+        "ControlIdentifier": "47889756-5016-46b4-8a54-c958239e96c8",
+        "Name": "2000010021",
+        "ColumnBinder": {
+          "Name": "2000010021_cObjectOptions"
+        },
+        "Formatter": {},
+        "Synopsis": "Changes to the options and filters below will be saved only to: 'Last used options and filters'",
+        "Importance": 2,
+        "ControlId": 2000010021,
+        "FieldBound": 1,
+        "LookupAction": {
+          "t": "lookac",
+          "SystemAction": 110,
+          "AllowFilterAsYouType": true,
+          "CanShowSimpleLookup": true
+        },
+        "ShowDetailsAction": {
+          "t": "clact",
+          "SystemAction": 125
+        },
+        "MaximumStringLength": 0,
+        "HelpUrl": "https://learn.microsoft.com/en-US/dynamics365/business-central/index",
+        "Actions": [
+          {
+            "t": "ac",
+            "Caption": "Show Details",
+            "ControlIdentifier": "0811f208-e9cf-4e36-804b-400aed95af4e",
+            "Name": "NavShowDetailsAction",
+            "Importance": 2,
+            "Icon": {
+              "Identifier": "Actions/Find/16.png"
+            },
+            "LargeIcon": {
+              "Identifier": "Actions/Find/32.png"
+            },
+            "SystemAction": 125,
+            "Action": {
+              "t": "clact",
+              "Enabled": false
+            }
+          }
+        ]
+      },
+      {
+        "t": "fhc",
+        "Caption": "G/L Account",
+        "StringValue": "",
+        "ShowCaption": false,
+        "ControlIdentifier": "00000006-7a80-0000-0d00-0000836bd2d2",
+        "Name": "Report6DataItem0TableView",
+        "Children": [
+          {
+            "ServerId": "996",
+            "t": "lf",
+            "ControlIdentifier": "00000006-8650-0000-0d00-0000836bd2d2",
+            "Importance": 1,
+            "ViewMode": 2,
+            "SystemId": null,
+            "IsBoundToSourceTable": false,
+            "SharedLayout": false,
+            "AnalysisModeEnabled": false,
+            "Children": [
+              {
+                "t": "gc",
+                "Caption": "Filter: G/L Account",
+                "ControlIdentifier": "00000006-7a80-0000-0d00-0000836bd2d2",
+                "MappingHint": "EXPANDER",
+                "Importance": 1,
+                "Children": [
+                  {
+                    "t": "filc",
+                    "StringValue": "",
+                    "Name": "Report6DataItem0TableView",
+                    "MappingHint": "ADVANCEDFILTER",
+                    "Importance": 1,
+                    "FilterColumns": [
+                      {
+                        "Id": "15_G/L Account.8",
+                        "Caption": "Account Category",
+                        "source": {
+                          "field": "Account Category",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.81",
+                        "Caption": "Account Subcategory Descript.",
+                        "source": {
+                          "field": "Account Subcategory Descript.",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.80.80",
+                        "Caption": "Account Subcategory Entry No.",
+                        "source": {
+                          "field": "Account Subcategory Entry No.",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.4",
+                        "Caption": "Account Type",
+                        "source": {
+                          "field": "Account Type",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.61",
+                        "Caption": "Add.-Currency Balance at Date",
+                        "source": {
+                          "field": "Add.-Currency Balance at Date",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.65",
+                        "Caption": "Add.-Currency Credit Amount",
+                        "source": {
+                          "field": "Add.-Currency Credit Amount",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.64",
+                        "Caption": "Add.-Currency Debit Amount",
+                        "source": {
+                          "field": "Add.-Currency Debit Amount",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.62",
+                        "Caption": "Additional-Currency Balance",
+                        "source": {
+                          "field": "Additional-Currency Balance",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.60",
+                        "Caption": "Additional-Currency Net Change",
+                        "source": {
+                          "field": "Additional-Currency Net Change",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.6.6",
+                        "Caption": "Afdeling Kode",
+                        "source": {
+                          "field": "Global Dimension 1 Code",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.9000",
+                        "Caption": "API Account Type",
+                        "source": {
+                          "field": "API Account Type",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.49",
+                        "Caption": "Automatic Ext. Texts",
+                        "source": {
+                          "field": "Automatic Ext. Texts",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.36",
+                        "Caption": "Balance",
+                        "source": {
+                          "field": "Balance",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.31",
+                        "Caption": "Balance at Date",
+                        "source": {
+                          "field": "Balance at Date",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.13",
+                        "Caption": "Blocked",
+                        "source": {
+                          "field": "Blocked",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.37",
+                        "Caption": "Budget at Date",
+                        "source": {
+                          "field": "Budget at Date",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.33",
+                        "Caption": "Budgeted Amount",
+                        "source": {
+                          "field": "Budgeted Amount",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.53",
+                        "Caption": "Budgeted Credit Amount",
+                        "source": {
+                          "field": "Budgeted Credit Amount",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.52",
+                        "Caption": "Budgeted Debit Amount",
+                        "source": {
+                          "field": "Budgeted Debit Amount",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.12",
+                        "Caption": "Comment",
+                        "source": {
+                          "field": "Comment",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.41",
+                        "Caption": "Consol. Credit Acc.",
+                        "source": {
+                          "field": "Consol. Credit Acc.",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.40",
+                        "Caption": "Consol. Debit Acc.",
+                        "source": {
+                          "field": "Consol. Debit Acc.",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.39",
+                        "Caption": "Consol. Translation Method",
+                        "source": {
+                          "field": "Consol. Translation Method",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.1100.1100",
+                        "Caption": "Cost Type No.",
+                        "source": {
+                          "field": "Cost Type No.",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.2000000001",
+                        "Caption": "Created At",
+                        "source": {
+                          "field": "SystemCreatedAt",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.2000000002.2000000002",
+                        "Caption": "Created By",
+                        "source": {
+                          "field": "SystemCreatedBy",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.2000000006",
+                        "Caption": "Created By (Full Name)",
+                        "source": {
+                          "field": "SystemCreatedByFullName",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.2000000005",
+                        "Caption": "Created By (User Name)",
+                        "source": {
+                          "field": "SystemCreatedByUserName",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.48",
+                        "Caption": "Credit Amount",
+                        "source": {
+                          "field": "Credit Amount",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.20.20",
+                        "Caption": "Currency Code",
+                        "source": {
+                          "field": "Source Currency Code",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.47",
+                        "Caption": "Debit Amount",
+                        "source": {
+                          "field": "Debit Amount",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.10",
+                        "Caption": "Debit/Credit",
+                        "source": {
+                          "field": "Debit/Credit",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.7.7",
+                        "Caption": "Debitorgruppe Kode",
+                        "source": {
+                          "field": "Global Dimension 2 Code",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.1700.1700",
+                        "Caption": "Default Deferral Template Code",
+                        "source": {
+                          "field": "Default Deferral Template Code",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.66.66",
+                        "Caption": "Default IC Partner G/L Acc. No",
+                        "source": {
+                          "field": "Default IC Partner G/L Acc. No",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.6210.6210",
+                        "Caption": "Default Sust. Account",
+                        "source": {
+                          "field": "Default Sust. Account",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.14",
+                        "Caption": "Direct Posting",
+                        "source": {
+                          "field": "Direct Posting",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.63",
+                        "Caption": "Exchange Rate Adjustment",
+                        "source": {
+                          "field": "Exchange Rate Adjustment",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.83",
+                        "Caption": "Exclude from Consolidation",
+                        "source": {
+                          "field": "Exclude From Consolidation",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.44.44",
+                        "Caption": "Gen. Bus. Posting Group",
+                        "source": {
+                          "field": "Gen. Bus. Posting Group",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.43",
+                        "Caption": "Gen. Posting Type",
+                        "source": {
+                          "field": "Gen. Posting Type",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.45.45",
+                        "Caption": "Gen. Prod. Posting Group",
+                        "source": {
+                          "field": "Gen. Prod. Posting Group",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.9",
+                        "Caption": "Income/Balance",
+                        "source": {
+                          "field": "Income/Balance",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.19",
+                        "Caption": "Indentation",
+                        "source": {
+                          "field": "Indentation",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.26",
+                        "Caption": "Last Date Modified",
+                        "source": {
+                          "field": "Last Date Modified",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.25",
+                        "Caption": "Last Modified Date Time",
+                        "source": {
+                          "field": "Last Modified Date Time",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.2000000003",
+                        "Caption": "Modified At",
+                        "source": {
+                          "field": "SystemModifiedAt",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.2000000004.2000000004",
+                        "Caption": "Modified By",
+                        "source": {
+                          "field": "SystemModifiedBy",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.2000000008",
+                        "Caption": "Modified By (Full Name)",
+                        "source": {
+                          "field": "SystemModifiedByFullName",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.2000000007",
+                        "Caption": "Modified By (User Name)",
+                        "source": {
+                          "field": "SystemModifiedByUserName",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.2",
+                        "Caption": "Name",
+                        "source": {
+                          "field": "Name",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.32",
+                        "Caption": "Net Change",
+                        "source": {
+                          "field": "Net Change",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.17",
+                        "Caption": "New Page",
+                        "source": {
+                          "field": "New Page",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.1",
+                        "Caption": "No.",
+                        "source": {
+                          "field": "No.",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.11",
+                        "Caption": "No. 2",
+                        "source": {
+                          "field": "No. 2",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.18",
+                        "Caption": "No. of Blank Lines",
+                        "source": {
+                          "field": "No. of Blank Lines",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.70",
+                        "Caption": "Omit Default Descr. in Jnl.",
+                        "source": {
+                          "field": "Omit Default Descr. in Jnl.",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.16",
+                        "Caption": "Reconciliation Account",
+                        "source": {
+                          "field": "Reconciliation Account",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.22200",
+                        "Caption": "Review Policy",
+                        "source": {
+                          "field": "Review Policy",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.0",
+                        "Caption": "Row Version",
+                        "source": {
+                          "field": "timestamp",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.3",
+                        "Caption": "Search Name",
+                        "source": {
+                          "field": "Search Name",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.76",
+                        "Caption": "Source Curr. Balance at Date",
+                        "source": {
+                          "field": "Source Curr. Balance at Date",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.77",
+                        "Caption": "Source Currency Balance",
+                        "source": {
+                          "field": "Source Currency Balance",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.75",
+                        "Caption": "Source Currency Net Change",
+                        "source": {
+                          "field": "Source Currency Net Change",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.21",
+                        "Caption": "Source Currency Posting",
+                        "source": {
+                          "field": "Source Currency Posting",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.22",
+                        "Caption": "Source Currency Revaluation",
+                        "source": {
+                          "field": "Source Currency Revaluation",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.90",
+                        "Caption": "Spend Request Required",
+                        "source": {
+                          "field": "Spend Request Required",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.2000000000",
+                        "Caption": "System ID",
+                        "source": {
+                          "field": "$systemId",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.54.54",
+                        "Caption": "Tax Area Code",
+                        "source": {
+                          "field": "Tax Area Code",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.56.56",
+                        "Caption": "Tax Group Code",
+                        "source": {
+                          "field": "Tax Group Code",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.55",
+                        "Caption": "Tax Liable",
+                        "source": {
+                          "field": "Tax Liable",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.34",
+                        "Caption": "Totaling",
+                        "source": {
+                          "field": "Totaling",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.23",
+                        "Caption": "Unrealized Revaluation",
+                        "source": {
+                          "field": "Unrealized Revaluation",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.59",
+                        "Caption": "VAT Amt.",
+                        "source": {
+                          "field": "VAT Amt.",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.57.57",
+                        "Caption": "VAT Bus. Posting Group",
+                        "source": {
+                          "field": "VAT Bus. Posting Group",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.58.58",
+                        "Caption": "VAT Prod. Posting Group",
+                        "source": {
+                          "field": "VAT Prod. Posting Group",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.6784.6784",
+                        "Caption": "Withholding Tax Bus. Post. Group",
+                        "source": {
+                          "field": "Wthldg. Tax Bus. Post. Group",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.6785.6785",
+                        "Caption": "Withholding Tax Prod. Post. Group",
+                        "source": {
+                          "field": "Wthldg. Tax Prod. Post. Group",
+                          "scope": "filter"
+                        }
+                      }
+                    ],
+                    "FlowFilterColumns": [
+                      {
+                        "Id": "15_G/L Account.29",
+                        "Caption": "Afdeling Filter",
+                        "source": {
+                          "field": "Global Dimension 1 Filter",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.35",
+                        "Caption": "Budget Filter",
+                        "source": {
+                          "field": "Budget Filter",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.42",
+                        "Caption": "Business Unit Filter",
+                        "source": {
+                          "field": "Business Unit Filter",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.28",
+                        "Caption": "Date Filter",
+                        "source": {
+                          "field": "Date Filter",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.30",
+                        "Caption": "Debitorgruppe Filter",
+                        "source": {
+                          "field": "Global Dimension 2 Filter",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.400",
+                        "Caption": "Dimension Set ID Filter",
+                        "source": {
+                          "field": "Dimension Set ID Filter",
+                          "scope": "filter"
+                        }
+                      },
+                      {
+                        "Id": "15_G/L Account.82",
+                        "Caption": "VAT Reporting Date Filter",
+                        "source": {
+                          "field": "VAT Reporting Date Filter",
+                          "scope": "filter"
+                        }
+                      }
+                    ],
+                    "Children": [
+                      {
+                        "t": "flc",
+                        "Caption": "Show results:",
+                        "StringValue": "",
+                        "Importance": 1,
+                        "LineType": 1,
+                        "Children": [
+                          {
+                            "t": "sec",
+                            "StringValue": "No.",
+                            "ObjectValue": "1",
+                            "Formatter": {},
+                            "MaximumStringLength": 1000,
+                            "Items": [
+                              {
+                                "Text": "Account Category",
+                                "Value": "8"
+                              },
+                              {
+                                "Text": "Account Subcategory Descript.",
+                                "Value": "81"
+                              },
+                              {
+                                "Text": "Account Subcategory Entry No.",
+                                "Value": "80"
+                              },
+                              {
+                                "Text": "Account Type",
+                                "Value": "4"
+                              },
+                              {
+                                "Text": "Add.-Currency Balance at Date",
+                                "Value": "61"
+                              },
+                              {
+                                "Text": "Add.-Currency Credit Amount",
+                                "Value": "65"
+                              },
+                              {
+                                "Text": "Add.-Currency Debit Amount",
+                                "Value": "64"
+                              },
+                              {
+                                "Text": "Additional-Currency Balance",
+                                "Value": "62"
+                              },
+                              {
+                                "Text": "Additional-Currency Net Change",
+                                "Value": "60"
+                              },
+                              {
+                                "Text": "Afdeling Kode",
+                                "Value": "6"
+                              },
+                              {
+                                "Text": "API Account Type",
+                                "Value": "9000"
+                              },
+                              {
+                                "Text": "Automatic Ext. Texts",
+                                "Value": "49"
+                              },
+                              {
+                                "Text": "Balance",
+                                "Value": "36"
+                              },
+                              {
+                                "Text": "Balance at Date",
+                                "Value": "31"
+                              },
+                              {
+                                "Text": "Blocked",
+                                "Value": "13"
+                              },
+                              {
+                                "Text": "Budget at Date",
+                                "Value": "37"
+                              },
+                              {
+                                "Text": "Budgeted Amount",
+                                "Value": "33"
+                              },
+                              {
+                                "Text": "Budgeted Credit Amount",
+                                "Value": "53"
+                              },
+                              {
+                                "Text": "Budgeted Debit Amount",
+                                "Value": "52"
+                              },
+                              {
+                                "Text": "Comment",
+                                "Value": "12"
+                              },
+                              {
+                                "Text": "Consol. Credit Acc.",
+                                "Value": "41"
+                              },
+                              {
+                                "Text": "Consol. Debit Acc.",
+                                "Value": "40"
+                              },
+                              {
+                                "Text": "Consol. Translation Method",
+                                "Value": "39"
+                              },
+                              {
+                                "Text": "Cost Type No.",
+                                "Value": "1100"
+                              },
+                              {
+                                "Text": "Created At",
+                                "Value": "2000000001"
+                              },
+                              {
+                                "Text": "Created By",
+                                "Value": "2000000002"
+                              },
+                              {
+                                "Text": "Created By (Full Name)",
+                                "Value": "2000000006"
+                              },
+                              {
+                                "Text": "Created By (User Name)",
+                                "Value": "2000000005"
+                              },
+                              {
+                                "Text": "Credit Amount",
+                                "Value": "48"
+                              },
+                              {
+                                "Text": "Currency Code",
+                                "Value": "20"
+                              },
+                              {
+                                "Text": "Debit Amount",
+                                "Value": "47"
+                              },
+                              {
+                                "Text": "Debit/Credit",
+                                "Value": "10"
+                              },
+                              {
+                                "Text": "Debitorgruppe Kode",
+                                "Value": "7"
+                              },
+                              {
+                                "Text": "Default Deferral Template Code",
+                                "Value": "1700"
+                              },
+                              {
+                                "Text": "Default IC Partner G/L Acc. No",
+                                "Value": "66"
+                              },
+                              {
+                                "Text": "Default Sust. Account",
+                                "Value": "6210"
+                              },
+                              {
+                                "Text": "Direct Posting",
+                                "Value": "14"
+                              },
+                              {
+                                "Text": "Exchange Rate Adjustment",
+                                "Value": "63"
+                              },
+                              {
+                                "Text": "Exclude from Consolidation",
+                                "Value": "83"
+                              },
+                              {
+                                "Text": "Gen. Bus. Posting Group",
+                                "Value": "44"
+                              },
+                              {
+                                "Text": "Gen. Posting Type",
+                                "Value": "43"
+                              },
+                              {
+                                "Text": "Gen. Prod. Posting Group",
+                                "Value": "45"
+                              },
+                              {
+                                "Text": "Income/Balance",
+                                "Value": "9"
+                              },
+                              {
+                                "Text": "Indentation",
+                                "Value": "19"
+                              },
+                              {
+                                "Text": "Last Date Modified",
+                                "Value": "26"
+                              },
+                              {
+                                "Text": "Last Modified Date Time",
+                                "Value": "25"
+                              },
+                              {
+                                "Text": "Modified At",
+                                "Value": "2000000003"
+                              },
+                              {
+                                "Text": "Modified By",
+                                "Value": "2000000004"
+                              },
+                              {
+                                "Text": "Modified By (Full Name)",
+                                "Value": "2000000008"
+                              },
+                              {
+                                "Text": "Modified By (User Name)",
+                                "Value": "2000000007"
+                              },
+                              {
+                                "Text": "Name",
+                                "Value": "2"
+                              },
+                              {
+                                "Text": "Net Change",
+                                "Value": "32"
+                              },
+                              {
+                                "Text": "New Page",
+                                "Value": "17"
+                              },
+                              {
+                                "Text": "No.",
+                                "Value": "1"
+                              },
+                              {
+                                "Text": "No. 2",
+                                "Value": "11"
+                              },
+                              {
+                                "Text": "No. of Blank Lines",
+                                "Value": "18"
+                              },
+                              {
+                                "Text": "Omit Default Descr. in Jnl.",
+                                "Value": "70"
+                              },
+                              {
+                                "Text": "Reconciliation Account",
+                                "Value": "16"
+                              },
+                              {
+                                "Text": "Review Policy",
+                                "Value": "22200"
+                              },
+                              {
+                                "Text": "Row Version",
+                                "Value": "0"
+                              },
+                              {
+                                "Text": "Search Name",
+                                "Value": "3"
+                              },
+                              {
+                                "Text": "Source Curr. Balance at Date",
+                                "Value": "76"
+                              },
+                              {
+                                "Text": "Source Currency Balance",
+                                "Value": "77"
+                              },
+                              {
+                                "Text": "Source Currency Net Change",
+                                "Value": "75"
+                              },
+                              {
+                                "Text": "Source Currency Posting",
+                                "Value": "21"
+                              },
+                              {
+                                "Text": "Source Currency Revaluation",
+                                "Value": "22"
+                              },
+                              {
+                                "Text": "Spend Request Required",
+                                "Value": "90"
+                              },
+                              {
+                                "Text": "System ID",
+                                "Value": "2000000000"
+                              },
+                              {
+                                "Text": "Tax Area Code",
+                                "Value": "54"
+                              },
+                              {
+                                "Text": "Tax Group Code",
+                                "Value": "56"
+                              },
+                              {
+                                "Text": "Tax Liable",
+                                "Value": "55"
+                              },
+                              {
+                                "Text": "Totaling",
+                                "Value": "34"
+                              },
+                              {
+                                "Text": "Unrealized Revaluation",
+                                "Value": "23"
+                              },
+                              {
+                                "Text": "VAT Amt.",
+                                "Value": "59"
+                              },
+                              {
+                                "Text": "VAT Bus. Posting Group",
+                                "Value": "57"
+                              },
+                              {
+                                "Text": "VAT Prod. Posting Group",
+                                "Value": "58"
+                              },
+                              {
+                                "Text": "Withholding Tax Bus. Post. Group",
+                                "Value": "6784"
+                              },
+                              {
+                                "Text": "Withholding Tax Prod. Post. Group",
+                                "Value": "6785"
+                              }
+                            ],
+                            "CurrentIndex": 53
+                          },
+                          {
+                            "t": "fvc",
+                            "Caption": "No.",
+                            "StringValue": "",
+                            "ObjectValue": "",
+                            "DesignName": "No.",
+                            "ColumnBinder": {
+                              "Name": "No._c1"
+                            },
+                            "Formatter": {},
+                            "LookupAction": {
+                              "t": "lookac",
+                              "SystemAction": 110,
+                              "AllowFilterAsYouType": true,
+                              "CanShowSimpleLookup": true
+                            },
+                            "MaximumStringLength": 5000,
+                            "QuickEntry": false,
+                            "ResolvedFilterValue": "",
+                            "UserTypedFilterValue": ""
+                          }
+                        ]
+                      },
+                      {
+                        "t": "flc",
+                        "Caption": "Show results:",
+                        "StringValue": "",
+                        "Importance": 1,
+                        "LineType": 1,
+                        "Children": [
+                          {
+                            "t": "sec",
+                            "StringValue": "Account Type",
+                            "ObjectValue": "4",
+                            "Formatter": {},
+                            "MaximumStringLength": 1000,
+                            "Items": [
+                              {
+                                "Text": "Account Category",
+                                "Value": "8"
+                              },
+                              {
+                                "Text": "Account Subcategory Descript.",
+                                "Value": "81"
+                              },
+                              {
+                                "Text": "Account Subcategory Entry No.",
+                                "Value": "80"
+                              },
+                              {
+                                "Text": "Account Type",
+                                "Value": "4"
+                              },
+                              {
+                                "Text": "Add.-Currency Balance at Date",
+                                "Value": "61"
+                              },
+                              {
+                                "Text": "Add.-Currency Credit Amount",
+                                "Value": "65"
+                              },
+                              {
+                                "Text": "Add.-Currency Debit Amount",
+                                "Value": "64"
+                              },
+                              {
+                                "Text": "Additional-Currency Balance",
+                                "Value": "62"
+                              },
+                              {
+                                "Text": "Additional-Currency Net Change",
+                                "Value": "60"
+                              },
+                              {
+                                "Text": "Afdeling Kode",
+                                "Value": "6"
+                              },
+                              {
+                                "Text": "API Account Type",
+                                "Value": "9000"
+                              },
+                              {
+                                "Text": "Automatic Ext. Texts",
+                                "Value": "49"
+                              },
+                              {
+                                "Text": "Balance",
+                                "Value": "36"
+                              },
+                              {
+                                "Text": "Balance at Date",
+                                "Value": "31"
+                              },
+                              {
+                                "Text": "Blocked",
+                                "Value": "13"
+                              },
+                              {
+                                "Text": "Budget at Date",
+                                "Value": "37"
+                              },
+                              {
+                                "Text": "Budgeted Amount",
+                                "Value": "33"
+                              },
+                              {
+                                "Text": "Budgeted Credit Amount",
+                                "Value": "53"
+                              },
+                              {
+                                "Text": "Budgeted Debit Amount",
+                                "Value": "52"
+                              },
+                              {
+                                "Text": "Comment",
+                                "Value": "12"
+                              },
+                              {
+                                "Text": "Consol. Credit Acc.",
+                                "Value": "41"
+                              },
+                              {
+                                "Text": "Consol. Debit Acc.",
+                                "Value": "40"
+                              },
+                              {
+                                "Text": "Consol. Translation Method",
+                                "Value": "39"
+                              },
+                              {
+                                "Text": "Cost Type No.",
+                                "Value": "1100"
+                              },
+                              {
+                                "Text": "Created At",
+                                "Value": "2000000001"
+                              },
+                              {
+                                "Text": "Created By",
+                                "Value": "2000000002"
+                              },
+                              {
+                                "Text": "Created By (Full Name)",
+                                "Value": "2000000006"
+                              },
+                              {
+                                "Text": "Created By (User Name)",
+                                "Value": "2000000005"
+                              },
+                              {
+                                "Text": "Credit Amount",
+                                "Value": "48"
+                              },
+                              {
+                                "Text": "Currency Code",
+                                "Value": "20"
+                              },
+                              {
+                                "Text": "Debit Amount",
+                                "Value": "47"
+                              },
+                              {
+                                "Text": "Debit/Credit",
+                                "Value": "10"
+                              },
+                              {
+                                "Text": "Debitorgruppe Kode",
+                                "Value": "7"
+                              },
+                              {
+                                "Text": "Default Deferral Template Code",
+                                "Value": "1700"
+                              },
+                              {
+                                "Text": "Default IC Partner G/L Acc. No",
+                                "Value": "66"
+                              },
+                              {
+                                "Text": "Default Sust. Account",
+                                "Value": "6210"
+                              },
+                              {
+                                "Text": "Direct Posting",
+                                "Value": "14"
+                              },
+                              {
+                                "Text": "Exchange Rate Adjustment",
+                                "Value": "63"
+                              },
+                              {
+                                "Text": "Exclude from Consolidation",
+                                "Value": "83"
+                              },
+                              {
+                                "Text": "Gen. Bus. Posting Group",
+                                "Value": "44"
+                              },
+                              {
+                                "Text": "Gen. Posting Type",
+                                "Value": "43"
+                              },
+                              {
+                                "Text": "Gen. Prod. Posting Group",
+                                "Value": "45"
+                              },
+                              {
+                                "Text": "Income/Balance",
+                                "Value": "9"
+                              },
+                              {
+                                "Text": "Indentation",
+                                "Value": "19"
+                              },
+                              {
+                                "Text": "Last Date Modified",
+                                "Value": "26"
+                              },
+                              {
+                                "Text": "Last Modified Date Time",
+                                "Value": "25"
+                              },
+                              {
+                                "Text": "Modified At",
+                                "Value": "2000000003"
+                              },
+                              {
+                                "Text": "Modified By",
+                                "Value": "2000000004"
+                              },
+                              {
+                                "Text": "Modified By (Full Name)",
+                                "Value": "2000000008"
+                              },
+                              {
+                                "Text": "Modified By (User Name)",
+                                "Value": "2000000007"
+                              },
+                              {
+                                "Text": "Name",
+                                "Value": "2"
+                              },
+                              {
+                                "Text": "Net Change",
+                                "Value": "32"
+                              },
+                              {
+                                "Text": "New Page",
+                                "Value": "17"
+                              },
+                              {
+                                "Text": "No.",
+                                "Value": "1"
+                              },
+                              {
+                                "Text": "No. 2",
+                                "Value": "11"
+                              },
+                              {
+                                "Text": "No. of Blank Lines",
+                                "Value": "18"
+                              },
+                              {
+                                "Text": "Omit Default Descr. in Jnl.",
+                                "Value": "70"
+                              },
+                              {
+                                "Text": "Reconciliation Account",
+                                "Value": "16"
+                              },
+                              {
+                                "Text": "Review Policy",
+                                "Value": "22200"
+                              },
+                              {
+                                "Text": "Row Version",
+                                "Value": "0"
+                              },
+                              {
+                                "Text": "Search Name",
+                                "Value": "3"
+                              },
+                              {
+                                "Text": "Source Curr. Balance at Date",
+                                "Value": "76"
+                              },
+                              {
+                                "Text": "Source Currency Balance",
+                                "Value": "77"
+                              },
+                              {
+                                "Text": "Source Currency Net Change",
+                                "Value": "75"
+                              },
+                              {
+                                "Text": "Source Currency Posting",
+                                "Value": "21"
+                              },
+                              {
+                                "Text": "Source Currency Revaluation",
+                                "Value": "22"
+                              },
+                              {
+                                "Text": "Spend Request Required",
+                                "Value": "90"
+                              },
+                              {
+                                "Text": "System ID",
+                                "Value": "2000000000"
+                              },
+                              {
+                                "Text": "Tax Area Code",
+                                "Value": "54"
+                              },
+                              {
+                                "Text": "Tax Group Code",
+                                "Value": "56"
+                              },
+                              {
+                                "Text": "Tax Liable",
+                                "Value": "55"
+                              },
+                              {
+                                "Text": "Totaling",
+                                "Value": "34"
+                              },
+                              {
+                                "Text": "Unrealized Revaluation",
+                                "Value": "23"
+                              },
+                              {
+                                "Text": "VAT Amt.",
+                                "Value": "59"
+                              },
+                              {
+                                "Text": "VAT Bus. Posting Group",
+                                "Value": "57"
+                              },
+                              {
+                                "Text": "VAT Prod. Posting Group",
+                                "Value": "58"
+                              },
+                              {
+                                "Text": "Withholding Tax Bus. Post. Group",
+                                "Value": "6784"
+                              },
+                              {
+                                "Text": "Withholding Tax Prod. Post. Group",
+                                "Value": "6785"
+                              }
+                            ],
+                            "CurrentIndex": 3
+                          },
+                          {
+                            "t": "fsec",
+                            "Caption": "Account Type",
+                            "StringValue": "",
+                            "ObjectValue": "",
+                            "DesignName": "Account Type",
+                            "MappingHint": "ADVANCEDFILTER",
+                            "Formatter": {},
+                            "MaximumStringLength": 1000,
+                            "QuickEntry": false,
+                            "Items": [
+                              {
+                                "Text": "Posting",
+                                "Value": "0"
+                              },
+                              {
+                                "Text": "Heading",
+                                "Value": "1"
+                              },
+                              {
+                                "Text": "Total",
+                                "Value": "2"
+                              },
+                              {
+                                "Text": "Begin-Total",
+                                "Value": "3"
+                              },
+                              {
+                                "Text": "End-Total",
+                                "Value": "4"
+                              }
+                            ],
+                            "CurrentIndex": -1,
+                            "SelectedIndexes": []
+                          }
+                        ]
+                      },
+                      {
+                        "t": "flc",
+                        "Caption": "Limit totals to:",
+                        "StringValue": "",
+                        "Importance": 1,
+                        "LineType": 2,
+                        "Children": [
+                          {
+                            "t": "sec",
+                            "StringValue": "Date Filter",
+                            "ObjectValue": "28",
+                            "Formatter": {},
+                            "MaximumStringLength": 1000,
+                            "Items": [
+                              {
+                                "Text": "Afdeling Filter",
+                                "Value": "29"
+                              },
+                              {
+                                "Text": "Budget Filter",
+                                "Value": "35"
+                              },
+                              {
+                                "Text": "Business Unit Filter",
+                                "Value": "42"
+                              },
+                              {
+                                "Text": "Date Filter",
+                                "Value": "28"
+                              },
+                              {
+                                "Text": "Debitorgruppe Filter",
+                                "Value": "30"
+                              },
+                              {
+                                "Text": "Dimension Set ID Filter",
+                                "Value": "400"
+                              },
+                              {
+                                "Text": "VAT Reporting Date Filter",
+                                "Value": "82"
+                              }
+                            ],
+                            "CurrentIndex": 3
+                          },
+                          {
+                            "t": "fvc",
+                            "Caption": "Date Filter",
+                            "StringValue": "",
+                            "ObjectValue": "",
+                            "DesignName": "Date Filter",
+                            "ColumnBinder": {
+                              "Name": "Date Filter_c28"
+                            },
+                            "Formatter": {},
+                            "MaximumStringLength": 5000,
+                            "QuickEntry": false,
+                            "ResolvedFilterValue": "",
+                            "UserTypedFilterValue": ""
+                          }
+                        ]
+                      },
+                      {
+                        "t": "flc",
+                        "Caption": "Limit totals to:",
+                        "StringValue": "",
+                        "Importance": 1,
+                        "LineType": 2,
+                        "Children": [
+                          {
+                            "t": "sec",
+                            "StringValue": "Afdeling Filter",
+                            "ObjectValue": "29",
+                            "Formatter": {},
+                            "MaximumStringLength": 1000,
+                            "Items": [
+                              {
+                                "Text": "Afdeling Filter",
+                                "Value": "29"
+                              },
+                              {
+                                "Text": "Budget Filter",
+                                "Value": "35"
+                              },
+                              {
+                                "Text": "Business Unit Filter",
+                                "Value": "42"
+                              },
+                              {
+                                "Text": "Date Filter",
+                                "Value": "28"
+                              },
+                              {
+                                "Text": "Debitorgruppe Filter",
+                                "Value": "30"
+                              },
+                              {
+                                "Text": "Dimension Set ID Filter",
+                                "Value": "400"
+                              },
+                              {
+                                "Text": "VAT Reporting Date Filter",
+                                "Value": "82"
+                              }
+                            ],
+                            "CurrentIndex": 0
+                          },
+                          {
+                            "t": "fvc",
+                            "Caption": "Afdeling Filter",
+                            "StringValue": "",
+                            "ObjectValue": "",
+                            "Name": "Afdeling Filter",
+                            "ColumnBinder": {
+                              "Name": "Afdeling Filter_c29"
+                            },
+                            "Formatter": {},
+                            "LookupAction": {
+                              "t": "lookac",
+                              "SystemAction": 110,
+                              "AllowFilterAsYouType": true,
+                              "CanShowSimpleLookup": true
+                            },
+                            "MaximumStringLength": 5000,
+                            "QuickEntry": false,
+                            "ResolvedFilterValue": "",
+                            "UserTypedFilterValue": ""
+                          }
+                        ]
+                      },
+                      {
+                        "t": "flc",
+                        "Caption": "Limit totals to:",
+                        "StringValue": "",
+                        "Importance": 1,
+                        "LineType": 2,
+                        "Children": [
+                          {
+                            "t": "sec",
+                            "StringValue": "Debitorgruppe Filter",
+                            "ObjectValue": "30",
+                            "Formatter": {},
+                            "MaximumStringLength": 1000,
+                            "Items": [
+                              {
+                                "Text": "Afdeling Filter",
+                                "Value": "29"
+                              },
+                              {
+                                "Text": "Budget Filter",
+                                "Value": "35"
+                              },
+                              {
+                                "Text": "Business Unit Filter",
+                                "Value": "42"
+                              },
+                              {
+                                "Text": "Date Filter",
+                                "Value": "28"
+                              },
+                              {
+                                "Text": "Debitorgruppe Filter",
+                                "Value": "30"
+                              },
+                              {
+                                "Text": "Dimension Set ID Filter",
+                                "Value": "400"
+                              },
+                              {
+                                "Text": "VAT Reporting Date Filter",
+                                "Value": "82"
+                              }
+                            ],
+                            "CurrentIndex": 4
+                          },
+                          {
+                            "t": "fvc",
+                            "Caption": "Debitorgruppe Filter",
+                            "StringValue": "",
+                            "ObjectValue": "",
+                            "Name": "Debitorgruppe Filter",
+                            "ColumnBinder": {
+                              "Name": "Debitorgruppe Filter_c30"
+                            },
+                            "Formatter": {},
+                            "LookupAction": {
+                              "t": "lookac",
+                              "SystemAction": 110,
+                              "AllowFilterAsYouType": true,
+                              "CanShowSimpleLookup": true
+                            },
+                            "MaximumStringLength": 5000,
+                            "QuickEntry": false,
+                            "ResolvedFilterValue": "",
+                            "UserTypedFilterValue": ""
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "PageType": 13
+          }
+        ]
+      },
+      {
+        "t": "gc",
+        "Caption": "Advanced",
+        "VisibleRecursive": 1,
+        "ControlIdentifier": "3e0a7311-f6b5-47b6-a110-b820838f4a4f",
+        "MappingHint": "Collapse",
+        "Importance": 1,
+        "Sections": 1,
+        "Children": [
+          {
+            "t": "sc",
+            "Caption": "Maximum row generation time",
+            "StringValue": "06:00:00",
+            "TableEditable": true,
+            "ControlIdentifier": "c42e69a6-35c5-4987-bc3c-ca7b4479febd",
+            "Name": "2000010033",
+            "ColumnBinder": {
+              "Name": "2000010033_cReportTimeout"
+            },
+            "Formatter": {},
+            "Synopsis": "Specifies the maximum time it can take to generate rows for the report. If exceeded, the report will be canceled. The value must have the format [d.]hh:mm:ss[.ffffff]. Milliseconds can be included but will be ignored.",
+            "Importance": 2,
+            "ValidateTableRelation": false,
+            "ControlId": 2000010033,
+            "FieldBound": 1,
+            "MaximumStringLength": 0,
+            "HelpUrl": "https://learn.microsoft.com/en-US/dynamics365/business-central/index",
+            "QuickEntry": false
+          },
+          {
+            "t": "sc",
+            "Caption": "Maximum rows",
+            "StringValue": "500000",
+            "TableEditable": true,
+            "ControlIdentifier": "ae85dc43-df5e-4dda-bcce-952696dd491a",
+            "Name": "2000010034",
+            "ColumnBinder": {
+              "Name": "2000010034_cReportMaxRows"
+            },
+            "Formatter": {},
+            "Synopsis": "Specifies the maximum number of rows that can be included in this report. If exceeded, the report will be canceled.",
+            "Importance": 2,
+            "ValidateTableRelation": false,
+            "ControlId": 2000010034,
+            "FieldBound": 1,
+            "MaximumStringLength": 0,
+            "HelpUrl": "https://learn.microsoft.com/en-US/dynamics365/business-central/index",
+            "QuickEntry": false
+          },
+          {
+            "t": "sc",
+            "Caption": "Maximum documents",
+            "StringValue": "200",
+            "TableEditable": true,
+            "ControlIdentifier": "1d462c63-6d67-4c56-a183-dbc19475f9f2",
+            "Name": "2000010035",
+            "ColumnBinder": {
+              "Name": "2000010035_cReportMaxDocuments"
+            },
+            "Formatter": {},
+            "Synopsis": "Specifies the maximum number of documents that can be included in this report. Notice that this setting applies to document reports only. If exceeded, the report will be canceled.",
+            "Importance": 2,
+            "ValidateTableRelation": false,
+            "ControlId": 2000010035,
+            "FieldBound": 1,
+            "MaximumStringLength": 0,
+            "HelpUrl": "https://learn.microsoft.com/en-US/dynamics365/business-central/index",
+            "QuickEntry": false
+          },
+          {
+            "t": "sc",
+            "Caption": "Format region",
+            "StringValue": "",
+            "TableEditable": true,
+            "ControlIdentifier": "542f9d0b-0713-436c-ba49-187bb700b3b9",
+            "Name": "2000010037",
+            "ColumnBinder": {
+              "Name": "2000010037_cReportFormatRegion"
+            },
+            "Formatter": {},
+            "Synopsis": "Specifies the format region that will be used to format numbers and dates in this report. The value is specified in the format xx-yy, where xx is the language code and yy is the region code like en-US for English in the United States.",
+            "Importance": 2,
+            "ControlId": 2000010037,
+            "FieldBound": 1,
+            "LookupAction": {
+              "t": "lookac",
+              "SystemAction": 110,
+              "AllowFilterAsYouType": true,
+              "CanShowSimpleLookup": true
+            },
+            "ShowDetailsAction": {
+              "t": "clact",
+              "SystemAction": 125
+            },
+            "MaximumStringLength": 0,
+            "HelpUrl": "https://learn.microsoft.com/en-US/dynamics365/business-central/index",
+            "QuickEntry": false,
+            "Actions": [
+              {
+                "t": "ac",
+                "Caption": "Show Details",
+                "ControlIdentifier": "0811f208-e9cf-4e36-804b-400aed95af4e",
+                "Name": "NavShowDetailsAction",
+                "Importance": 2,
+                "Icon": {
+                  "Identifier": "Actions/Find/16.png"
+                },
+                "LargeIcon": {
+                  "Identifier": "Actions/Find/32.png"
+                },
+                "SystemAction": 125,
+                "Action": {
+                  "t": "clact",
+                  "Enabled": false
+                }
+              }
+            ]
+          },
+          {
+            "t": "sc",
+            "Caption": "Language",
+            "StringValue": "",
+            "TableEditable": true,
+            "ControlIdentifier": "b418f481-d559-407d-aa99-b0f86682ba14",
+            "Name": "2000010038",
+            "ColumnBinder": {
+              "Name": "2000010038_cLanguageId"
+            },
+            "Formatter": {},
+            "Synopsis": "Specifies the application language that will be used to localize captions and strings in this report.",
+            "Importance": 2,
+            "ControlId": 2000010038,
+            "FieldBound": 1,
+            "LookupAction": {
+              "t": "lookac",
+              "SystemAction": 110,
+              "AllowFilterAsYouType": true,
+              "CanShowSimpleLookup": true
+            },
+            "ShowDetailsAction": {
+              "t": "clact",
+              "SystemAction": 125
+            },
+            "MaximumStringLength": 0,
+            "HelpUrl": "https://learn.microsoft.com/en-US/dynamics365/business-central/index",
+            "QuickEntry": false,
+            "Actions": [
+              {
+                "t": "ac",
+                "Caption": "Show Details",
+                "ControlIdentifier": "0811f208-e9cf-4e36-804b-400aed95af4e",
+                "Name": "NavShowDetailsAction",
+                "Importance": 2,
+                "Icon": {
+                  "Identifier": "Actions/Find/16.png"
+                },
+                "LargeIcon": {
+                  "Identifier": "Actions/Find/32.png"
+                },
+                "SystemAction": 125,
+                "Action": {
+                  "t": "clact",
+                  "Enabled": false
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "t": "gc",
+        "ShowCaption": false,
+        "ControlIdentifier": "ec1da4b5-d7a8-4091-a7b3-2db6107b6c56",
+        "Name": "ActionBar",
+        "MappingHint": "ACTIONBAR",
+        "Importance": 1,
+        "Children": [
+          {
+            "t": "ac",
+            "Caption": "Send to...",
+            "ExpressionProperties": {
+              "Visible": true
+            },
+            "ControlIdentifier": "058b145b-91cb-4f80-9295-3cd863c5bf52",
+            "Name": "{058b145b-91cb-4f80-9295-3cd863c5bf52}",
+            "Importance": 2,
+            "Icon": {
+              "Identifier": "Actions/SaveViewAs/16.png"
+            },
+            "LargeIcon": {
+              "Identifier": "Actions/SaveViewAs/32.png"
+            },
+            "SystemAction": 410,
+            "Action": {
+              "t": "clact",
+              "Caption": "&Print"
+            }
+          },
+          {
+            "t": "ac",
+            "Caption": "Print",
+            "ExpressionProperties": {
+              "Visible": true
+            },
+            "Name": "{00000000-0000-0000-0000-000000000000}",
+            "Importance": 2,
+            "Icon": {
+              "Identifier": "Actions/Print/16.png"
+            },
+            "LargeIcon": {
+              "Identifier": "Actions/Print/32.png"
+            },
+            "SystemAction": 420,
+            "Action": {
+              "t": "clact"
+            }
+          },
+          {
+            "t": "ac",
+            "Caption": "P&review",
+            "ExpressionProperties": {
+              "Visible": true
+            },
+            "ControlIdentifier": "f39b7877-b7e5-4a77-970f-2ecbd1f42839",
+            "Name": "{f39b7877-b7e5-4a77-970f-2ecbd1f42839}",
+            "Importance": 2,
+            "SystemAction": 400,
+            "Action": {
+              "t": "clact"
+            }
+          },
+          {
+            "t": "ac",
+            "Caption": "Send to...",
+            "Visible": false,
+            "LocalVisible": false,
+            "ExpressionProperties": {
+              "Visible": true
+            },
+            "ControlIdentifier": "058b145b-91cb-4f80-9295-3cd863c5bf52",
+            "Name": "{058b145b-91cb-4f80-9295-3cd863c5bf52}",
+            "Importance": 2,
+            "Icon": {
+              "Identifier": "Actions/SaveViewAs/16.png"
+            },
+            "LargeIcon": {
+              "Identifier": "Actions/SaveViewAs/32.png"
+            },
+            "SystemAction": 410,
+            "Action": {
+              "t": "clact",
+              "Caption": "&Print"
+            }
+          },
+          {
+            "t": "ac",
+            "Caption": "Print",
+            "Visible": false,
+            "LocalVisible": false,
+            "ExpressionProperties": {
+              "Visible": true
+            },
+            "Name": "{00000000-0000-0000-0000-000000000000}",
+            "Importance": 2,
+            "Icon": {
+              "Identifier": "Actions/Print/16.png"
+            },
+            "LargeIcon": {
+              "Identifier": "Actions/Print/32.png"
+            },
+            "SystemAction": 420,
+            "Action": {
+              "t": "clact"
+            }
+          },
+          {
+            "t": "ac",
+            "Caption": "P&review",
+            "Visible": false,
+            "LocalVisible": false,
+            "ExpressionProperties": {
+              "Visible": true
+            },
+            "ControlIdentifier": "f39b7877-b7e5-4a77-970f-2ecbd1f42839",
+            "Name": "{f39b7877-b7e5-4a77-970f-2ecbd1f42839}",
+            "Importance": 2,
+            "SystemAction": 400,
+            "Action": {
+              "t": "clact"
+            }
+          },
+          {
+            "t": "ac",
+            "Caption": "Send to...",
+            "Visible": false,
+            "LocalVisible": false,
+            "ExpressionProperties": {
+              "Visible": true
+            },
+            "ControlIdentifier": "058b145b-91cb-4f80-9295-3cd863c5bf52",
+            "Name": "{058b145b-91cb-4f80-9295-3cd863c5bf52}",
+            "Importance": 2,
+            "Icon": {
+              "Identifier": "Actions/SaveViewAs/16.png"
+            },
+            "LargeIcon": {
+              "Identifier": "Actions/SaveViewAs/32.png"
+            },
+            "SystemAction": 410,
+            "Action": {
+              "t": "clact",
+              "Caption": "&Print"
+            }
+          },
+          {
+            "t": "ac",
+            "Caption": "Download",
+            "Visible": false,
+            "LocalVisible": false,
+            "ExpressionProperties": {
+              "Visible": true
+            },
+            "ControlIdentifier": "baa6a943-f246-4f66-ab41-a87b42a57a5a",
+            "Name": "{baa6a943-f246-4f66-ab41-a87b42a57a5a}",
+            "Importance": 2,
+            "SystemAction": 410,
+            "Action": {
+              "t": "clact"
+            }
+          },
+          {
+            "t": "ac",
+            "Caption": "Send to...",
+            "Visible": false,
+            "LocalVisible": false,
+            "ExpressionProperties": {
+              "Visible": true
+            },
+            "ControlIdentifier": "058b145b-91cb-4f80-9295-3cd863c5bf52",
+            "Name": "{058b145b-91cb-4f80-9295-3cd863c5bf52}",
+            "Importance": 2,
+            "Icon": {
+              "Identifier": "Actions/SaveViewAs/16.png"
+            },
+            "LargeIcon": {
+              "Identifier": "Actions/SaveViewAs/32.png"
+            },
+            "SystemAction": 410,
+            "Action": {
+              "t": "clact",
+              "Caption": "&Print"
+            }
+          },
+          {
+            "t": "ac",
+            "Caption": "Print",
+            "Visible": false,
+            "LocalVisible": false,
+            "ExpressionProperties": {
+              "Visible": true
+            },
+            "Name": "{00000000-0000-0000-0000-000000000000}",
+            "Importance": 2,
+            "Icon": {
+              "Identifier": "Actions/Print/16.png"
+            },
+            "LargeIcon": {
+              "Identifier": "Actions/Print/32.png"
+            },
+            "SystemAction": 420,
+            "Action": {
+              "t": "clact"
+            }
+          },
+          {
+            "t": "ac",
+            "Caption": "P&review",
+            "Visible": false,
+            "LocalVisible": false,
+            "ExpressionProperties": {
+              "Visible": true
+            },
+            "ControlIdentifier": "f39b7877-b7e5-4a77-970f-2ecbd1f42839",
+            "Name": "{f39b7877-b7e5-4a77-970f-2ecbd1f42839}",
+            "Importance": 2,
+            "SystemAction": 400,
+            "Action": {
+              "t": "clact"
+            }
+          },
+          {
+            "t": "ac",
+            "Caption": "Send to...",
+            "Visible": false,
+            "LocalVisible": false,
+            "ExpressionProperties": {
+              "Visible": true
+            },
+            "ControlIdentifier": "058b145b-91cb-4f80-9295-3cd863c5bf52",
+            "Name": "{058b145b-91cb-4f80-9295-3cd863c5bf52}",
+            "Importance": 2,
+            "Icon": {
+              "Identifier": "Actions/SaveViewAs/16.png"
+            },
+            "LargeIcon": {
+              "Identifier": "Actions/SaveViewAs/32.png"
+            },
+            "SystemAction": 410,
+            "Action": {
+              "t": "clact",
+              "Caption": "&Print"
+            }
+          },
+          {
+            "t": "ac",
+            "Caption": "Print",
+            "Visible": false,
+            "LocalVisible": false,
+            "ExpressionProperties": {
+              "Visible": true
+            },
+            "Name": "{00000000-0000-0000-0000-000000000000}",
+            "Importance": 2,
+            "Icon": {
+              "Identifier": "Actions/Print/16.png"
+            },
+            "LargeIcon": {
+              "Identifier": "Actions/Print/32.png"
+            },
+            "SystemAction": 420,
+            "Action": {
+              "t": "clact"
+            }
+          },
+          {
+            "t": "ac",
+            "Caption": "P&review",
+            "Visible": false,
+            "LocalVisible": false,
+            "ExpressionProperties": {
+              "Visible": true
+            },
+            "ControlIdentifier": "f39b7877-b7e5-4a77-970f-2ecbd1f42839",
+            "Name": "{f39b7877-b7e5-4a77-970f-2ecbd1f42839}",
+            "Importance": 2,
+            "SystemAction": 400,
+            "Action": {
+              "t": "clact"
+            }
+          },
+          {
+            "t": "ac",
+            "Caption": "Cancel",
+            "ControlIdentifier": "03256357-6c83-46a9-b647-8fbdf0b6480e",
+            "Name": "{03256357-6c83-46a9-b647-8fbdf0b6480e}",
+            "Importance": 2,
+            "SystemAction": 310,
+            "Action": {
+              "t": "clact"
+            }
+          }
+        ]
+      }
+    ],
+    "Query": "bookmark=10_dGZCI6BSrk-M8Jm7jhnFVw&page=6",
+    "Metadata": {
+      "id": 6,
+      "sourceTableId": 0
+    },
+    "PageType": 13,
+    "Actions": [
+      {
+        "t": "ac",
+        "Caption": "Refresh",
+        "Enabled": false,
+        "Name": "Refresh",
+        "Importance": 2,
+        "SystemAction": 30,
+        "Action": {
+          "t": "clact",
+          "Enabled": false
+        }
+      }
+    ]
+  }
+}

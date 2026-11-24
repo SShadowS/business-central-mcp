@@ -2,6 +2,7 @@ import { err, isErr, mapResult, type Result } from '../core/result.js';
 import { ProtocolError } from '../core/errors.js';
 import type { NavigationService } from '../services/navigation-service.js';
 import { buildAllSections, buildSection, type Section } from '../protocol/section-dto.js';
+import type { OpenedDialog } from '../protocol/mutation-result.js';
 
 export interface NavigateInput {
   pageContextId: string;
@@ -17,7 +18,7 @@ export interface NavigateOutput {
   /** Sections of the target page (drill_down) or the resolved section (select). */
   sections?: Section[];
   changedSections: string[];
-  dialogsOpened: Array<{ formId: string; message?: string; fields?: import('../protocol/types.js').ControlField[] }>;
+  dialogsOpened: OpenedDialog[];
   requiresDialogResponse: boolean;
 }
 

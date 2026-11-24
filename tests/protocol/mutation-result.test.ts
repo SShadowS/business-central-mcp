@@ -76,7 +76,7 @@ describe('detectDialogs', () => {
     const dialogs = detectDialogs(events);
     expect(dialogs).toHaveLength(1);
     expect(dialogs[0]!.formId).toBe('dlg1');
-    expect(dialogs[0]!.message).toBe('Save changes?');
+    expect(dialogs[0]!.title).toBe('Save changes?');
   });
 
   it('returns empty when no dialogs', () => {
@@ -135,21 +135,21 @@ describe('detectDialogs', () => {
     ];
     const dialogs = detectDialogs(events);
     expect(dialogs).toHaveLength(1);
-    expect(dialogs[0]!.message).toBe('Copy Sales Document');
+    expect(dialogs[0]!.title).toBe('Copy Sales Document');
+    expect(dialogs[0]!.kind).toBe('page');
     expect(dialogs[0]!.fields).toBeDefined();
     expect(dialogs[0]!.fields!.length).toBe(3);
 
-    const docType = dialogs[0]!.fields!.find(f => f.caption === 'Document Type');
+    const docType = dialogs[0]!.fields!.find(f => f.name === 'Document Type');
     expect(docType).toBeDefined();
     expect(docType!.editable).toBe(true);
-    expect(docType!.stringValue).toBe('Quote');
-    expect(docType!.controlPath).toMatch(/server:c\[0\]\/c\[0\]/);
+    expect(docType!.value).toBe('Quote');
 
-    const docNo = dialogs[0]!.fields!.find(f => f.caption === 'Document No.');
+    const docNo = dialogs[0]!.fields!.find(f => f.name === 'Document No.');
     expect(docNo).toBeDefined();
-    expect(docNo!.stringValue).toBe('S-ORD101001');
+    expect(docNo!.value).toBe('S-ORD101001');
 
-    const includeHeader = dialogs[0]!.fields!.find(f => f.caption === 'Include Header');
+    const includeHeader = dialogs[0]!.fields!.find(f => f.name === 'Include Header');
     expect(includeHeader).toBeDefined();
     expect(includeHeader!.type).toBe('bc');
   });

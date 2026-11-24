@@ -201,7 +201,7 @@ describe.sequential('Test 3.1: Post Sales Order', () => {
 
         if (isOk(dialogResult)) {
           const dr = unwrap(dialogResult);
-          console.error(`[3.1] Dialog response: success=${dr.success}, furtherDialogs=${dr.dialogsOpened.length}`);
+          console.error(`[3.1] Dialog response: closed=${dr.closed}, furtherDialogs=${dr.dialogsOpened.length}`);
 
           // Handle cascading dialogs (cancel might open another)
           if (dr.dialogsOpened.length > 0) {
@@ -647,7 +647,7 @@ describe.sequential('Test 4.4: Close Page with Unsaved Changes', () => {
           response: 'no',
         });
         if (isOk(dialogResult)) {
-          console.error(`[4.4a] Discard response: success=${dialogResult.value.success}`);
+          console.error(`[4.4a] Discard response: closed=${dialogResult.value.closed}`);
         }
       } else {
         console.error('[4.4a] No dialog on close -- BC may have auto-saved the change');

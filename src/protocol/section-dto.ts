@@ -8,7 +8,7 @@
 // form-views.ts; this DTO is the shape exposed to MCP callers.
 
 import type { SectionKind } from './section-resolver.js';
-import type { FieldType } from './form-node.js';
+import type { FieldType, FieldNode } from './form-node.js';
 import type { RepeaterRow } from './types.js';
 import { resolveSection } from './section-resolver.js';
 import {
@@ -111,6 +111,34 @@ export interface Section {
   readonly cues?: readonly SectionCue[];
 }
 
+/** The one MCP field shape, shared by page sections and dialogs. */
+export function toSectionField(f: FieldNode): SectionField {
+  const opts = f.properties.options;
+  let selectedOption: { text?: string; value?: string } | undefined;
+  if (opts && opts.length > 0) {
+    const idx = f.properties.optionIndex;
+    if (typeof idx === 'number' && idx >= 0 && idx < opts.length) {
+      selectedOption = opts[idx];
+    } else if (f.properties.stringValue) {
+      // Fallback: match stringValue against option text (PropertyChanged
+      // echoes may omit CurrentIndex).
+      const match = opts.find(o => o.text === f.properties.stringValue);
+      if (match) selectedOption = match;
+    }
+  }
+  return {
+    name: fieldName(f),
+    value: f.properties.stringValue,
+    editable: f.properties.editable !== false,
+    type: f.type,
+    ...(f.properties.showMandatory ? { showMandatory: true as const } : {}),
+    ...(f.hasLookup ? { isLookup: true as const } : {}),
+    ...(f.hasLookup && f.canShowSimpleLookup === false ? { lookupCustom: true as const } : {}),
+    ...(opts && opts.length > 0 ? { options: opts } : {}),
+    ...(selectedOption ? { selectedOption } : {}),
+  };
+}
+
 /**
  * Build the Section DTO for `sectionId` in `ctx`. Returns `null` when the
  * sectionId is unknown or the section has been invalidated.
@@ -162,32 +190,7 @@ export function buildSection(ctx: PageContext, sectionId: string): Section | nul
   } else {
     out.fields = treeFields(root)
       .filter(f => fieldName(f) && isEffectivelyVisible(root, f.controlPath, groupVis, ws))
-      .map(f => {
-        const opts = f.properties.options;
-        let selectedOption: { text?: string; value?: string } | undefined;
-        if (opts && opts.length > 0) {
-          const idx = f.properties.optionIndex;
-          if (typeof idx === 'number' && idx >= 0 && idx < opts.length) {
-            selectedOption = opts[idx];
-          } else if (f.properties.stringValue) {
-            // Fallback: match stringValue against option text (PropertyChanged
-            // echoes may omit CurrentIndex).
-            const match = opts.find(o => o.text === f.properties.stringValue);
-            if (match) selectedOption = match;
-          }
-        }
-        return {
-          name: fieldName(f),
-          value: f.properties.stringValue,
-          editable: f.properties.editable !== false,
-          type: f.type,
-          ...(f.properties.showMandatory ? { showMandatory: true as const } : {}),
-          ...(f.hasLookup ? { isLookup: true as const } : {}),
-          ...(f.hasLookup && f.canShowSimpleLookup === false ? { lookupCustom: true as const } : {}),
-          ...(opts && opts.length > 0 ? { options: opts } : {}),
-          ...(selectedOption ? { selectedOption } : {}),
-        };
-      });
+      .map(toSectionField);
   }
 
   if (isHeader) {

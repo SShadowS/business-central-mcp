@@ -10,7 +10,11 @@ export interface ClosePageInput {
 }
 
 export interface ClosePageOutput {
-  success: boolean;
+  /**
+   * True when the page is closed. False when a dialog (e.g. "discard these changes?" after a
+   * rejected value) blocked the close: the page stays open until that dialog is answered.
+   */
+  closed: boolean;
   /** A save/discard dialog blocking the close, with its own pageContextId for bc_respond_dialog. */
   dialogsOpened: OpenedDialog[];
   requiresDialogResponse: boolean;
@@ -56,7 +60,7 @@ export class ClosePageOperation {
         ? registerDialogs(this.repo, input.pageContextId, r.events)
         : [];
       return {
-        success: true,
+        closed: this.repo.get(input.pageContextId) === undefined,
         dialogsOpened,
         requiresDialogResponse: dialogsOpened.length > 0,
         replaySafe: dialogsOpened.length === 0,

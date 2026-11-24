@@ -18,7 +18,8 @@ export interface RespondDialogInput {
 }
 
 export interface RespondDialogOutput {
-  success: boolean;
+  /** True when BC closed the dialog form. False: the answer did not close it (e.g. a validation error kept it open). */
+  closed: boolean;
   changedSections: string[];
   /** Dialogs the answer opened (e.g. a follow-up confirm), each with its own pageContextId. */
   dialogsOpened: OpenedDialog[];
@@ -81,7 +82,7 @@ export class RespondDialogOperation {
       const newDialogs = registerDialogs(this.repo, closeReportPcId, closeResult.value);
       const closeCaptured = await this.downloadService.capture(closeResult.value);
       return ok({
-        success: true,
+        closed: formClosed(closeResult.value, input.dialogFormId),
         changedSections,
         dialogsOpened: newDialogs,
         requiresDialogResponse: newDialogs.length > 0,
@@ -153,7 +154,7 @@ export class RespondDialogOperation {
 
     const captured = await this.downloadService.capture(events);
     return ok({
-      success: true,
+      closed: formClosed(events, input.dialogFormId),
       changedSections,
       dialogsOpened: newDialogs,
       requiresDialogResponse: newDialogs.length > 0,

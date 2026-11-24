@@ -1,0 +1,95 @@
+{
+  "type": "DialogOpened",
+  "formId": "998",
+  "controlTree": {
+    "ServerId": "998",
+    "t": "lmd",
+    "Caption": "Confirm",
+    "ControlIdentifier": "00000000-0000-0000-0400-0000836bd2d2",
+    "Name": "Dialog",
+    "MappingHint": "ConfirmDialog",
+    "Importance": 1,
+    "InitialActiveControlPath": "server:c[1]/c[0]",
+    "TelemetryContext": [
+      "DialogIcon: Confirm"
+    ],
+    "IsLogicalDialog": true,
+    "IsModal": true,
+    "QueryClose": true,
+    "SystemId": null,
+    "IsBoundToSourceTable": false,
+    "SharedLayout": false,
+    "AnalysisModeEnabled": false,
+    "ShowTitle": false,
+    "DefaultActionControlPath": "server:c[1]/c[0]",
+    "DialogType": 5,
+    "ExceptionType": 0,
+    "Message": "There are unsaved changes on the page. Do you want to discard these changes?",
+    "Children": [
+      {
+        "t": "gc",
+        "ShowCaption": false,
+        "Name": "contentGroupControl",
+        "MappingHint": "GROUP",
+        "Importance": 1,
+        "Sections": 1,
+        "Children": [
+          {
+            "t": "gc",
+            "ShowCaption": false,
+            "MappingHint": "LAYOUTGROUP",
+            "Importance": 1,
+            "Children": [
+              {
+                "t": "imgc",
+                "Caption": "Confirm",
+                "ShowCaption": false,
+                "Enabled": false,
+                "Name": "Confirm",
+                "Height": 32,
+                "Source": "Resources/Images/static/transparentIcon.gif"
+              },
+              {
+                "t": "ssc",
+                "Caption": "There are unsaved changes on the page. Do you want to discard these changes?",
+                "Editable": false,
+                "MaximumStringLength": 0
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "t": "gc",
+        "MappingHint": "ACTIONBAR",
+        "Importance": 1,
+        "Children": [
+          {
+            "t": "ac",
+            "Caption": "Yes",
+            "ControlIdentifier": "ed4b78b8-f937-4e40-925e-639bad0329c6",
+            "Name": "{ed4b78b8-f937-4e40-925e-639bad0329c6}",
+            "Importance": 2,
+            "SystemAction": 380,
+            "Action": {
+              "t": "clact"
+            }
+          },
+          {
+            "t": "ac",
+            "Caption": "No",
+            "ControlIdentifier": "252d8fb0-fb9e-4397-beb2-96767d45457e",
+            "Name": "{252d8fb0-fb9e-4397-beb2-96767d45457e}",
+            "Importance": 2,
+            "SystemAction": 390,
+            "Action": {
+              "t": "clact"
+            }
+          }
+        ]
+      }
+    ],
+    "Query": "page=Dialog",
+    "PageType": 0
+  }
+}

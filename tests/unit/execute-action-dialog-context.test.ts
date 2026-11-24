@@ -14,6 +14,7 @@ import { PageContextRepository } from '../../src/protocol/page-context-repo.js';
 import { RespondDialogSchema } from '../../src/mcp/schemas.js';
 import { ok } from '../../src/core/result.js';
 import type { BCEvent } from '../../src/protocol/types.js';
+import { fields as treeFields } from '../../src/protocol/form-views.js';
 
 const logger = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
 
@@ -75,8 +76,8 @@ describe('bc_execute_action registers opened dialogs as page contexts', () => {
     expect(result.value.dialogsOpened).toHaveLength(1);
     const dlg = result.value.dialogsOpened[0]!;
     expect(dlg.formId).toBe('DLG1');
-    expect(dlg.message).toBe('Copy Sales Document');
-    expect(dlg.fields?.map(f => f.caption)).toEqual(['Document No.', 'Include Header']);
+    expect(dlg.title).toBe('Copy Sales Document');
+    expect(dlg.fields?.map(f => f.name)).toEqual(['Document No.', 'Include Header']);
     expect(result.value.dialog?.pageContextId).toBe(dlg.pageContextId);
 
     const ctx = repo.get(dlg.pageContextId)!;
@@ -127,8 +128,9 @@ describe('filling a dialog field with bc_write_data against its pageContextId', 
   }
 
   it('sends SaveValue on the dialog form and reports the value BC echoed', async () => {
-    const { repo, dialogPcId, fields } = await openDialog();
-    const docNo = fields.find(f => f.caption === 'Document No.')!;
+    const { repo, dialogPcId } = await openDialog();
+    // The DTO carries no controlPath; the echo BC sends does, so take it from the dialog's tree.
+    const docNo = treeFields(repo.get(dialogPcId)!.forms.get('DLG1')!.root).find(f => f.properties.caption === 'Document No.')!;
     const invoke = vi.fn(async () => ok([
       { type: 'PropertyChanged', formId: 'DLG1', controlPath: docNo.controlPath, changes: { StringValue: '101001' } },
       { type: 'InvokeCompleted', sequenceNumber: 1, completedInteractions: [] },

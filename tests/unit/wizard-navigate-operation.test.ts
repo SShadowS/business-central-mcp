@@ -238,6 +238,6 @@ describe('WizardNavigateOperation — output shape (successful actions)', () => 
     if (!result.ok) return;
     expect(result.value.dialogsOpened).toHaveLength(1);
     expect(result.value.dialogsOpened[0]!.formId).toBe('wiz-confirm');
-    expect(result.value.dialogsOpened[0]!.message).toBe('Confirm Setup');
+    expect(result.value.dialogsOpened[0]!.title).toBe('Confirm Setup');
   });
 });
