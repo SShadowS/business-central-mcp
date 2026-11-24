@@ -251,6 +251,7 @@ const SectionField = z.object({
   lookupCustom: z.boolean().optional(),
   options: z.array(z.object({ text: z.string(), value: z.string() })).optional(),
   selectedOption: z.object({ text: z.string().optional(), value: z.string().optional() }).optional(),
+  tab: z.string().optional(),
 });
 const DialogResponse = z.enum(['ok', 'cancel', 'yes', 'no', 'abort', 'print', 'preview']);
 const OpenedDialog = z.object({

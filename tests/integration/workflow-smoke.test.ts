@@ -18,6 +18,7 @@ import { FilterService } from '../../src/services/filter-service.js';
 import { NavigationService } from '../../src/services/navigation-service.js';
 import { SearchService } from '../../src/services/search-service.js';
 import { isOk, isErr, unwrap } from '../../src/core/result.js';
+import { buildSection } from '../../src/protocol/section-dto.js';
 import { integrationPool, type PooledLease } from './helpers/session-pool.js';
 
 describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
@@ -197,6 +198,11 @@ describe('Workflow Smoke Tests (all 7 MCP tools)', () => {
     }
 
     expect(fieldsWithCaptions.length).toBeGreaterThan(0);
+
+    // The header names its tabs and each field's tab (bc_read_data { tab } input).
+    const header = buildSection(unwrap(openResult), 'header')!;
+    expect(header.tabs).toContain('General');
+    expect(header.fields!.find(f => f.name === 'Name')?.tab).toBe('General');
 
     // Step 3: Read specific field by name
     console.error('[W2] Reading field "No." via DataService.readField()...');

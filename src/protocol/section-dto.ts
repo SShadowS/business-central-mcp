@@ -15,6 +15,7 @@ import {
   actions as treeActions,
   groupVisibility as treeGroupVisibility,
   cues as treeCues,
+  tabs as treeTabs,
   fieldName,
 } from './form-views.js';
 import { isEffectivelyVisible } from './visibility.js';
@@ -57,6 +58,8 @@ export interface SectionField {
    * and `value` does not match any option text).
    */
   readonly selectedOption?: { readonly text?: string; readonly value?: string };
+  /** The tab (FastTab) the field sits on; pass it to bc_read_data { tab } to read just that tab. */
+  readonly tab?: string;
 }
 
 export interface SectionAction {
@@ -103,6 +106,8 @@ export interface Section {
    * `fields[]` populated with visible, captioned fields.
    */
   readonly fields?: readonly SectionField[];
+  /** Card-shape sections: the tab (FastTab) captions in page order. */
+  readonly tabs?: readonly string[];
   /**
    * List-shape sections (lines, list-bodied subpages) carry `rows[]`.
    * `totalRowCount` reflects BC's TotalRowCount property; null when unknown.
@@ -174,6 +179,7 @@ export function buildSection(ctx: PageContext, sectionId: string): Section | nul
     kind: typeof section.kind;
     caption: string;
     fields?: SectionField[];
+    tabs?: string[];
     rows?: SectionRow[];
     newRowBookmark?: string;
     actions?: SectionAction[];
@@ -203,9 +209,16 @@ export function buildSection(ctx: PageContext, sectionId: string): Section | nul
     out.rows = out.rows.filter(r => !isEmptyDraft(r));
     if (draft) out.newRowBookmark = draft.bookmark;
   } else {
+    // Tabs (FastTabs) are the captioned top-level groups; bc_read_data { tab } filters by them.
+    const tabList = treeTabs(root);
+    const tabOf = (path: string) => tabList.find(t => path.startsWith(`${t.controlPath}/`))?.caption;
     out.fields = treeFields(root)
       .filter(f => fieldName(f) && isEffectivelyVisible(root, f.controlPath, groupVis, ws))
-      .map(toSectionField);
+      .map(f => {
+        const tab = tabOf(f.controlPath);
+        return tab ? { ...toSectionField(f), tab } : toSectionField(f);
+      });
+    if (tabList.length > 0) out.tabs = tabList.map(t => t.caption);
   }
 
   if (isHeader) {

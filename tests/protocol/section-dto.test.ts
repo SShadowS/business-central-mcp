@@ -262,6 +262,25 @@ describe('buildSection', () => {
     expect(s.newRowBookmark).toBe('DraftRecord10');
   });
 
+  // Recorded flow 2026-11-24: bc_read_data { tab: "General" } worked, but no payload named a tab.
+  it('a card header lists its tabs and tags each field with its tab', () => {
+    const card = {
+      t: 'lf', ServerId: 'root', PageType: 0, Caption: 'Customer Card',
+      Children: [
+        { t: 'gc', Caption: 'General', Children: [{ t: 'sc', Caption: 'Name', Editable: true, Visible: true, StringValue: 'Contoso' }] },
+        { t: 'gc', Caption: 'Invoicing', Children: [{ t: 'gc', Children: [{ t: 'sc', Caption: 'VAT Registration No.', Editable: true, Visible: true }] }] },
+      ],
+    };
+    const ctx = makeCtx({
+      rootFormId: 'root',
+      forms: new Map<string, FormState>([['root', makeFormState('root', card)]]),
+      sections: new Map<string, SectionDescriptor>([['header', { sectionId: 'header', kind: 'header', caption: 'Customer Card', formId: 'root', valid: true }]]),
+    });
+    const s = buildSection(ctx, 'header')!;
+    expect(s.tabs).toEqual(['General', 'Invoicing']);
+    expect(s.fields!.map(f => [f.name, f.tab])).toEqual([['Name', 'General'], ['VAT Registration No.', 'Invoicing']]);
+  });
+
   it('returns null for an invalid (valid:false) section', () => {
     const ctx = makeCtx({
       rootFormId: 'root',
