@@ -203,6 +203,65 @@ describe('buildSection', () => {
     expect(section!.rows![0]!.cells).toEqual({ 'No.': 'ITEM1', 'Quantity': '5' });
   });
 
+  // Raw cells as BC sends them (live cronus29 2026-11-24, page 22 + Sales Order lines).
+  function linesCtx(rows: RepeaterRow[]): PageContext {
+    const child = {
+      t: 'lf', ServerId: 'child', PageType: 1, Caption: 'Lines',
+      Children: [{ t: 'rc', Columns: [
+        { t: 'rcc', Caption: 'Image', ColumnBinder: { Name: 'img' } },
+        { t: 'rcc', Caption: 'Quantity', ColumnBinder: { Name: 'qty' } },
+        { t: 'rcc', Caption: 'Quantity Shipped', ColumnBinder: { Name: 'shp' } },
+        { t: 'rcc', Caption: 'Blocked', ColumnBinder: { Name: 'blk' } },
+        { t: 'rcc', Caption: 'Description', ColumnBinder: { Name: 'dsc' } },
+      ] }],
+    };
+    const childForm = makeFormState('child', child);
+    childForm.rows.set('server:c[0]', rows);
+    return makeCtx({
+      rootFormId: 'root',
+      forms: new Map<string, FormState>([
+        ['root', makeFormState('root', { t: 'lf', ServerId: 'root', PageType: 5, Children: [] })],
+        ['child', childForm],
+      ]),
+      sections: new Map<string, SectionDescriptor>([
+        ['header', { sectionId: 'header', kind: 'header', caption: 'X', formId: 'root', valid: true }],
+        ['lines', { sectionId: 'lines', kind: 'lines', caption: 'Lines', formId: 'child', repeaterControlPath: 'server:c[0]', valid: true }],
+      ]),
+    });
+  }
+  const realLine: RepeaterRow = { bookmark: 'BM1', cells: {
+    img: { type: 'image', objectValue: 'd11abb61', stringValue: 'd11abb61', source: 'img?sessionid=X' },
+    qty: { objectValue: 1, stringValue: '1', showMandatory: true },
+    shp: { objectValue: 0 },
+    blk: { type: 'selection', objectValue: false },
+    dsc: { stringValue: '' },
+  } };
+  const draft = (n: number): RepeaterRow => ({ bookmark: `DraftRecord${n}`, cells: { qty: { showMandatory: true }, shp: {}, blk: { editable: false } } });
+
+  it('every cell is a display string or null; image cells are dropped', () => {
+    const cells = buildSection(linesCtx([realLine]), 'lines')!.rows![0]!.cells;
+    expect(cells).toEqual({ 'Quantity': '1', 'Quantity Shipped': '0', 'Blocked': 'No', 'Description': null });
+  });
+
+  it('empty DraftRecord rows collapse into newRowBookmark', () => {
+    const s = buildSection(linesCtx([realLine, draft(1), draft(2), draft(3)]), 'lines')!;
+    expect(s.rows!.map(r => r.bookmark)).toEqual(['BM1']);
+    expect(s.newRowBookmark).toBe('DraftRecord1');
+  });
+
+  it('a document with no real lines still offers newRowBookmark', () => {
+    const s = buildSection(linesCtx([draft(7), draft(8)]), 'lines')!;
+    expect(s.rows).toEqual([]);
+    expect(s.newRowBookmark).toBe('DraftRecord7');
+  });
+
+  it('a DraftRecord row the agent has filled stays a row', () => {
+    const filled: RepeaterRow = { bookmark: 'DraftRecord9', cells: { dsc: { stringValue: 'New line' } } };
+    const s = buildSection(linesCtx([filled, draft(10)]), 'lines')!;
+    expect(s.rows!.map(r => r.bookmark)).toEqual(['DraftRecord9']);
+    expect(s.newRowBookmark).toBe('DraftRecord10');
+  });
+
   it('returns null for an invalid (valid:false) section', () => {
     const ctx = makeCtx({
       rootFormId: 'root',

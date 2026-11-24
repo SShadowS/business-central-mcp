@@ -9,7 +9,6 @@
 
 import type { SectionKind } from './section-resolver.js';
 import type { FieldType, FieldNode } from './form-node.js';
-import type { RepeaterRow } from './types.js';
 import { resolveSection } from './section-resolver.js';
 import {
   fields as treeFields,
@@ -89,7 +88,11 @@ export interface SectionCue {
  * type — cells keyed by `columnBinderName` (e.g. "1165569367_c2"), not by
  * caption.
  */
-export type SectionRow = RepeaterRow;
+export interface SectionRow {
+  readonly bookmark: string;
+  /** Caption -> BC's display string, or null when empty. */
+  readonly cells: Record<string, string | null>;
+}
 
 export interface Section {
   readonly sectionId: string;
@@ -105,6 +108,8 @@ export interface Section {
    * `totalRowCount` reflects BC's TotalRowCount property; null when unknown.
    */
   readonly rows?: readonly SectionRow[];
+  /** An empty new-row bookmark (BC's DraftRecordN): pass it to bc_write_data to add a line. */
+  readonly newRowBookmark?: string;
   readonly totalRowCount?: number | null;
   readonly actions?: readonly SectionAction[];
   /** Populated when the section's form contains cuegroup tiles. */
@@ -165,6 +170,7 @@ export function buildSection(ctx: PageContext, sectionId: string): Section | nul
     caption: string;
     fields?: SectionField[];
     rows?: SectionRow[];
+    newRowBookmark?: string;
     totalRowCount?: number | null;
     actions?: SectionAction[];
     cues?: SectionCue[];
@@ -186,6 +192,12 @@ export function buildSection(ctx: PageContext, sectionId: string): Section | nul
         columnBinderPath: c.columnBinder?.path,
       })),
     ).map(r => ({ bookmark: r.bookmark, cells: r.cells }));
+    // BC keeps empty DraftRecordN rows ready for new lines (live cronus29: 1 real Sales Order
+    // line + 15 drafts of 38 empty cells each). Collapse them into one bookmark to write to.
+    const isEmptyDraft = (r: SectionRow) => r.bookmark.startsWith('DraftRecord') && Object.values(r.cells).every(v => v === null);
+    const draft = out.rows.find(isEmptyDraft);
+    out.rows = out.rows.filter(r => !isEmptyDraft(r));
+    if (draft) out.newRowBookmark = draft.bookmark;
     out.totalRowCount = repeater.properties.totalRowCount ?? null;
   } else {
     out.fields = treeFields(root)

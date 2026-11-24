@@ -34,7 +34,7 @@ export function buildBinderToCaptionMap(columns: RepeaterColumn[]): Map<string, 
  * Remap row cell keys from columnBinderName to caption.
  * Cell values are extracted: if value is an object with stringValue, use that.
  */
-export function mapRowCellKeys(rows: RepeaterRow[], columns: RepeaterColumn[]): RepeaterRow[] {
+export function mapRowCellKeys(rows: RepeaterRow[], columns: RepeaterColumn[]): Array<{ bookmark: string; cells: Record<string, string | null> }> {
   const binderMap = buildBinderToCaptionMap(columns);
   return rows.map(row => ({
     bookmark: row.bookmark,
@@ -45,19 +45,29 @@ export function mapRowCellKeys(rows: RepeaterRow[], columns: RepeaterColumn[]): 
 export function remapCells(
   cells: Record<string, unknown>,
   binderMap: Map<string, string>,
-): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
+): Record<string, string | null> {
+  const result: Record<string, string | null> = {};
   for (const [key, rawValue] of Object.entries(cells)) {
-    const caption = binderMap.get(key) ?? key;
-    // Extract the display value from BC's cell structure
-    // BC sends cells as objects like { stringValue: "...", objectValue: ..., editable: ..., ... }
-    if (rawValue && typeof rawValue === 'object') {
-      const cell = rawValue as Record<string, unknown>;
-      // Prefer stringValue (formatted), fall back to objectValue (raw), then null for empty cells
-      result[caption] = cell.stringValue ?? cell.objectValue ?? null;
-    } else {
-      result[caption] = rawValue;
-    }
+    // A picture cell ({ type: 'image', objectValue: <media guid>, source: 'img?sessionid=...' },
+    // live cronus29 page 22 "Image") carries no data an agent can use, and its source URL
+    // embeds the session id.
+    if (rawValue && typeof rawValue === 'object' && (rawValue as { type?: unknown }).type === 'image') continue;
+    result[binderMap.get(key) ?? key] = cellDisplay(rawValue);
   }
   return result;
+}
+
+/**
+ * One form for every cell: BC's display string, or null when the cell is empty. BC omits
+ * stringValue for a blanked zero ({ objectValue: 0 }, BlankZero) and some selections
+ * ({ objectValue: false }), so those are formatted here the way the column shows them elsewhere.
+ */
+export function cellDisplay(rawValue: unknown): string | null {
+  if (rawValue === null || rawValue === undefined) return null;
+  if (typeof rawValue !== 'object') return rawValue === '' ? null : String(rawValue);
+  const cell = rawValue as { stringValue?: unknown; objectValue?: unknown };
+  if (typeof cell.stringValue === 'string') return cell.stringValue === '' ? null : cell.stringValue;
+  if (typeof cell.objectValue === 'boolean') return cell.objectValue ? 'Yes' : 'No';
+  if (typeof cell.objectValue === 'number' || typeof cell.objectValue === 'string') return String(cell.objectValue);
+  return null;
 }
