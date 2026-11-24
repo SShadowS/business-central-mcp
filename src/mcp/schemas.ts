@@ -242,7 +242,9 @@ export function toMcpJsonSchema(schema: z.ZodType): Record<string, unknown> {
 // never breaks the advertised contract.
 // ---------------------------------------------------------------------------
 
-const SectionField = z.object({
+// Strict: an unknown key fails validation (z.object would strip it), so a DTO that starts
+// leaking wire internals breaks the contract tests instead of shipping.
+const SectionField = z.strictObject({
   name: z.string(),
   value: z.string().optional(),
   editable: z.boolean(),
@@ -255,7 +257,7 @@ const SectionField = z.object({
   tab: z.string().optional(),
 });
 const DialogResponse = z.enum(['ok', 'cancel', 'yes', 'no', 'abort', 'print', 'preview']);
-const OpenedDialog = z.object({
+const OpenedDialog = z.strictObject({
   pageContextId: z.string(),
   formId: z.string(),
   kind: z.enum(['confirm', 'message', 'error', 'requestPage', 'page']),
@@ -272,8 +274,49 @@ const Download = z.looseObject({
   savedPath: z.string().optional(),
 });
 const ExternalUri = z.object({ uri: z.string(), style: z.string() });
-const OpenedPage = z.object({ pageContextId: z.string(), caption: z.string(), pageType: z.string() });
-const Section = z.looseObject({});
+const OpenedPage = z.strictObject({ pageContextId: z.string(), caption: z.string(), pageType: z.string() });
+const SectionRow = z.strictObject({ bookmark: z.string(), cells: z.record(z.string(), z.string().nullable()) });
+const SectionAction = z.strictObject({
+  name: z.string(),
+  systemAction: z.number(),
+  wizardNav: z.enum(['back', 'next', 'finish', 'cancel']).optional(),
+});
+const SectionCue = z.strictObject({
+  name: z.string(),
+  value: z.string(),
+  groupCaption: z.string().optional(),
+  synopsis: z.string().optional(),
+  hasAction: z.boolean(),
+});
+const Section = z.strictObject({
+  sectionId: z.string(),
+  kind: z.enum(['header', 'lines', 'factbox', 'subpage', 'requestPage']),
+  caption: z.string(),
+  fields: z.array(SectionField).optional(),
+  tabs: z.array(z.string()).optional(),
+  rows: z.array(SectionRow).optional(),
+  newRowBookmark: z.string().optional(),
+  hasMore: z.boolean().optional(),
+  filters: z.array(z.object({ column: z.string(), value: z.string() })).optional(),
+  sort: z.object({ column: z.string(), direction: z.enum(['asc', 'desc']) }).nullable().optional(),
+  actions: z.array(SectionAction).optional(),
+  cues: z.array(SectionCue).optional(),
+});
+const FieldMessage = z.strictObject({
+  field: z.string().optional(),
+  controlPath: z.string().optional(),
+  message: z.string(),
+  hint: z.string().optional(),
+  severity: z.string(),
+});
+const WriteResult = z.strictObject({
+  fieldName: z.string(),
+  success: z.boolean(),
+  newValue: z.string().optional(),
+  echoed: z.boolean().optional(),
+  error: z.string().optional(),
+  warning: z.string().optional(),
+});
 const Loose = z.looseObject({});
 const ShownMessage = z.object({ text: z.string(), type: z.string() });
 
@@ -292,12 +335,12 @@ export const ReadDataOutputSchema = z.object({
 });
 
 export const WriteDataOutputSchema = z.object({
-  results: z.array(Loose),
+  results: z.array(WriteResult),
   allSucceeded: z.boolean(),
   changedSections: z.array(z.string()),
   dialogsOpened: z.array(OpenedDialog),
   requiresDialogResponse: z.boolean(),
-  validationWarnings: z.array(Loose),
+  validationWarnings: z.array(FieldMessage),
   messages: z.array(ShownMessage),
   replaySafe: z.boolean(),
 });

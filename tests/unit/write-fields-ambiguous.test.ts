@@ -76,4 +76,15 @@ describe('bc_write_data on a failed invoke', () => {
     ]);
     expect(server.sent).toHaveLength(1);
   });
+
+  // Each successful result carried BC's whole raw event array and the controlPath.
+  it('returns per-field results without raw BC events or control paths', async () => {
+    const { write } = harness((req, s) => s.reply(req.id, [invokeCompleted(req.interactions[0]!.callbackId!)]), dir);
+    const result = await write({ City: 'London' });
+    const out = result.structuredContent as { results: Array<Record<string, unknown>> };
+    expect(out.results[0]).toMatchObject({ fieldName: 'City', success: true });
+    expect(out.results[0]).not.toHaveProperty('events');
+    expect(out.results[0]).not.toHaveProperty('controlPath');
+    expect(result.content[0]!.text).not.toContain('InvokeCompleted');
+  });
 });

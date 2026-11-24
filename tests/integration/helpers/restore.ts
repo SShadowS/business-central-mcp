@@ -10,7 +10,7 @@ import type { DataService, FieldWriteResult } from '../../../src/services/data-s
  * SaveValueInteraction.InvokeCore returns early) fails here instead of leaving the
  * test value in the record.
  */
-export function expectRestored(result: FieldWriteResult | undefined, original: string): void {
+export function expectRestored(result: Pick<FieldWriteResult, 'fieldName' | 'echoed' | 'newValue'> | undefined, original: string): void {
   expect(result, 'restore produced no write result').toBeDefined();
   expect(
     result!.echoed === true || result!.newValue === original,

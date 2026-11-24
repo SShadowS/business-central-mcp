@@ -3,9 +3,8 @@ import { StaleContextError, type BCError } from '../core/errors.js';
 import type { DataService, FieldWriteResult } from '../services/data-service.js';
 import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import { detectChangedSections, registerDialogs, extractValidationErrors, collectMessages, type ShownMessage, type OpenedDialog } from '../protocol/mutation-result.js';
-import { classifyBusinessError } from '../protocol/error-classifier.js';
+import { classifyBusinessError, fieldMessages } from '../protocol/error-classifier.js';
 import { writeDataReplaySafe } from '../protocol/replay-safety.js';
-import type { ValidationResultItem } from '../protocol/types.js';
 
 export interface WriteDataInput {
   pageContextId: string;
@@ -24,8 +23,11 @@ export interface WriteDataInput {
   expectedStateVersion?: number;
 }
 
+/** One written field as the caller sees it (no raw BC events or control paths). */
+export type WriteResult = Omit<FieldWriteResult, 'events' | 'controlPath'>;
+
 export interface WriteDataOutput {
-  results: FieldWriteResult[];
+  results: WriteResult[];
   allSucceeded: boolean;
   changedSections: string[];
   /** Dialogs the write opened (e.g. an OnValidate confirm), each with its own pageContextId. */
@@ -38,7 +40,7 @@ export interface WriteDataOutput {
    * items cause the operation to return an Err(BusinessValidationError) instead
    * of appearing here.
    */
-  validationWarnings: ValidationResultItem[];
+  validationWarnings: ReturnType<typeof fieldMessages>;
   /** AL Message() texts raised by OnValidate (Error/Fatal ones become an error instead); empty when none. */
   messages: ShownMessage[];
   /** True when BC echoed every written value and no dialog is pending: re-running cannot double-apply. */
@@ -75,10 +77,11 @@ export class WriteDataOperation {
     const ctx = this.repo.get(input.pageContextId);
     const changedSections = ctx ? detectChangedSections(ctx, events) : [];
     const dialogsOpened = registerDialogs(this.repo, input.pageContextId, events);
-    const validationWarnings = extractValidationErrors(events).filter(v => v.Severity !== 'Error');
+    const validationWarnings = fieldMessages(extractValidationErrors(events).filter(v => v.Severity !== 'Error'), this.repo);
 
     return ok({
-      results,
+      // Each result carried BC's whole event array: internal (replay-safety, echo checks), not output.
+      results: results.map(({ events: _events, controlPath: _path, ...r }) => r),
       allSucceeded: results.every(r => r.success),
       changedSections,
       dialogsOpened,

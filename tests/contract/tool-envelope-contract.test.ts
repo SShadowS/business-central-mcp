@@ -207,7 +207,7 @@ describe('tool envelope contract — gate failures become envelopes', () => {
 describe('tool envelope contract — every tool success validates against its outputSchema', () => {
   const cases: Array<[string, z.ZodType, Record<string, unknown>]> = [
     ['bc_open_page', OpenPageOutputSchema, { pageContextId: 'p', pageType: 'Card', caption: 'c', isModal: false, sections: [], stateVersion: 0 }],
-    ['bc_read_data', ReadDataOutputSchema, { section: {}, stateVersion: 0 }],
+    ['bc_read_data', ReadDataOutputSchema, { section: { sectionId: 'header', kind: 'header', caption: 'Customers', rows: [{ bookmark: 'B1', cells: { 'No.': '10000', Contact: null } }], filters: [], sort: null }, stateVersion: 0 }],
     ['bc_write_data', WriteDataOutputSchema, { results: [], allSucceeded: true, changedSections: [], dialogsOpened: [], requiresDialogResponse: false, validationWarnings: [], messages: [], replaySafe: true }],
     ['bc_execute_action', ExecuteActionOutputSchema, { success: true, changedSections: [], openedPages: [], dialogsOpened: [], requiresDialogResponse: false, messages: [], downloads: [], externalUris: [], replaySafe: true }],
     ['bc_close_page', ClosePageOutputSchema, { closed: true, dialogsOpened: [], requiresDialogResponse: false, replaySafe: true }],

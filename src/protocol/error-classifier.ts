@@ -1,9 +1,26 @@
-import type { BCEvent, FormCreatedEvent } from './types.js';
+import type { BCEvent, FormCreatedEvent, ValidationResultItem } from './types.js';
 import { extractValidationErrors } from './mutation-result.js';
 import { extractRows } from './form-state.js';
 import { BusinessValidationError, BusinessError } from '../core/errors.js';
 import type { PageContextRepository } from './page-context-repo.js';
 import { fields as treeFields, fieldName } from './form-views.js';
+
+/** BC ValidationResults items as MCP field messages: caption-named field, controlPath, message, hint. */
+export function fieldMessages(items: ReadonlyArray<ValidationResultItem>, repo?: PageContextRepository): Array<{
+  field?: string; controlPath?: string; message: string; hint?: string; severity: string;
+}> {
+  return items.map(item => {
+    const origin = item.OriginatingControl;
+    const field = origin && repo ? controlCaption(repo, origin.formId, origin.controlPath) : undefined;
+    return {
+      ...(field ? { field } : {}),
+      ...(origin?.controlPath ? { controlPath: origin.controlPath } : {}),
+      message: item.Description,
+      ...(item.DescriptionShort ? { hint: item.DescriptionShort } : {}),
+      severity: item.Severity,
+    };
+  });
+}
 
 /** The caption of the field at `controlPath` on form `formId`, when a page context holds that form. */
 function controlCaption(repo: PageContextRepository, formId: string, controlPath: string): string | undefined {

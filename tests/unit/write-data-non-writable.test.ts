@@ -100,7 +100,7 @@ describe('bc_write_data with a mix of writable and non-writable fields', () => {
     expect(invoke).toHaveBeenCalledOnce();
     expect(res.value.allSucceeded).toBe(false);
     expect(res.value.replaySafe).toBe(false);
-    expect(res.value.results[0]).toMatchObject({ fieldName: 'No.', success: false, controlPath: '' });
+    expect(res.value.results[0]).toMatchObject({ fieldName: 'No.', success: false });
     expect(res.value.results[0]!.error).toContain('not editable');
     expect(res.value.results[1]).toMatchObject({ fieldName: 'Name', success: true, echoed: true });
     expect(res.value.results[1]!.warning).toBeUndefined();
