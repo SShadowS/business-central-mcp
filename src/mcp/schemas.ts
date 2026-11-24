@@ -50,7 +50,7 @@ export const ExecuteActionSchema = z.object({
   pageContextId: z.string().min(1).describe('Page context ID returned by bc_open_page.'),
   action: z.string().min(1).optional().describe('Action caption name to execute (case-insensitive). Use action OR cue, not both. Must match a visible, enabled action from bc_open_page response.'),
   cue: z.string().min(1).optional().describe('Cue tile name to drill down on (e.g. "Sales Quotes", "Pending Approvals"). Use with section pointing at the subpage that owns the cuegroup. Use action OR cue, not both.'),
-  section: z.string().optional().describe('Section context. Required when using cue; optional for action. Examples: "lines", "subpage:Activities".'),
+  section: z.string().optional().describe('Section context. Required when using cue; optional for action. Examples: "lines", "factbox:Activities" (a Role Center part, as bc_open_page lists it).'),
   rowIndex: z.number().int().min(0).optional().describe('0-based row position for row-scoped actions.'),
   bookmark: z.string().optional().describe('Stable row identifier for row-scoped actions.'),
   bookmarks: z.array(z.string().min(1)).optional().describe('Stable row identifiers for a MULTI-ROW action (batch delete, apply-entries). The first bookmark is the anchor/current row. Mutually exclusive with bookmark, rowIndex, and cue. Bookmarks must come from a bc_read_data of the same section and must still be loaded. Only actions that consume a selection (e.g. Delete) act on all rows; Edit/View/DrillDown/New use the anchor only and are rejected with bookmarks[].'),
@@ -351,6 +351,7 @@ export const ExecuteActionOutputSchema = z.object({
   updatedFields: z.array(z.object({ name: z.string(), value: z.string().optional() })).optional(),
   changedSections: z.array(z.string()),
   openedPages: z.array(OpenedPage),
+  closedPages: z.array(z.string()),
   dialogsOpened: z.array(OpenedDialog),
   requiresDialogResponse: z.boolean(),
   messages: z.array(ShownMessage),
@@ -392,6 +393,7 @@ export const NavigateOutputSchema = z.object({
 
 export const RespondDialogOutputSchema = z.object({
   closed: z.boolean(),
+  closedPages: z.array(z.string()),
   changedSections: z.array(z.string()),
   dialogsOpened: z.array(OpenedDialog),
   requiresDialogResponse: z.boolean(),

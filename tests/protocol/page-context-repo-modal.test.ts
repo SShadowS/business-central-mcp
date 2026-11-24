@@ -119,7 +119,10 @@ describe('PageContextRepository — modal-rooted pages', () => {
     expect(() => repo.invalidateSection('nonexistent-page', 'header')).not.toThrow();
   });
 
-  it('invalidates the header section of a modal-rooted page when its root form closes', () => {
+  // Payload review 2026-11-24: a page kept with invalid sections answered the next read with
+  // "Section 'header' not found. Available sections: [\"header\", ...]". A page whose root
+  // form BC closed is gone: the context is removed, so callers get PAGE_CONTEXT_NOT_FOUND.
+  it('removes a page context when its root form closes', () => {
     const repo = new PageContextRepository();
     repo.create('pc:modal', 'M1', { isModal: true });
 
@@ -138,13 +141,11 @@ describe('PageContextRepository — modal-rooted pages', () => {
     // Close the modal
     repo.applyToPage('pc:modal', [{ type: 'FormClosed', formId: 'M1' }]);
 
-    const ctxAfter = repo.get('pc:modal');
-    expect(ctxAfter).toBeDefined();
-    // Header section's formId is the root form, which was just closed.
-    expect(ctxAfter!.sections.get('header')!.valid).toBe(false);
+    expect(repo.get('pc:modal')).toBeUndefined();
+    expect(repo.getByFormId('M1')).toBeUndefined();
   });
 
-  it('invalidates ALL sections of a modal-rooted page when its root form closes', () => {
+  it('removes a modal-rooted page with hosted parts when its root form closes', () => {
     const repo = new PageContextRepository();
     repo.create('pc:modal', 'M1', { isModal: true });
 
@@ -174,11 +175,8 @@ describe('PageContextRepository — modal-rooted pages', () => {
     // Close the root modal
     repo.applyToPage('pc:modal', [{ type: 'FormClosed', formId: 'M1' }]);
 
-    const ctxAfter = repo.get('pc:modal')!;
-    // Per Plan B: when a modal-rooted page's root form closes, ALL its sections
-    // should be invalid (the page is gone, even non-root sections it owned).
-    for (const [, sec] of ctxAfter.sections) {
-      expect(sec.valid, `section ${sec.sectionId} (kind=${sec.kind}) should be invalid after modal close`).toBe(false);
-    }
+    // The page is gone, parts included.
+    expect(repo.get('pc:modal')).toBeUndefined();
+    expect(repo.getByFormId('C1')).toBeUndefined();
   });
 });

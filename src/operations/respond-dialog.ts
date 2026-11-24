@@ -20,6 +20,8 @@ export interface RespondDialogInput {
 export interface RespondDialogOutput {
   /** True when BC closed the dialog form. False: the answer did not close it (e.g. a validation error kept it open). */
   closed: boolean;
+  /** Pages the answer closed (e.g. the card a discard confirm belonged to): their pageContextIds no longer work. */
+  closedPages: string[];
   changedSections: string[];
   /** Dialogs the answer opened (e.g. a follow-up confirm), each with its own pageContextId. */
   dialogsOpened: OpenedDialog[];
@@ -62,6 +64,11 @@ export class RespondDialogOperation {
   async execute(input: RespondDialogInput): Promise<Result<RespondDialogOutput, BCError>> {
     const ctx = this.repo.get(input.pageContextId);
     if (!ctx) return err(new PageContextNotFoundError(input.pageContextId));
+    // The page behind the dialog (not the dialog itself: `closed` reports that). An answer can
+    // close it (discard confirm "yes" on a card, a posting closing its document).
+    const hostPcId = this.reportPcId(ctx, input);
+    const watched = hostPcId === input.pageContextId && ctx.rootFormId === input.dialogFormId ? [] : [hostPcId];
+    const closedPages = (): string[] => watched.filter(id => !this.repo.get(id));
 
     // "close" uses CloseForm instead of InvokeAction
     if (input.response === 'close') {
@@ -83,6 +90,7 @@ export class RespondDialogOperation {
       const closeCaptured = await this.downloadService.capture(closeResult.value);
       return ok({
         closed: formClosed(closeResult.value, input.dialogFormId),
+        closedPages: closedPages(),
         changedSections,
         dialogsOpened: newDialogs,
         requiresDialogResponse: newDialogs.length > 0,
@@ -155,6 +163,7 @@ export class RespondDialogOperation {
     const captured = await this.downloadService.capture(events);
     return ok({
       closed: formClosed(events, input.dialogFormId),
+      closedPages: closedPages(),
       changedSections,
       dialogsOpened: newDialogs,
       requiresDialogResponse: newDialogs.length > 0,

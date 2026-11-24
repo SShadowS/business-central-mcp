@@ -4,11 +4,11 @@ import type { ToolDefinition, Operations } from '../mcp/tool-registry.js';
 export function createToolDefinition(ops: Operations): ToolDefinition {
   return {
     name: 'bc_execute_action',
-    description: `Executes either a named action OR a cue-tile drill-down on an open page. Pass action for header / line / system actions (Post, Delete, New, Release). Pass cue for Role Center cue tiles to open the underlying list (e.g. cue: "Sales Quotes" with section: "subpage:Activities" opens the Sales Quotes list). Requires a pageContextId from bc_open_page.
+    description: `Executes either a named action OR a cue-tile drill-down on an open page. Pass action for header / line / system actions (Post, Delete, New, Release). Pass cue for Role Center cue tiles to open the underlying list (e.g. cue: "Sales Quotes" with section: "factbox:Activities" opens the Sales Quotes list). Requires a pageContextId from bc_open_page.
 
-For cue drill-down, also pass section pointing at the subpage that owns the cuegroup. The returned openedPages array contains the targetPageContextId of the newly-opened list page.
+For cue drill-down, also pass section: the sectionId of the part that owns the cue, as bc_open_page listed it (Role Center parts are "factbox:<caption>", e.g. "factbox:Activities"). The returned openedPages array holds the newly opened list page ({ pageContextId, caption, pageType }).
 
-For a named action: validates the action is enabled, sends the InvokeAction RPC, applies the resulting events, and returns updatedFields / changedSections / dialogsOpened / openedPages.
+For a named action: validates the action is enabled, sends the InvokeAction RPC, applies the resulting events, and returns updatedFields (only fields whose value the action changed) / changedSections / dialogsOpened / openedPages / closedPages (pages the action closed, e.g. a posted document; their pageContextIds no longer work).
 
 Use exactly one of "action" or "cue" -- passing both is an error.
 
@@ -23,7 +23,7 @@ Pass expectedStateVersion (from a prior bc_read_data or bc_open_page stateVersio
 Do NOT use this for writing field values -- use bc_write_data. Do NOT use this to open records from a list -- use bc_navigate with drill_down action instead.
 
 Examples:
-- Drill into a cue tile: { "pageContextId": "rc1", "section": "subpage:Activities", "cue": "Sales Quotes" }
+- Drill into a cue tile: { "pageContextId": "rc1", "section": "factbox:Activities", "cue": "Sales Quotes" }
 - Post a sales order: { "pageContextId": "so1", "action": "Post" }
 - Delete a row: { "pageContextId": "list1", "action": "Delete", "bookmark": "..." }
 - Create new record: { "pageContextId": "abc", "action": "New" }

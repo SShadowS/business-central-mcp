@@ -157,10 +157,14 @@ export class PageService {
 
     const allEvents: BCEvent[] = [];
     let blockingDialog = false;
+    let closeError: ProtocolError | undefined;
     try {
       for (const formId of ctx.ownedFormIds) {
         const closeInteraction: CloseFormInteraction = { type: 'CloseForm', formId };
         const result = await this.session.invoke(closeInteraction, (event) => event.type === 'InvokeCompleted');
+        // FormNotFoundException: BC already closed the form (InteractionParameterHelper.GetLogicalControl).
+        // Any other failure means the close did not happen as far as we know: report it, never closed:true.
+        if (!isOk(result) && !result.error.message.includes('FormNotFoundException')) closeError ??= result.error;
         if (isOk(result)) {
           allEvents.push(...result.value);
 
@@ -202,6 +206,7 @@ export class PageService {
         this.logger.info(`Page ${pageContextId} kept open: close raised a save-changes dialog awaiting response`);
       }
     }
+    if (closeError) return err(closeError);
     return ok({ events: allEvents });
   }
 

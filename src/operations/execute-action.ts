@@ -7,6 +7,7 @@ import type { PageContextRepository } from '../protocol/page-context-repo.js';
 import type { Download, DownloadService } from '../services/download-service.js';
 import { resolveSection } from '../protocol/section-resolver.js';
 import { visibleRows } from '../protocol/row-mapping.js';
+import type { PropertyChangedEvent } from '../protocol/types.js';
 import { detectChangedSections, registerDialogs, collectMessages, type ShownMessage, type OpenedDialog, type OpenedPage } from '../protocol/mutation-result.js';
 import { isEffectivelyVisible } from '../protocol/visibility.js';
 import { fields as treeFields, groupVisibility as treeGroupVisibility } from '../protocol/form-views.js';
@@ -46,6 +47,8 @@ export interface ExecuteActionOutput {
   updatedFields?: Array<{ name: string; value?: string }>;
   changedSections: string[];
   openedPages: OpenedPage[];
+  /** Pages the action closed (e.g. a posted document): their pageContextIds no longer work. */
+  closedPages: string[];
   dialogsOpened: OpenedDialog[];
   requiresDialogResponse: boolean;
   /** AL Message() texts the action raised (Error/Fatal ones become an error instead); empty when none. */
@@ -129,7 +132,7 @@ export class ExecuteActionOperation {
 
     if (input.cue) {
       if (!input.section) {
-        return err(new ProtocolError('cue requires a section (e.g. "subpage:Activities")'));
+        return err(new ProtocolError('cue requires a section: the sectionId of the part that owns the cue, as bc_open_page lists it (e.g. "factbox:Activities" on a Role Center)'));
       }
       const result = await this.actionService.executeOnCue(input.pageContextId, input.section, input.cue);
       if (!isOk(result)) return result;
@@ -196,15 +199,24 @@ export class ExecuteActionOperation {
   }
 
   private buildOutput(pageContextId: string, ar: ActionResult): Omit<ExecuteActionOutput, 'downloads' | 'externalUris'> {
+    // Only the header fields whose value this action changed (a value PropertyChanged on the
+    // root form); listing every visible field cost ~5 KB per action (recorded flow, step 15).
     let updatedFields: Array<{ name: string; value?: string }> | undefined;
     if (ar.updatedState) {
       const resolved = resolveSection(ar.updatedState, 'header');
       if (!('error' in resolved)) {
         const root = resolved.form.root;
+        const changed = new Set(ar.events
+          .filter((e): e is PropertyChangedEvent => e.type === 'PropertyChanged' && e.formId === resolved.form.formId
+            && (e.refFormId === undefined || e.refFormId === e.formId)
+            && ('StringValue' in e.changes || 'ObjectValue' in e.changes))
+          .map(e => e.controlPath));
         const groupVis = treeGroupVisibility(root);
-        updatedFields = treeFields(root)
-          .filter(f => f.properties.caption && isEffectivelyVisible(root, f.controlPath, groupVis, ar.updatedState!.wizardState))
+        const fields = treeFields(root)
+          .filter(f => changed.has(f.controlPath) && f.properties.caption
+            && isEffectivelyVisible(root, f.controlPath, groupVis, ar.updatedState!.wizardState))
           .map(f => ({ name: f.properties.caption!, value: f.properties.stringValue }));
+        if (fields.length > 0) updatedFields = fields;
       }
     }
 
@@ -227,9 +239,11 @@ export class ExecuteActionOperation {
     return {
       success: ar.success,
       dialog: ar.dialog ? dialogsOpened.find(d => d.formId === ar.dialog!.formId) : undefined,
-      updatedFields,
+      ...(updatedFields ? { updatedFields } : {}),
       changedSections,
       openedPages,
+      // The page BC closed in this call (e.g. a posted document): its pageContextId no longer works.
+      closedPages: this.repo.get(pageContextId) ? [] : [pageContextId],
       dialogsOpened,
       requiresDialogResponse: dialogsOpened.length > 0,
       messages: collectMessages(ar.events),

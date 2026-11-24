@@ -174,10 +174,10 @@ export class PageContextRepository {
       case 'FormClosed': {
         const page = this.store.get(decision.pcId);
         this.dropClosedDialogFromOwners(decision.pcId, decision.formId);
-        // A dialog registered as its own context (registerDialogs) is gone once its form
-        // closes: keeping it listed it as open (live cronus29: a discard confirm closed by
-        // modal reconcile still showed up in SESSION_LOST's impacted contexts).
-        if (page?.ownerPageContextId && page.rootFormId === decision.formId) {
+        // A page whose root form closed is gone, a registered dialog included: kept with
+        // invalid sections it stayed listed as open, and the next read answered "Section
+        // 'header' not found" listing 'header' (payload review 2026-11-24). Parts go with it.
+        if (page && page.rootFormId === decision.formId) {
           this.store.removePage(decision.pcId);
           return decision.pcId;
         }

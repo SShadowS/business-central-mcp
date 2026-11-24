@@ -196,6 +196,51 @@ describe('ExecuteActionOperation — buildOutput (uncovered branches)', () => {
     expect(result.value.updatedFields).toBeUndefined();
   });
 
+  // Payload review 2026-11-24, step 15: "Dimensions" (nothing changed) returned all 110
+  // visible card fields as updatedFields.
+  function cardRepo() {
+    const repo = new PageContextRepository();
+    repo.create('pc:card', 'CARD');
+    repo.applyToPage('pc:card', [{
+      type: 'FormCreated', formId: 'CARD', isReload: false,
+      controlTree: { t: 'lf', ServerId: 'CARD', PageType: 0, Children: [
+        { t: 'sc', Caption: 'Name', Visible: true, StringValue: 'A' },
+        { t: 'sc', Caption: 'Balance', Visible: true, StringValue: '1' },
+      ] },
+    } as BCEvent]);
+    return repo;
+  }
+
+  it('updatedFields lists only the fields whose value this action changed', async () => {
+    const repo = cardRepo();
+    const events = [{ type: 'PropertyChanged', formId: 'CARD', controlPath: 'server:c[1]', changes: { StringValue: '2' } }] as BCEvent[];
+    const actionService = makeActionService({
+      executeAction: vi.fn(async () => { repo.applyToPage('pc:card', events); return ok({ success: true, events, updatedState: repo.get('pc:card') }); }),
+    });
+    const r = await new ExecuteActionOperation(actionService, repo, makeNav(), makeDownloadService(), 100).execute({ pageContextId: 'pc:card', action: 'Calc' });
+    expect(r.ok && r.value.updatedFields).toEqual([{ name: 'Balance', value: '2' }]);
+  });
+
+  it('an action that changes nothing has no updatedFields', async () => {
+    const repo = cardRepo();
+    const actionService = makeActionService({
+      executeAction: vi.fn(async () => ok({ success: true, events: [] as BCEvent[], updatedState: repo.get('pc:card') })),
+    });
+    const r = await new ExecuteActionOperation(actionService, repo, makeNav(), makeDownloadService(), 100).execute({ pageContextId: 'pc:card', action: 'Dimensions' });
+    expect(r.ok && r.value).not.toHaveProperty('updatedFields');
+    expect(r.ok && r.value.closedPages).toEqual([]);
+  });
+
+  it('an action that closes its page reports it in closedPages', async () => {
+    const repo = cardRepo();
+    const events = [{ type: 'FormClosed', formId: 'CARD' }] as BCEvent[];
+    const actionService = makeActionService({
+      executeAction: vi.fn(async () => { repo.applyEvents(events); return ok({ success: true, events }); }),
+    });
+    const r = await new ExecuteActionOperation(actionService, repo, makeNav(), makeDownloadService(), 100).execute({ pageContextId: 'pc:card', action: 'Post' });
+    expect(r.ok && r.value).toMatchObject({ closedPages: ['pc:card'], changedSections: [] });
+  });
+
   it('returns requiresDialogResponse=true when events contain DialogOpened', async () => {
     const dialogEvent: BCEvent = {
       type: 'DialogOpened',
