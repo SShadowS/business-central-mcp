@@ -27,7 +27,7 @@ Every result from those tools (and its ledger entry) carries `replaySafe`. `true
 | `bc_api_invoke` | Modify (it needs the current `@odata.etag` as `If-Match`, so a repeat is refused) and Delete; never Create or a bound action |
 | `bc_run_report`, `bc_upload_file`, `bc_run_tests` | never: a re-run reruns the report, the import or the tests |
 
-`OPERATION_IN_DOUBT` is always `replaySafe: false`, and so is the first error response to an ambiguous failure (`TIMEOUT_ERROR`, `SESSION_LOST`, `CONNECTION_ERROR`, `PROTOCOL_ERROR`, `ABORTED_ERROR`, or an unclassified error), with or without an `operationId`. Definite failures (validation, business errors) carry no verdict, because nothing was applied.
+`OPERATION_IN_DOUBT` is always `replaySafe: false`, and so is the first error response to an ambiguous failure (`TIMEOUT_ERROR`, `SESSION_LOST`, `CONNECTION_ERROR`, `PROTOCOL_ERROR`, `ABORTED_ERROR`, or an unclassified error), with or without an `operationId`. In an error the verdict sits in the body's `error.details.replaySafe` (error results carry the body in their text content only, no `structuredContent`). Definite failures carry no verdict, because nothing was applied: validation and business errors, and the local misses answered before anything reaches BC (`PAGE_CONTEXT_NOT_FOUND`, `ACTION_NOT_FOUND`, `ACTION_DISABLED`, `SECTION_NOT_FOUND`, `TAB_NOT_FOUND`, `FIELD_NOT_FOUND`) or BC's `PAGE_NOT_FOUND`.
 
 ## `bc_get_operation`
 
