@@ -83,6 +83,13 @@ export function extractTellMeRow(raw: unknown): SearchResult | null {
   const category = readCellString(cellMap, 'DepartmentCategory');
   if (category) (result as { category?: string }).category = category;
 
+  // A page result's CacheKey is `<pageId>:...` (decompiled CacheKeyHelper.CalculateCacheKeyCore,
+  // invariant culture, e.g. "22:embedded(False)"); reports carry none. This is the only place
+  // Tell Me names a page by id, and bc_open_page needs the id (OpenForm rejects an AL name:
+  // FormActivatorException "Parameter id must be a valid number", live cronus29).
+  const pageId = /^(\d+):/.exec(readCellString(cellMap, 'CacheKey') ?? '')?.[1];
+  if (result.objectType === 'page' && pageId) (result as { pageId?: number }).pageId = Number(pageId);
+
   const scoreString = readCellString(cellMap, 'SearchScore');
   if (scoreString) {
     const n = parseInt(scoreString, 10);

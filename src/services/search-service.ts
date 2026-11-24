@@ -10,8 +10,10 @@ export interface SearchResult {
   name: string;
   /** Object kind: 'page' | 'report' | 'codeunit' | etc. Lowercase per BC's wire format. */
   objectType: string;
-  /** AL object name BC uses to run the target. Pass to OpenForm or its equivalent. */
+  /** AL object name of the target (BC identifies Tell Me results by name). */
   runTarget: string;
+  /** For a page: its numeric ID, to pass to bc_open_page. Reports have none. */
+  pageId?: number;
   /** Department path (e.g. "Departments/Financial Management/Receivables"). Optional. */
   departmentPath?: string;
   /** Category label ("Lists", "Tasks", "Reports", ...). Optional. */

@@ -66,8 +66,8 @@ export const PROMPTS: PromptDefinition[] = [
       `Goal: locate and open the Business Central object for "${opt(a, 'query', '<query>')}".
 
 Steps:
-1. Call bc_search_pages { query: "${opt(a, 'query', '<query>')}" }. Results carry \`objectType\` ('page' | 'report' | ...), \`name\`, and \`runTarget\`.
-2. Pick the best match. If it is a page, call bc_open_page with its numeric id (use bc_search_pages hits to resolve the id). If it is a report, use the bc_report workflow instead.
+1. Call bc_search_pages { query: "${opt(a, 'query', '<query>')}" }. Results carry \`objectType\` ('page' | 'report' | ...), \`name\`, \`runTarget\` and, for pages, \`pageId\`.
+2. Pick the best match. If it is a page, call bc_open_page { pageId } with its \`pageId\`. If it is a report, use the bc_report workflow instead (it needs the numeric report ID; search results do not carry one).
 3. After bc_open_page, report the returned \`sections\` and \`stateVersion\` so the caller knows what is available.
 
 ${CORE_NOTE}`,

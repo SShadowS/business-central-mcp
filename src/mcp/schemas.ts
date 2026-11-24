@@ -68,6 +68,7 @@ export const ClosePageSchema = z.object({
 });
 
 export const SearchPagesSchema = z.object({
+  limit: z.number().int().min(1).max(50).optional().describe('Maximum results to return, in BC\'s relevance order (default 15). The output says truncated: true when there were more.'),
   query: z.string().min(1).describe('Search term matching BC page names and keywords (e.g., "customer", "sales order", "chart of accounts"). Fuzzy matching supported.'),
 });
 
@@ -320,7 +321,16 @@ export const ClosePageOutputSchema = z.object({
 });
 
 export const SearchPagesOutputSchema = z.object({
-  results: z.array(Loose),
+  results: z.array(z.object({
+    name: z.string(),
+    objectType: z.string(),
+    runTarget: z.string(),
+    pageId: z.number().optional(),
+    departmentPath: z.string().optional(),
+    category: z.string().optional(),
+    score: z.number().optional(),
+  })),
+  truncated: z.boolean(),
   note: z.string().optional(),
 });
 

@@ -44,6 +44,17 @@ describe('extractTellMeResults — fixture', () => {
     expect(customerList!.name).toBe('Customers');
   });
 
+  // The CacheKey cell is `<pageId>:...` (decompiled CacheKeyHelper.CalculateCacheKeyCore,
+  // invariant culture); reports have none. Live cronus29: "Customers" -> 22:embedded(False).
+  it('gives every page result its numeric pageId from the CacheKey, reports none', () => {
+    expect(results.find(r => r.runTarget === 'Customer Contracts')!.pageId).toBe(8053);
+    expect(results.find(r => r.runTarget === 'Imported Customer Contracts')!.pageId).toBe(8013);
+    for (const r of results) {
+      if (r.objectType === 'page') expect(Number.isInteger(r.pageId)).toBe(true);
+      else expect(r).not.toHaveProperty('pageId');
+    }
+  });
+
   it('parses score, departmentPath, category', () => {
     const customerList = results.find(r => r.runTarget === 'Customer List');
     expect(customerList!.category).toBeTruthy();

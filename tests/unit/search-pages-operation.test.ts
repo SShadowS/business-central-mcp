@@ -19,6 +19,20 @@ describe('SearchPagesOperation', () => {
     }
   });
 
+  it('caps results at limit (default 15) and says when it cut some off', async () => {
+    const many = Array.from({ length: 53 }, (_, i) => ({ name: `P${i}`, objectType: 'page', runTarget: `P${i}`, pageId: i + 1 }) as SearchResult);
+    const op = new SearchPagesOperation({ search: async () => ok(many) } as never);
+    const byDefault = await op.execute({ query: 'x' });
+    expect(byDefault.ok && byDefault.value.results).toHaveLength(15);
+    expect(byDefault.ok && byDefault.value.truncated).toBe(true);
+    const three = await op.execute({ query: 'x', limit: 3 });
+    expect(three.ok && three.value.results.map(r => r.name)).toEqual(['P0', 'P1', 'P2']);
+    const all = await op.execute({ query: 'x', limit: 50 });
+    expect(all.ok && all.value.truncated).toBe(true);
+    const few = await new SearchPagesOperation({ search: async () => ok(many.slice(0, 2)) } as never).execute({ query: 'x' });
+    expect(few.ok && few.value.truncated).toBe(false);
+  });
+
   it('returns empty results with a profile-hint note when search yields nothing', async () => {
     const fakeSearch = {
       search: async () => ok([] as SearchResult[]),

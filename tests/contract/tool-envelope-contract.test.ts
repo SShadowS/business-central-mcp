@@ -211,7 +211,7 @@ describe('tool envelope contract — every tool success validates against its ou
     ['bc_write_data', WriteDataOutputSchema, { results: [], allSucceeded: true, changedSections: [], dialogsOpened: [], requiresDialogResponse: false, validationWarnings: [], messages: [], replaySafe: true }],
     ['bc_execute_action', ExecuteActionOutputSchema, { success: true, changedSections: [], openedPages: [], dialogsOpened: [], requiresDialogResponse: false, messages: [], downloads: [], externalUris: [], replaySafe: true }],
     ['bc_close_page', ClosePageOutputSchema, { closed: true, dialogsOpened: [], requiresDialogResponse: false, replaySafe: true }],
-    ['bc_search_pages', SearchPagesOutputSchema, { results: [] }],
+    ['bc_search_pages', SearchPagesOutputSchema, { results: [{ name: 'Customers', objectType: 'page', runTarget: 'Customer List', pageId: 22 }], truncated: false }],
     ['bc_navigate', NavigateOutputSchema, { changedSections: [], dialogsOpened: [], requiresDialogResponse: false }],
     ['bc_respond_dialog', RespondDialogOutputSchema, { closed: true, changedSections: [], dialogsOpened: [], requiresDialogResponse: false, openedPages: [], messages: [], downloads: [], externalUris: [], replaySafe: true }],
     ['bc_switch_company', SwitchCompanyOutputSchema, { previousCompany: 'a', newCompany: 'b', invalidatedPageContextIds: [], replaySafe: true }],

@@ -45,6 +45,10 @@ describe('bc_search_pages live extraction (BC28)', () => {
       // At least one is objectType "page"
       const pageHit = result.value.results.find(r => r.objectType === 'page');
       expect(pageHit, 'expected at least one page-typed result').toBeDefined();
+
+      // Every page result is openable by id: "Customers" is the Customer List, page 22.
+      for (const r of result.value.results.filter(r => r.objectType === 'page')) expect(r.pageId).toBeGreaterThan(0);
+      expect(result.value.results.find(r => r.runTarget === 'Customer List')?.pageId).toBe(22);
     }, 30_000);
   });
 
