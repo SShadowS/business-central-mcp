@@ -17,6 +17,7 @@ import { OperationLedger } from '../../src/mcp/operation-ledger.js';
 import { IdempotencyGate } from '../../src/mcp/idempotency-gate.js';
 import type { Operations } from '../../src/mcp/tool-registry.js';
 import { createFakeBCSocket, invokeCompleted, type FakeScript } from '../helpers/fake-bc-socket.js';
+import { errorBody } from '../helpers/error-body.js';
 
 const logger = () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() });
 type ToolResult = { content: Array<{ text: string }>; isError?: boolean; structuredContent?: Record<string, unknown> };
@@ -56,7 +57,7 @@ describe('commit then drop', () => {
     expect(await ledger.get('op-post')).toMatchObject({ status: 'unknown', tool: 'bc_respond_dialog', error: { code: 'PROTOCOL_ERROR' } });
 
     const retry = await post();
-    expect((retry.structuredContent as { error: { code: string; details: Record<string, unknown> } }).error)
+    expect(errorBody(retry).error)
       .toMatchObject({ code: 'OPERATION_IN_DOUBT', details: { operationId: 'op-post', status: 'unknown' } });
     expect(server.sent).toHaveLength(1); // nothing re-sent to BC
   });

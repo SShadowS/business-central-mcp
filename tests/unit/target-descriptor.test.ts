@@ -9,6 +9,7 @@ import { MCPHandler } from '../../src/mcp/handler.js';
 import { OperationLedger } from '../../src/mcp/operation-ledger.js';
 import { IdempotencyGate } from '../../src/mcp/idempotency-gate.js';
 import { TimeoutError } from '../../src/core/errors.js';
+import { errorBody } from '../helpers/error-body.js';
 import type { BCEvent } from '../../src/protocol/types.js';
 
 const PC = 'session:page:22:abcd1234';
@@ -149,10 +150,10 @@ describe('replay gate stores the target descriptor', () => {
     expect(entry?.status).toBe('unknown');
     expect(entry?.target).toMatchObject({ company: 'CRONUS', page: { pageId: '22' }, rows: [{ bookmark: 'BM1', cells: { 'No.': '10000' } }] });
 
-    const retry = (await call()).result as { structuredContent: { error: { code: string; details: Record<string, unknown> } } };
-    expect(retry.structuredContent.error.code).toBe('OPERATION_IN_DOUBT');
+    const retry = errorBody((await call()).result);
+    expect(retry.error.code).toBe('OPERATION_IN_DOUBT');
     // target is a scalar-only detail, so it rides as a JSON string.
-    expect(JSON.parse(retry.structuredContent.error.details.target as string).args.action).toBe('Post');
+    expect(JSON.parse(retry.error.details.target as string).args.action).toBe('Post');
     expect(execute).toHaveBeenCalledTimes(1);
   });
 });

@@ -5,6 +5,7 @@ import { MCPHandler, URL_ELICITATION_JSONRPC_CODE } from '../../src/mcp/handler.
 import type { ToolDefinition } from '../../src/mcp/tool-registry.js';
 import { SessionLostError, BusinessError, BusinessValidationError, SignInRequiredError, UrlElicitationRequiredError } from '../../src/core/errors.js';
 import { ClientElicitationPort } from '../../src/mcp/elicitation-port.js';
+import { errorBody } from '../helpers/error-body.js';
 
 const pkgVersion = (createRequire(import.meta.url)('../../package.json') as { version: string }).version;
 
@@ -188,8 +189,8 @@ describe('MCPHandler.handleRequest — tools/call: zod validation failure', () =
     const result = res.result as { content: Array<{ type: string; text: string }>; structuredContent: { error: { code: string; category: string } }; isError: boolean };
     expect(result.isError).toBe(true);
     expect(result.content[0]!.type).toBe('text');
-    expect(result.structuredContent.error.code).toBe('INVALID_ARGUMENT');
-    expect(result.structuredContent.error.category).toBe('validation');
+    expect(errorBody(res.result).error.code).toBe('INVALID_ARGUMENT');
+    expect(errorBody(res.result).error.category).toBe('validation');
     // execute must NOT have been called
     expect(execute).not.toHaveBeenCalled();
   });
@@ -250,10 +251,10 @@ describe('MCPHandler.handleRequest — tools/call: err result', () => {
     const res = await handler.handleRequest(makeRequest('tools/call', { name: 'bc_w', arguments: {} }));
     const result = res.result as { content: Array<{ text: string }>; structuredContent: { error: { code: string; message: string }; nextSteps: string[] }; isError: boolean };
     expect(result.isError).toBe(true);
-    expect(result.structuredContent.error.code).toBe('VALIDATION_ERROR');
-    expect(result.structuredContent.error.message).toContain('Name is required.');
+    expect(errorBody(res.result).error.code).toBe('VALIDATION_ERROR');
+    expect(errorBody(res.result).error.message).toContain('Name is required.');
     // VALIDATION_ERROR's registered hint is reused as the first nextStep
-    expect(result.structuredContent.nextSteps[0]).toContain('bc_write_data');
+    expect(errorBody(res.result).nextSteps[0]).toContain('bc_write_data');
   });
 
   it('returns "Error: <message>" when err has no code', async () => {
@@ -264,8 +265,8 @@ describe('MCPHandler.handleRequest — tools/call: err result', () => {
     const res = await handler.handleRequest(makeRequest('tools/call', { name: 'bc_w2', arguments: {} }));
     const result = res.result as { content: Array<{ text: string }>; structuredContent: { error: { code: string; message: string } }; isError: boolean };
     expect(result.isError).toBe(true);
-    expect(result.structuredContent.error.code).toBe('INTERNAL_ERROR');
-    expect(result.structuredContent.error.message).toBe('something went wrong');
+    expect(errorBody(res.result).error.code).toBe('INTERNAL_ERROR');
+    expect(errorBody(res.result).error.message).toBe('something went wrong');
   });
 
   it('returns "Unknown error" fallback when err object has no message', async () => {
@@ -310,9 +311,9 @@ describe('MCPHandler.handleRequest — tools/call: thrown BCError', () => {
     expect(res.error).toBeUndefined();
     const result = res.result as { content: Array<{ text: string }>; structuredContent: { error: { code: string; details: Record<string, unknown> }; nextSteps: string[] }; isError: boolean };
     expect(result.isError).toBe(true);
-    expect(result.structuredContent.error.code).toBe('SIGN_IN_REQUIRED');
-    expect(result.structuredContent.error.details.reason).toBe('no_display');
-    expect(result.structuredContent.nextSteps[0]).toMatch(/login|window/i);
+    expect(errorBody(res.result).error.code).toBe('SIGN_IN_REQUIRED');
+    expect(errorBody(res.result).error.details.reason).toBe('no_display');
+    expect(errorBody(res.result).nextSteps[0]).toMatch(/login|window/i);
   });
 
   it('returns isError:true with formatBcError output when execute throws BCError subclass', async () => {
@@ -324,8 +325,8 @@ describe('MCPHandler.handleRequest — tools/call: thrown BCError', () => {
     const res = await handler.handleRequest(makeRequest('tools/call', { name: 'bc_post', arguments: {} }));
     const result = res.result as { content: Array<{ text: string }>; structuredContent: { error: { code: string; message: string } }; isError: boolean };
     expect(result.isError).toBe(true);
-    expect(result.structuredContent.error.code).toBe('BUSINESS_ERROR');
-    expect(result.structuredContent.error.message).toContain('Cannot post invoice.');
+    expect(errorBody(res.result).error.code).toBe('BUSINESS_ERROR');
+    expect(errorBody(res.result).error.message).toContain('Cannot post invoice.');
     // Non-SessionLost BCError should log at error level
     expect(logger.error).toHaveBeenCalled();
     expect(logger.info).not.toHaveBeenCalled();
@@ -340,8 +341,8 @@ describe('MCPHandler.handleRequest — tools/call: thrown BCError', () => {
     const res = await handler.handleRequest(makeRequest('tools/call', { name: 'bc_op', arguments: {} }));
     const result = res.result as { content: Array<{ text: string }>; structuredContent: { error: { code: string; message: string } }; isError: boolean };
     expect(result.isError).toBe(true);
-    expect(result.structuredContent.error.code).toBe('SESSION_LOST');
-    expect(result.structuredContent.error.message).toContain('Session died');
+    expect(errorBody(res.result).error.code).toBe('SESSION_LOST');
+    expect(errorBody(res.result).error.message).toContain('Session died');
     // SessionLostError -> info, not error
     expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('ctx:1'));
     expect(logger.error).not.toHaveBeenCalled();
@@ -354,7 +355,7 @@ describe('MCPHandler.handleRequest — tools/call: thrown BCError', () => {
 
     const res = await handler.handleRequest(makeRequest('tools/call', { name: 'bc_gone', arguments: {} }));
     const result = res.result as { structuredContent: { nextSteps: string[] }; isError: boolean };
-    expect(result.structuredContent.nextSteps[0]).toContain('bc_open_page');
+    expect(errorBody(res.result).nextSteps[0]).toContain('bc_open_page');
   });
 
   it('returns SessionLostError recovery state structurally', async () => {
@@ -365,10 +366,10 @@ describe('MCPHandler.handleRequest — tools/call: thrown BCError', () => {
     const res = await handler.handleRequest(makeRequest('tools/call', { name: 'bc_lost', arguments: {} }));
     const result = res.result as { content: Array<{ text: string }>; structuredContent: { error: { code: string; details: Record<string, unknown> } }; isError: boolean };
     expect(result.isError).toBe(true);
-    expect(result.structuredContent.error.code).toBe('SESSION_LOST');
+    expect(errorBody(res.result).error.code).toBe('SESSION_LOST');
     // Array -> JSON string (scalar-only details); reconnectFailed stays a boolean.
-    expect(result.structuredContent.error.details.impactedPageContextIds).toBe('["pcA","pcB"]');
-    expect(result.structuredContent.error.details.reconnectFailed).toBe(true);
+    expect(errorBody(res.result).error.details.impactedPageContextIds).toBe('["pcA","pcB"]');
+    expect(errorBody(res.result).error.details.reconnectFailed).toBe(true);
     expect(JSON.parse(result.content[0]!.text).error.details.reconnectFailed).toBe(true);
   });
 
@@ -403,8 +404,8 @@ describe('MCPHandler.handleRequest — tools/call: thrown BCError', () => {
     const res = await handler.handleRequest(makeRequest('tools/call', { name: 'bc_z', arguments: {} }));
     const result = res.result as { content: Array<{ text: string }>; structuredContent: { error: { code: string; message: string } }; isError: boolean };
     expect(result.isError).toBe(true);
-    expect(result.structuredContent.error.code).toBe('INTERNAL_ERROR');
-    expect(result.structuredContent.error.message).toBe('disk full');
+    expect(errorBody(res.result).error.code).toBe('INTERNAL_ERROR');
+    expect(errorBody(res.result).error.message).toBe('disk full');
     expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('disk full'));
   });
 
@@ -427,9 +428,9 @@ describe('MCPHandler.handleRequest — tools/call: thrown BCError', () => {
     const res = await handler.handleRequest(makeRequest('tools/call', { name: 'bc_val', arguments: {} }));
     const result = res.result as { content: Array<{ text: string }>; structuredContent: { error: { code: string; message: string; details: Record<string, unknown> } }; isError: boolean };
     expect(result.isError).toBe(true);
-    expect(result.structuredContent.error.code).toBe('VALIDATION_ERROR');
-    expect(result.structuredContent.error.message).toContain('Name too long');
-    expect(JSON.parse(result.structuredContent.error.details.fieldErrors as string)[0].description).toBe('Name too long');
+    expect(errorBody(res.result).error.code).toBe('VALIDATION_ERROR');
+    expect(errorBody(res.result).error.message).toContain('Name too long');
+    expect(JSON.parse(errorBody(res.result).error.details.fieldErrors as string)[0].description).toBe('Name too long');
     expect(logger.error).toHaveBeenCalled();
   });
 });

@@ -288,13 +288,13 @@ export class MCPHandler {
   private async runTool(tool: ToolDefinition, input: unknown, id: unknown): Promise<ToolRun> {
     const outcome = await this.executeTool(tool, input, id);
     const { failure } = outcome;
-    const result = outcome.response.result as { content: Array<{ type: string; text: string }>; structuredContent?: ErrorBody } | undefined;
+    const result = outcome.response.result as { content: Array<{ type: string; text: string }>; isError?: boolean } | undefined;
     // An ambiguous failure of a mutating tool is exactly when the caller most
     // needs the verdict: the change may have committed, so a re-run is unsafe.
-    // The result is already an error envelope; stamp the verdict into its
-    // scalar-only `error.details` (a sibling of `error` would break the strict body).
-    if (failure && result?.structuredContent?.error && !tool.annotations.readOnlyHint && isAmbiguousFailure(failure.code)) {
-      const body = result.structuredContent;
+    // The result is already an error envelope (body in content text only); stamp
+    // the verdict into its `error.details` (a sibling of `error` would break the strict body).
+    if (failure && result?.isError && !tool.annotations.readOnlyHint && isAmbiguousFailure(failure.code)) {
+      const body = JSON.parse(result.content[0]!.text) as ErrorBody;
       body.error.details = { ...body.error.details, replaySafe: false };
       result.content = [{ type: 'text', text: JSON.stringify(body, null, 2) }];
     }

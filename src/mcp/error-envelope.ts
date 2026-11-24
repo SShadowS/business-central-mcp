@@ -170,7 +170,11 @@ export function toBcErrorBody(
   );
 }
 
-/** The MCP isError tool result that carries the body (both machine- and human-readable). */
+/**
+ * The MCP isError tool result. The body rides ONLY in content text: structuredContent must
+ * conform to the tool's outputSchema (MCP spec), which an error body never does, and the SDK
+ * client validates it even on isError results, so a client would throw instead of showing the error.
+ */
 export function bcErrorResult(
   id: unknown,
   tool: string,
@@ -183,7 +187,6 @@ export function bcErrorResult(
     id,
     result: {
       content: [{ type: 'text' as const, text: JSON.stringify(body, null, 2) }],
-      structuredContent: body,
       isError: true,
     },
   };

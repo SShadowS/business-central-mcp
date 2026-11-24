@@ -47,6 +47,7 @@ import type { BCEvent } from '../../src/protocol/types.js';
 import { isOk, unwrap } from '../../src/core/result.js';
 import { integrationPool, type PooledLease } from './helpers/session-pool.js';
 import { stubDownloadService } from './helpers/download-service.js';
+import { errorBody } from '../helpers/error-body.js';
 
 type ToolResult = { content: Array<{ text: string }>; isError?: boolean; structuredContent?: Record<string, unknown> };
 
@@ -271,12 +272,12 @@ describe.sequential('Destructive: replay gate on a real posting (#27)', () => {
     dropNextInvokeResponse(r.session);
     const killed = await r.call('bc_respond_dialog', args);
     expect(killed.isError).toBe(true);
-    expect(killed.structuredContent).toMatchObject({ replaySafe: false });
+    expect(errorBody(killed).error.details).toMatchObject({ replaySafe: false });
     expect(r.session.isAlive).toBe(false);
     expect(await r.ledger.get(args.operationId)).toMatchObject({ status: 'unknown', replaySafe: false });
 
     const retry = await r.call('bc_respond_dialog', args);
-    expect(retry.structuredContent).toMatchObject({ code: 'OPERATION_IN_DOUBT', operationId: args.operationId, status: 'unknown' });
+    expect(errorBody(retry).error).toMatchObject({ code: 'OPERATION_IN_DOUBT', details: { operationId: args.operationId, status: 'unknown' } });
 
     // The client is gone: new session, new ledger instance over the same STATE_DIR.
     await integrationPool.checkIn(r.lease, { poisoned: true });

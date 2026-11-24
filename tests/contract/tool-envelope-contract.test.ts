@@ -71,13 +71,20 @@ function makeTool(
 
 const call = (h: MCPHandler, name: string, args: Record<string, unknown> = {}) =>
   h.handleRequest({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } })
-    .then(r => r.result as { content: Array<{ text: string }>; isError?: boolean; structuredContent?: Record<string, unknown> });
+    .then(r => {
+      const res = r.result as { content: Array<{ text: string }>; isError?: boolean; structuredContent?: Record<string, unknown> };
+      return { ...res, body: res.isError ? JSON.parse(res.content[0].text) as unknown : undefined };
+    });
 
-/** Universal invariant: EITHER a valid error body, OR structuredContent valid vs the output schema. */
-function assertEnvelope(result: { isError?: boolean; structuredContent?: unknown }, outputSchema?: z.ZodType) {
+/**
+ * Universal invariant: EITHER an error whose body rides ONLY in content text (structuredContent must
+ * match the tool's outputSchema, which an error body never does), OR structuredContent valid vs the output schema.
+ */
+function assertEnvelope(result: { isError?: boolean; structuredContent?: unknown; body?: unknown }, outputSchema?: z.ZodType) {
   if (result.isError) {
-    expect(() => ErrBody.parse(result.structuredContent)).not.toThrow();
-    const body = result.structuredContent as { nextSteps: string[] };
+    expect(result).not.toHaveProperty('structuredContent');
+    expect(() => ErrBody.parse(result.body)).not.toThrow();
+    const body = result.body as { nextSteps: string[] };
     expect(body.nextSteps.length).toBeGreaterThan(0);
   } else if (outputSchema) {
     expect(() => outputSchema.parse(result.structuredContent)).not.toThrow();
@@ -92,7 +99,7 @@ describe('tool envelope contract — the four required failure classes', () => {
     const res = await call(h, 'bc_write_data', {}); // missing pageContextId + fields
     expect(res.isError).toBe(true);
     assertEnvelope(res);
-    const body = res.structuredContent as { error: { code: string; category: string } };
+    const body = res.body as { error: { code: string; category: string } };
     expect(body.error.code).toBe('INVALID_ARGUMENT');
     expect(body.error.category).toBe('validation');
   });
@@ -102,7 +109,7 @@ describe('tool envelope contract — the four required failure classes', () => {
       vi.fn().mockResolvedValue({ ok: false, error: new AuthenticationError('bad creds') }))], logger());
     const res = await call(h, 'bc_open_page');
     assertEnvelope(res);
-    const body = res.structuredContent as { error: { code: string; category: string } };
+    const body = res.body as { error: { code: string; category: string } };
     expect(body.error.code).toBe('AUTHENTICATION_FAILED');
     expect(body.error.category).toBe('auth');
   });
@@ -112,7 +119,7 @@ describe('tool envelope contract — the four required failure classes', () => {
     const h = new MCPHandler([makeTool('bc_open_page', vi.fn().mockRejectedValue(signIn))], logger());
     const res = await call(h, 'bc_open_page');
     assertEnvelope(res);
-    const body = res.structuredContent as { error: { code: string; category: string; details: Record<string, unknown> } };
+    const body = res.body as { error: { code: string; category: string; details: Record<string, unknown> } };
     expect(body.error.code).toBe('SIGN_IN_REQUIRED');
     expect(body.error.category).toBe('auth');
     expect(body.error.details.openedWindow).toBe(false);
@@ -124,7 +131,7 @@ describe('tool envelope contract — the four required failure classes', () => {
       vi.fn().mockResolvedValue({ ok: false, error: new OAuthNotConfiguredError('BC_CLIENT_ID missing') }))], logger());
     const res = await call(h, 'bc_query');
     assertEnvelope(res);
-    const body = res.structuredContent as { error: { code: string; category: string } };
+    const body = res.body as { error: { code: string; category: string } };
     expect(body.error.code).toBe('OAUTH_NOT_CONFIGURED');
     expect(body.error.category).toBe('configuration');
   });
@@ -134,7 +141,7 @@ describe('tool envelope contract — the four required failure classes', () => {
       vi.fn().mockResolvedValue({ ok: false, error: new BCMcpUnavailableError('not offered', 'tools-disabled') }))], logger());
     const res = await call(h, 'bc_data_query');
     assertEnvelope(res);
-    const body = res.structuredContent as { error: { code: string; category: string; details: Record<string, unknown> } };
+    const body = res.body as { error: { code: string; category: string; details: Record<string, unknown> } };
     expect(body.error.code).toBe('BC_MCP_UNAVAILABLE');
     expect(body.error.category).toBe('configuration');
     expect(body.error.details.reason).toBe('tools-disabled');
@@ -145,7 +152,7 @@ describe('tool envelope contract — the four required failure classes', () => {
       vi.fn().mockResolvedValue({ ok: false, error: new ApiActionError('Request_EntityChanged: Another user has already changed the record.', { odataCode: 'Request_EntityChanged' }) }))], logger());
     const res = await call(h, 'bc_api_invoke');
     assertEnvelope(res);
-    const body = res.structuredContent as { error: { code: string; category: string; details: Record<string, unknown> } };
+    const body = res.body as { error: { code: string; category: string; details: Record<string, unknown> } };
     expect(body.error.code).toBe('API_ACTION_ERROR');
     expect(body.error.category).toBe('validation');
     expect(body.error.details.odataCode).toBe('Request_EntityChanged');
@@ -156,7 +163,7 @@ describe('tool envelope contract — the four required failure classes', () => {
       vi.fn().mockResolvedValue({ ok: false, error: new DataQueryError('Compilation failed:\n\n(1,67): error AL0345: ...') }))], logger());
     const res = await call(h, 'bc_data_query');
     assertEnvelope(res);
-    const body = res.structuredContent as { error: { code: string; category: string; message: string } };
+    const body = res.body as { error: { code: string; category: string; message: string } };
     expect(body.error.code).toBe('DATA_QUERY_ERROR');
     expect(body.error.category).toBe('validation');
     expect(body.error.message).toContain('AL0345');
@@ -167,7 +174,7 @@ describe('tool envelope contract — the four required failure classes', () => {
       vi.fn().mockRejectedValue(new SessionLostError('reconnected', ['pc1', 'pc2'])))], logger());
     const res = await call(h, 'bc_execute_action');
     assertEnvelope(res);
-    const body = res.structuredContent as { error: { code: string; category: string; details: Record<string, unknown> } };
+    const body = res.body as { error: { code: string; category: string; details: Record<string, unknown> } };
     expect(body.error.code).toBe('SESSION_LOST');
     expect(body.error.category).toBe('network');
     // Arrays are scalar-illegal in details, so they are JSON-stringified.
@@ -188,7 +195,7 @@ describe('tool envelope contract — gate failures become envelopes', () => {
     const res = await call(h, 'bc_write_data', { operationId: 'op-1' }); // in doubt
     expect(res.isError).toBe(true);
     assertEnvelope(res);
-    const body = res.structuredContent as { error: { code: string; category: string; details: Record<string, unknown> } };
+    const body = res.body as { error: { code: string; category: string; details: Record<string, unknown> } };
     expect(body.error.code).toBe('OPERATION_IN_DOUBT');
     expect(body.error.category).toBe('state');
     expect(body.error.details.operationId).toBe('op-1');
