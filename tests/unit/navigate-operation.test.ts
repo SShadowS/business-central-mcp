@@ -119,7 +119,9 @@ describe('NavigateOperation output shape', () => {
     expect(result.value.requiresDialogResponse).toBe(false);
   });
 
-  it('select output includes sections=[] (empty sections map), changedSections=[], no targetPageContextId', async () => {
+  // Recorded flow 2026-11-24: select returned the whole list section (23 KB) and never said
+  // which row was now current.
+  it('select output names the current row and carries no sections', async () => {
     const svc = makeNavigationService();
     const op = new NavigateOperation(svc);
 
@@ -127,7 +129,9 @@ describe('NavigateOperation output shape', () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value.targetPageContextId).toBeUndefined();
+    expect(result.value.selectedBookmark).toBe('bk2');
+    expect(result.value).not.toHaveProperty('sections');
+    expect(result.value).not.toHaveProperty('openedPages');
     expect(result.value.changedSections).toEqual([]);
     expect(result.value.dialogsOpened).toEqual([]);
     expect(result.value.requiresDialogResponse).toBe(false);

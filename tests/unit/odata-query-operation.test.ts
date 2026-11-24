@@ -46,6 +46,27 @@ describe('QueryOperation', () => {
     expect(result.value.rowCount).toBe(1);
   });
 
+  // Recorded flow 2026-11-24: top 3 over 5 customers answered hasMore:false (BC sends no
+  // nextLink below its page size). One extra row is asked for and trimmed.
+  it('reports hasMore when more rows exist than top, and passes skip', async () => {
+    const four = [1, 2, 3, 4].map(n => ({ number: `C00${n}` }));
+    const fetchMock = mockFetch(companiesOk, { ok: true, status: 200, body: { value: four } });
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const result = await new QueryOperation(makeConfig()).execute({ entity: 'customers', top: 3, skip: 6 });
+    expect(result.ok && result.value.rows).toHaveLength(3);
+    expect(result.ok && result.value.hasMore).toBe(true);
+    const url = String(fetchMock.mock.calls[1]![0]);
+    expect(url).toContain('$top=4');
+    expect(url).toContain('$skip=6');
+  });
+
+  it('reports no more rows when BC returns at most top', async () => {
+    global.fetch = mockFetch(companiesOk, { ok: true, status: 200, body: { value: [{ n: 1 }, { n: 2 }] } }) as unknown as typeof fetch;
+    const result = await new QueryOperation(makeConfig()).execute({ entity: 'customers', top: 3 });
+    expect(result.ok && result.value.hasMore).toBe(false);
+    expect(result.ok && result.value.rowCount).toBe(2);
+  });
+
   it('sets cappedAt when caller did not supply top', async () => {
     global.fetch = mockFetch(companiesOk, { ok: true, status: 200, body: { value: [] } }) as unknown as typeof fetch;
 

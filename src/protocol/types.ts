@@ -477,7 +477,6 @@ export interface RepeaterState {
   readonly controlPath: string;
   readonly columns: RepeaterColumn[];
   readonly rows: RepeaterRow[];
-  readonly totalRowCount: number | null;      // null = unknown; set from PropertyChanged, NOT rows.length
   readonly currentBookmark: string | null;     // per-repeater; set from BookmarkChanged events
 }
 
@@ -625,7 +624,6 @@ function primaryRepeaterFromCtx(form: FormState): RepeaterState | null {
       columnBinderPath: c.columnBinder?.path,
     })),
     rows: [...rows],
-    totalRowCount: node.properties.totalRowCount ?? null,
     currentBookmark: node.properties.bookmark ?? null,
   };
 }

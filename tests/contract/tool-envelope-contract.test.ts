@@ -218,7 +218,7 @@ describe('tool envelope contract — every tool success validates against its ou
     ['bc_list_companies', ListCompaniesOutputSchema, { currentCompany: 'a', companies: [] }],
     ['bc_run_report', RunReportOutputSchema, { success: true, reportId: 6, dialogsOpened: [], requiresDialogResponse: false, downloads: [], externalUris: [], replaySafe: false }],
     ['bc_wizard_navigate', WizardNavigateOutputSchema, { success: true, caption: 'c', fields: [], availableNav: [], closed: false, changedSections: [], dialogsOpened: [], downloads: [], externalUris: [], replaySafe: true }],
-    ['bc_lookup', LookupOutputSchema, { rows: [], totalFound: 0 }],
+    ['bc_lookup', LookupOutputSchema, { rows: [{ bookmark: 'B1', cells: { Code: 'AJ', Name: null } }], returned: 1, truncated: false }],
     ['bc_query', QueryOutputSchema, { entity: 'customers', rows: [], rowCount: 0, hasMore: false }],
     ['bc_upload_file', UploadFileOutputSchema, { success: true, fileName: 'f', sizeBytes: 0, formId: 'form', dialogsOpened: [], replaySafe: false }],
     ['bc_get_operation', GetOperationOutputSchema, { entry: {} }],

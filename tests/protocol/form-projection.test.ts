@@ -52,9 +52,6 @@ describe('FormProjection', () => {
     const rows = updated.rows.get('server:c[1]')!;
     expect(rows).toHaveLength(2);
     expect(rows[0]!.bookmark).toBe('bm1');
-    // totalRowCount lives on the tree node, not in rows map
-    const repNode = treeRepeaters(updated.root).get('server:c[1]')!;
-    expect(repNode.properties.totalRowCount ?? null).toBeNull(); // not inferred from rows.length
   });
 
   it('ignores DataLoaded for unknown controlPath', () => {
@@ -146,17 +143,6 @@ describe('FormProjection', () => {
     const form = makeRepeaterForm();
     const event: BCEvent = { type: 'RowDelta', formId: 'f1', controlPath: 'server:c[99]', op: 'remove', bookmark: 'x' };
     expect(projection.apply(form, event)).toBe(form);
-  });
-
-  it('applies PropertyChanged TotalRowCount to repeater', () => {
-    const form = makeRepeaterForm();
-    const event: BCEvent = {
-      type: 'PropertyChanged', formId: 'f1', controlPath: 'server:c[1]',
-      changes: { TotalRowCount: 42 },
-    };
-    const updated = projection.apply(form, event);
-    const repNode = treeRepeaters(updated.root).get('server:c[1]')!;
-    expect(repNode.properties.totalRowCount).toBe(42);
   });
 
   it('applies PropertyChanged to tree fields', () => {

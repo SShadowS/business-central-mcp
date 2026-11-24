@@ -66,14 +66,15 @@ export class ReadDataOperation {
     // For repeater-bearing sections, materialize rows up to the requested range
     // so the resulting Section.rows reflects the slice the caller asked for.
     if (input.range) {
-      const totalRowCount = this.dataService.getRepeaterTotalRowCount(input.pageContextId, input.section);
-      const needed = input.range.offset + input.range.limit;
+      // One row past the range tells whether more exist (BC never sends a total:
+      // LogicalControlObserver.GetChangedPropertyValue has no case for TotalRowCount).
+      const needed = input.range.offset + input.range.limit + 1;
       // readRows err is benign here -- buildSection below produces a clearer
       // "Section '<id>' not found" diagnostic for the same root causes.
       const loaded = this.dataService.readRows(input.pageContextId, input.section);
       if (isOk(loaded)) {
         let rowsLen = loaded.value.length;
-        while (rowsLen < needed && rowsLen < (totalRowCount ?? Infinity)) {
+        while (rowsLen < needed) {
           const scrollResult = await this.dataService.scrollRepeater(input.pageContextId, 1, input.section);
           if (!isOk(scrollResult)) break;
           if (scrollResult.value.length <= rowsLen) break;
@@ -133,10 +134,22 @@ export class ReadDataOperation {
       }
     }
 
-    if (input.range && materialized.rows) {
+    if (materialized.rows) {
+      // What shapes these rows, so a later read does not silently inherit an earlier call's
+      // sort (BC keeps a sort through clearFilters, recorded flow 2026-11-24).
       materialized = {
         ...materialized,
-        rows: materialized.rows.slice(input.range.offset, input.range.offset + input.range.limit),
+        filters: this.filterService.activeFilters(input.pageContextId, input.section),
+        sort: this.sortService.currentSort(input.pageContextId, input.section),
+      };
+    }
+
+    if (input.range && materialized.rows) {
+      const end = input.range.offset + input.range.limit;
+      materialized = {
+        ...materialized,
+        rows: materialized.rows.slice(input.range.offset, end),
+        hasMore: materialized.rows.length > end,
       };
     }
 

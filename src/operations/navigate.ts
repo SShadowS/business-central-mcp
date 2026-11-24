@@ -1,7 +1,7 @@
 import { err, isErr, mapResult, type Result } from '../core/result.js';
 import { ProtocolError } from '../core/errors.js';
 import type { NavigationService } from '../services/navigation-service.js';
-import { buildAllSections, buildSection, type Section } from '../protocol/section-dto.js';
+import { buildAllSections, type Section } from '../protocol/section-dto.js';
 import type { OpenedDialog } from '../protocol/mutation-result.js';
 
 export interface NavigateInput {
@@ -15,8 +15,10 @@ export interface NavigateOutput {
   /** Set when action='drill_down' lands on a new page. */
   targetPageContextId?: string;
   pageType?: string;
-  /** Sections of the target page (drill_down) or the resolved section (select). */
+  /** Sections of the target page (drill_down). */
   sections?: Section[];
+  /** select: the row that is now current. */
+  selectedBookmark?: string;
   changedSections: string[];
   dialogsOpened: OpenedDialog[];
   requiresDialogResponse: boolean;
@@ -45,17 +47,15 @@ export class NavigateOperation {
       }));
     }
 
+    // Select only moves the cursor: say which row is current, not the whole section again
+    // (re-read with bc_read_data when the row's data is needed).
     const result = await this.navigationService.selectRow(input.pageContextId, input.bookmark, input.section);
     if (isErr(result)) return result;
-    return mapResult(result, (ctx) => {
-      const sectionId = input.section ?? 'header';
-      const section = buildSection(ctx, sectionId);
-      return {
-        sections: section ? [section] : [],
-        changedSections: [],
-        dialogsOpened: [],
-        requiresDialogResponse: false,
-      };
-    });
+    return mapResult(result, () => ({
+      selectedBookmark: input.bookmark,
+      changedSections: [],
+      dialogsOpened: [],
+      requiresDialogResponse: false,
+    }));
   }
 }

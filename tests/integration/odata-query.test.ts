@@ -153,6 +153,21 @@ describe("bc_query('customers', { top: 3 })", () => {
     }
   }, 30_000);
 
+  // Recorded flow 2026-11-24: top 3 over 5 customers said hasMore:false.
+  it('pages with skip, and hasMore says when more rows follow', async (ctx) => {
+    if (!odataAvailable) { ctx.skip(); return; }
+    const op = makeOp();
+    const all = await op.execute({ entity: 'customers', select: 'number', orderby: 'number asc', top: 1000 });
+    if (!all.ok) throw all.error;
+    const total = all.value.rowCount;
+    const first = await op.execute({ entity: 'customers', select: 'number', orderby: 'number asc', top: 2 });
+    const second = await op.execute({ entity: 'customers', select: 'number', orderby: 'number asc', top: 2, skip: 2 });
+    if (!first.ok || !second.ok) throw new Error('query failed');
+    expect(first.value.hasMore).toBe(total > 2);
+    expect(second.value.rows).toEqual(all.value.rows.slice(2, 4));
+    expect(second.value.hasMore).toBe(total > 4);
+  }, 30_000);
+
   it('applies $select to narrow returned fields', async (ctx) => {
     if (!odataAvailable) { ctx.skip(); return; }
 

@@ -4,7 +4,7 @@ import type { ToolDefinition, Operations } from '../mcp/tool-registry.js';
 export function createToolDefinition(ops: Operations): ToolDefinition {
   return {
     name: 'bc_read_data',
-    description: `Refreshes a single section on an already-open page. Returns { section: { sectionId, kind, caption, fields?, rows?, actions?, totalRowCount? }, stateVersion }. Card-shape sections (header, factbox, requestPage) refresh their fields[]; list-shape sections refresh rows[]. The returned stateVersion can be passed as expectedStateVersion to bc_write_data / bc_execute_action to reject stale-state writes. Requires a pageContextId from a prior bc_open_page call.
+    description: `Refreshes a single section on an already-open page. Returns { section: { sectionId, kind, caption, fields?, rows?, actions?, filters?, sort?, hasMore?, newRowBookmark? }, stateVersion }. Each row is { bookmark, cells } with every cell BC's display string or null. A list section echoes the filters and sort this session applied (sort survives clearFilters, as in BC); newRowBookmark is the empty new-line row to write to. Card-shape sections (header, factbox, requestPage) refresh their fields[]; list-shape sections refresh rows[]. The returned stateVersion can be passed as expectedStateVersion to bc_write_data / bc_execute_action to reject stale-state writes. Requires a pageContextId from a prior bc_open_page call.
 
 Do NOT use this for bulk or analytical reads over standard entities (customers, items, ledger entries, ...) -- prefer bc_query, which reads server-side via OData with no open page and no UI paging. Use bc_read_data when you need the interactive page's exact rows, factboxes, or option metadata.
 
@@ -20,7 +20,7 @@ Sorting: pass sort: { column, direction } to sort the repeater before reading. A
 
 Column selection: pass columns: ["No.", "Name"] to limit the cells in each row, or the fields[] entries on a card section.
 
-Range slicing: { offset, limit } returns rows[offset..offset+limit] for list sections. Use with totalRowCount for pagination.
+Range slicing: { offset, limit } returns rows[offset..offset+limit] for list sections, with hasMore: true when more rows follow (BC reports no total count). Page on with offset += limit until hasMore is false.
 
 Examples:
 - Refresh header: { "pageContextId": "abc" }

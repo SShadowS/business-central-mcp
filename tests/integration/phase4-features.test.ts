@@ -139,7 +139,7 @@ describe.sequential('Phase 4: FactBox Data & Full Paging', () => {
       expect(isOk(result)).toBe(true);
       const output = unwrap(result);
       const loaded = output.section.rows ?? [];
-      console.error(`Initial: ${loaded.length} rows loaded, totalRowCount=${output.section.totalRowCount}`);
+      console.error(`Initial: ${loaded.length} rows loaded`);
       expect(loaded.length).toBeGreaterThanOrEqual(20);
     });
 
@@ -176,7 +176,8 @@ describe.sequential('Phase 4: FactBox Data & Full Paging', () => {
       const ranged = unwrap(rangeResult);
       const rangedRows = ranged.section.rows ?? [];
       expect(rangedRows.length).toBe(10);
-      expect(ranged.section.totalRowCount).toBe(all.section.totalRowCount);
+      // G/L Entries has far more than 10 rows.
+      expect(ranged.section.hasMore).toBe(true);
       expect(rangedRows[0]!.bookmark).toBe(allRows[0]!.bookmark);
 
       // Slice with offset

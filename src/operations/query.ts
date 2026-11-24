@@ -14,6 +14,8 @@ export interface QueryInput {
   filter?: string;
   select?: string;
   top?: number;
+  /** Rows to skip ($skip), for paging. */
+  skip?: number;
   orderby?: string;
   expand?: string;
   company?: string;
@@ -25,7 +27,8 @@ export interface QueryOutput {
   rowCount: number;
   count?: number;
   cappedAt?: number; // present when top was auto-applied (not supplied by caller)
-  hasMore: boolean;  // true when BC truncated the result server-side (@odata.nextLink present)
+  /** True when more rows match than were returned: read the next page with skip += rowCount. */
+  hasMore: boolean;
 }
 
 /** Build the session-independent OData operation used by bc_query. */
@@ -82,22 +85,27 @@ export class QueryOperation {
         }
       }
 
+      // Ask for one row more than top: BC sends @odata.nextLink only past its own page size,
+      // so top=3 over 5 rows came back without it (recorded flow, cronus29).
+      const top = input.top ?? this.defaultTop;
       const result = await this.client.query(input.entity, {
         filter: input.filter,
         select: input.select,
-        top: input.top,
+        top: top + 1,
+        skip: input.skip,
         orderby: input.orderby,
         expand: input.expand,
         company: input.company,
       });
+      const rows = result.rows.slice(0, top);
 
       return ok({
         entity: input.entity,
-        rows: result.rows,
-        rowCount: result.rows.length,
+        rows,
+        rowCount: rows.length,
         count: result.count,
         cappedAt: callerSuppliedTop ? undefined : this.defaultTop,
-        hasMore: result.hasMore,
+        hasMore: result.rows.length > top || result.hasMore,
       });
     } catch (e) {
       if (e instanceof BCError) {

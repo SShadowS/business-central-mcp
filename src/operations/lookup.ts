@@ -1,7 +1,7 @@
 // src/operations/lookup.ts
 import type { Result } from '../core/result.js';
 import type { ProtocolError } from '../core/errors.js';
-import type { LookupService, LookupRow } from '../services/lookup-service.js';
+import type { LookupService, LookupResult } from '../services/lookup-service.js';
 
 export interface LookupInput {
   pageContextId: string;
@@ -10,10 +10,7 @@ export interface LookupInput {
   maxRows?: number;
 }
 
-export interface LookupOutput {
-  rows: LookupRow[];
-  totalFound: number;
-}
+export type LookupOutput = LookupResult;
 
 export class LookupOperation {
   constructor(private readonly lookupService: LookupService) {}

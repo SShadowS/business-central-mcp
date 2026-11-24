@@ -33,7 +33,7 @@ export const ReadDataSchema = z.object({
   range: z.object({
     offset: z.number().int().min(0).describe('0-based starting row index.'),
     limit: z.number().int().min(1).describe('Maximum number of rows to return.'),
-  }).optional().describe('Slice a subset of repeater rows. Returns rows[offset..offset+limit]. Use with totalRowCount for pagination.'),
+  }).optional().describe('Slice a subset of repeater rows. Returns rows[offset..offset+limit]; the section then says hasMore: true when rows exist past the range (read on with offset + limit).'),
 });
 
 export const WriteDataSchema = z.object({
@@ -128,6 +128,7 @@ export const QuerySchema = z.object({
   filter: z.string().optional().describe('OData $filter expression for server-side filtering. Examples: "city eq \'London\'", "amount gt 1000", "postingDate ge 2024-01-01 and postingDate le 2024-12-31", "contains(displayName, \'Contoso\')". Applied by BC before returning data.'),
   select: z.string().optional().describe('Comma-separated OData $select field names to limit response size. Examples: "number,displayName,city", "id,amount,postingDate". Omit to return all fields.'),
   top: z.number().int().min(1).optional().describe('Maximum number of rows to return. Defaults to 100 if omitted to prevent accidental full-table scans. Pass explicitly to get more rows.'),
+  skip: z.number().int().min(0).optional().describe('Rows to skip ($skip), for paging: when hasMore is true, call again with skip increased by rowCount (keep the same orderby).'),
   orderby: z.string().optional().describe('OData $orderby expression. Examples: "displayName asc", "postingDate desc", "amount desc,number asc".'),
   expand: z.string().optional().describe('OData $expand for related entities. Examples: "salesLines", "customer($select=displayName)". Use sparingly — expanded entities increase response size significantly.'),
   company: z.string().optional().describe('Override the BC company name for this query. Defaults to the server-configured company (BC_ODATA_COMPANY or first available company). Use when querying a specific company in a multi-company BC environment.'),
@@ -338,6 +339,7 @@ export const NavigateOutputSchema = z.object({
   targetPageContextId: z.string().optional(),
   pageType: z.string().optional(),
   sections: z.array(Section).optional(),
+  selectedBookmark: z.string().optional(),
   changedSections: z.array(z.string()),
   dialogsOpened: z.array(OpenedDialog),
   requiresDialogResponse: z.boolean(),
@@ -392,8 +394,9 @@ export const WizardNavigateOutputSchema = z.object({
 });
 
 export const LookupOutputSchema = z.object({
-  rows: z.array(Loose),
-  totalFound: z.number(),
+  rows: z.array(z.object({ bookmark: z.string(), cells: z.record(z.string(), z.string().nullable()) })),
+  returned: z.number(),
+  truncated: z.boolean(),
 });
 
 export const QueryOutputSchema = z.object({

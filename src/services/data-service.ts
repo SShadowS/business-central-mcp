@@ -108,13 +108,6 @@ export class DataService {
     return ok(mapRowCellKeys([...resolved.rows], cols));
   }
 
-  getRepeaterTotalRowCount(pageContextId: string, sectionId?: string): number | null {
-    const ctx = this.repo.get(pageContextId);
-    if (!ctx) return null;
-    const resolved = resolveSection(ctx, sectionId);
-    if ('error' in resolved) return null;
-    return resolved.repeater?.properties.totalRowCount ?? null;
-  }
 
   getTabs(pageContextId: string, sectionId?: string): Result<TabGroup[] | undefined, ProtocolError> {
     const ctx = this.repo.get(pageContextId);

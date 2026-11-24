@@ -39,7 +39,7 @@ describe('LookupService (integration)', () => {
       console.error(`Lookup ERROR: ${lookupResult.error.message}`);
     }
     expect(isOk(lookupResult)).toBe(true);
-    const { rows, totalFound } = unwrap(lookupResult);
+    const { rows, returned } = unwrap(lookupResult);
 
     console.error(`Salesperson Code lookup: ${rows.length} rows`);
     if (rows.length > 0) {
@@ -48,10 +48,10 @@ describe('LookupService (integration)', () => {
 
     expect(rows.length).toBeGreaterThan(0);
     for (const row of rows) {
-      expect(typeof row.values).toBe('object');
-      expect(Object.keys(row.values).length).toBeGreaterThan(0);
+      expect(typeof row.cells).toBe('object');
+      expect(Object.keys(row.cells).length).toBeGreaterThan(0);
     }
-    expect(totalFound).toBe(rows.length);
+    expect(returned).toBe(rows.length);
 
     // Verify non-mutating: page field still exists after lookup
     const dataService = new DataService(session, repo, logger);

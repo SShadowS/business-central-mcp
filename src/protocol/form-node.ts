@@ -15,7 +15,7 @@ import type { PageType } from './types.js';
  * Generic property bag — append-only union of every BC LogicalControl property
  * we care to surface. Adding a new property never requires a new node type.
  *
- * Properties only meaningful on specific nodes (`bookmark` / `totalRowCount`
+ * Properties only meaningful on specific nodes (`bookmark`
  * on RepeaterNode, `mappingHint` on most container types, `hasFiltersApplied`
  * on FilterNode) live here for uniformity. Consumers should know which
  * properties to read on which node type.
@@ -32,7 +32,6 @@ export interface NodeProperties {
   readonly mappingHint?: string;
   readonly designName?: string;
   readonly controlIdentifier?: string;
-  readonly totalRowCount?: number;
   readonly bookmark?: string;
   readonly hasFiltersApplied?: boolean;
   /**

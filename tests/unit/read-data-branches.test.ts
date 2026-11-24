@@ -68,6 +68,7 @@ function makeFilterService(overrides?: Record<string, unknown>) {
   return {
     applyFilters: vi.fn(async () => ok(undefined as any)),
     clearFilters: vi.fn(async () => ok(undefined as any)),
+    activeFilters: vi.fn(() => []),
     ...overrides,
   } as any;
 }
@@ -75,6 +76,7 @@ function makeFilterService(overrides?: Record<string, unknown>) {
 function makeSortService(overrides?: Record<string, unknown>) {
   return {
     applySort: vi.fn(async () => ok(undefined as any)),
+    currentSort: vi.fn(() => null),
     ...overrides,
   } as any;
 }
@@ -82,7 +84,6 @@ function makeSortService(overrides?: Record<string, unknown>) {
 function makeDataService(overrides?: Record<string, unknown>) {
   return {
     readRows: vi.fn(() => ok([] as RepeaterRow[])),
-    getRepeaterTotalRowCount: vi.fn(() => null),
     getTabs: vi.fn(() => ok(null)),
     scrollRepeater: vi.fn(async () => ok([] as RepeaterRow[])),
     ...overrides,
@@ -374,7 +375,6 @@ describe('ReadDataOperation — range with scroll boundary (uncovered)', () => {
     let scrollCalls = 0;
     const dataService = makeDataService({
       readRows: vi.fn(() => ok([{ bookmark: 'bk0', cells: { No: '10000' } }])),
-      getRepeaterTotalRowCount: vi.fn(() => 100), // pretend more rows exist
       scrollRepeater: vi.fn(async () => {
         scrollCalls += 1;
         // Return the SAME row count every time (simulates end-of-list from BC)

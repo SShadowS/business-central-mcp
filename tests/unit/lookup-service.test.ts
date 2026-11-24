@@ -113,8 +113,14 @@ describe('LookupService', () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.rows.length).toBe(2);
-      expect(result.value.rows[0]!.values).toMatchObject({ Code: 'AJ', Name: 'Anika Jensen' });
+      // Same row shape as page sections: bookmark + cells.
+      expect(result.value.rows[0]!.cells).toMatchObject({ Code: 'AJ', Name: 'Anika Jensen' });
+      expect(result.value.rows[0]!.bookmark).toBeTruthy();
+      expect(result.value).toMatchObject({ returned: 2, truncated: false });
+      expect(result.value).not.toHaveProperty('totalFound');
     }
+    const capped = await svc.lookup('pc-ok', 'Salesperson Code', { maxRows: 1 });
+    expect(capped.ok && capped.value).toMatchObject({ returned: 1, truncated: true });
 
     // The lookup form's openForm tracking AND its temporary page context must be released.
     expect(removeOpenForm).toHaveBeenCalledWith('lookup-form-99');

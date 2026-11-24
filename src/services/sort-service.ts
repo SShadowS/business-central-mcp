@@ -19,6 +19,8 @@ import type { Logger } from '../core/logger.js';
 export type SortDirection = 'asc' | 'desc';
 
 export class SortService {
+  private readonly current = new Map<string, { column: string; direction: SortDirection }>();
+
   constructor(
     private readonly session: BCSession,
     private readonly repo: PageContextRepository,
@@ -81,7 +83,19 @@ export class SortService {
 
     const updatedCtx = this.repo.get(pageContextId);
     if (!updatedCtx) return err(new ProtocolError('State lost after sort'));
+    this.current.set(sortKey(pageContextId, sectionId), { column: column.properties.caption ?? columnName, direction });
     this.logger.info(`[Sort] Sort applied: ${columnName} ${direction}`);
     return ok(updatedCtx);
   }
+
+  /**
+   * The sort this session last applied to the section, or null (BC's default order). BC keeps a
+   * sort through a filter reset (recorded flow: clearFilters left Name desc in place).
+   * ponytail: entries of closed pages are never dropped; a few bytes per page context.
+   */
+  currentSort(pageContextId: string, sectionId?: string): { column: string; direction: SortDirection } | null {
+    return this.current.get(sortKey(pageContextId, sectionId)) ?? null;
+  }
 }
+
+const sortKey = (pageContextId: string, sectionId?: string) => `${pageContextId}|${sectionId ?? 'header'}`;

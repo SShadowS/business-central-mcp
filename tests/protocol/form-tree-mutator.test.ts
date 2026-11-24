@@ -72,7 +72,7 @@ describe('applyPropertyChange — RepeaterNode.columns', () => {
         {
           type: 'rc',
           controlPath: 'server:c[0]',
-          properties: { totalRowCount: 10 },
+          properties: { bookmark: 'B10' },
           columns: [
             { type: 'rcc', controlPath: 'server:c[0]/co[0]', properties: { caption: 'No.' } },
             { type: 'rcc', controlPath: 'server:c[0]/co[1]', properties: { caption: 'Name', visible: true } },

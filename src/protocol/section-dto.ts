@@ -110,7 +110,12 @@ export interface Section {
   readonly rows?: readonly SectionRow[];
   /** An empty new-row bookmark (BC's DraftRecordN): pass it to bc_write_data to add a line. */
   readonly newRowBookmark?: string;
-  readonly totalRowCount?: number | null;
+  /** bc_read_data with range: true when rows exist past the range (read on with a higher offset). */
+  readonly hasMore?: boolean;
+  /** bc_read_data on a list: the filters this session applied that are active now. */
+  readonly filters?: ReadonlyArray<{ readonly column: string; readonly value: string }>;
+  /** bc_read_data on a list: the sort this session applied, or null (BC's default order). */
+  readonly sort?: { readonly column: string; readonly direction: 'asc' | 'desc' } | null;
   readonly actions?: readonly SectionAction[];
   /** Populated when the section's form contains cuegroup tiles. */
   readonly cues?: readonly SectionCue[];
@@ -171,7 +176,6 @@ export function buildSection(ctx: PageContext, sectionId: string): Section | nul
     fields?: SectionField[];
     rows?: SectionRow[];
     newRowBookmark?: string;
-    totalRowCount?: number | null;
     actions?: SectionAction[];
     cues?: SectionCue[];
   } = {
@@ -198,7 +202,6 @@ export function buildSection(ctx: PageContext, sectionId: string): Section | nul
     const draft = out.rows.find(isEmptyDraft);
     out.rows = out.rows.filter(r => !isEmptyDraft(r));
     if (draft) out.newRowBookmark = draft.bookmark;
-    out.totalRowCount = repeater.properties.totalRowCount ?? null;
   } else {
     out.fields = treeFields(root)
       .filter(f => fieldName(f) && isEffectivelyVisible(root, f.controlPath, groupVis, ws))

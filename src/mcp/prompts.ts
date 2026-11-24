@@ -94,7 +94,7 @@ Steps:
    ${has(a, 'filters') ? `- filters: translate "${a['filters']}" into [{ column, value }] entries. Values support ranges ("10000..20000"), wildcards ("*ltd*"), and expressions (">1000").` : '- filters: [{ column, value }] as needed.'}
    ${has(a, 'sort') ? `- sort: { column, direction } for "${a['sort']}".` : '- sort: { column, direction } if ordering matters.'}
    ${has(a, 'columns') ? `- columns: [${a['columns']!.split(',').map(c => `"${c.trim()}"`).join(', ')}].` : '- columns: [ ... ] to trim the payload if you only need some.'}
-   - range: { offset, limit } to page through large lists; use \`totalRowCount\` to know when to stop.
+   - range: { offset, limit } to page through large lists; stop when the section's \`hasMore\` is false.
 3. For bulk/analytical reads that do not need the UI, prefer the bc_bulk_read workflow (OData) instead.
 
 ${CORE_NOTE}`,

@@ -146,14 +146,15 @@ describe.sequential('Phase 3 Feature Verification', () => {
       pageContextId = unwrap(result).pageContextId;
     });
 
-    it('reads all rows and reports totalRowCount', async () => {
+    it('reads all rows', async () => {
       const result = await readData.execute({ pageContextId });
       expect(isOk(result)).toBe(true);
       const output = unwrap(result);
 
       const loadedRows = output.section.rows ?? [];
-      console.error(`Customer List: ${loadedRows.length} rows loaded, totalRowCount=${output.section.totalRowCount}`);
+      console.error(`Customer List: ${loadedRows.length} rows loaded`);
       expect(loadedRows.length).toBeGreaterThan(0);
+      expect(output.section).not.toHaveProperty('totalRowCount');
     });
 
     it('slices first 3 rows with range', async () => {
@@ -167,8 +168,8 @@ describe.sequential('Phase 3 Feature Verification', () => {
       const rangedRows = ranged.section.rows ?? [];
 
       expect(rangedRows.length).toBe(3);
-      // totalRowCount should be the full count (before slicing)
-      expect(ranged.section.totalRowCount).toBe(all.section.totalRowCount);
+      // The list has more than 3 rows (CRONUS has 5+ customers).
+      expect(ranged.section.hasMore).toBe(allRows.length > 3);
       // First 3 rows should match
       expect(rangedRows[0]!.bookmark).toBe(allRows[0]!.bookmark);
       expect(rangedRows[2]!.bookmark).toBe(allRows[2]!.bookmark);

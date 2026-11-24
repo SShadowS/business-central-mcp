@@ -34,17 +34,19 @@ import { buildFormTree } from '../protocol/form-tree-builder.js';
 import type { FormNode } from '../protocol/form-node.js';
 import { walkTree } from '../protocol/form-tree-walk.js';
 
+/** Same row shape as a page section's rows. */
 export interface LookupRow {
-  /** Bookmark for this row (empty string if not available). */
-  key: string;
-  /** Column caption -> string value mapping. */
-  values: Record<string, string>;
+  bookmark: string;
+  /** Column caption -> BC's display string, or null when empty. */
+  cells: Record<string, string | null>;
 }
 
 export interface LookupResult {
   rows: LookupRow[];
-  /** Count of returned rows (may equal maxRows if BC has more). */
-  totalFound: number;
+  /** Number of rows returned. */
+  returned: number;
+  /** True when the lookup list held more rows than maxRows: narrow with search. */
+  truncated: boolean;
 }
 
 const DEFAULT_MAX_ROWS = 50;
@@ -200,16 +202,16 @@ export class LookupService {
 
     // 12. Collect rows
     const lookupCtx = this.repo.get(lookupPcId);
-    if (!lookupCtx) return ok({ rows: [], totalFound: 0 });
+    if (!lookupCtx) return ok({ rows: [], returned: 0, truncated: false });
 
     const lookupForm = lookupCtx.forms.get(lookupFormId);
-    if (!lookupForm) return ok({ rows: [], totalFound: 0 });
+    if (!lookupForm) return ok({ rows: [], returned: 0, truncated: false });
 
     const repeatersMap = treeRepeaters(lookupForm.root);
     const repeaterEntry = repeatersMap.values().next();
     if (repeaterEntry.done) {
       this.logger.warn(`bc_lookup: lookup form for "${fieldCaption}" has no repeater — returning empty`);
-      return ok({ rows: [], totalFound: 0 });
+      return ok({ rows: [], returned: 0, truncated: false });
     }
     const repeaterNode = repeaterEntry.value;
     const rawRows = lookupForm.rows.get(repeaterNode.controlPath) ?? [];
@@ -222,17 +224,10 @@ export class LookupService {
     }));
 
     const remapped = mapRowCellKeys([...rawRows], columns);
-    const capped = remapped.slice(0, maxRows);
+    const rows: LookupRow[] = remapped.slice(0, maxRows);
 
-    const rows: LookupRow[] = capped.map(row => ({
-      key: row.bookmark,
-      values: Object.fromEntries(
-        Object.entries(row.cells).map(([k, v]) => [k, v != null ? String(v) : '']),
-      ),
-    }));
-
-    this.logger.info(`bc_lookup: "${fieldCaption}" -> ${rows.length} candidates (capped at ${maxRows})`);
-    return ok({ rows, totalFound: rows.length });
+    this.logger.info(`bc_lookup: "${fieldCaption}" -> ${rows.length} of ${remapped.length} loaded candidates (maxRows ${maxRows})`);
+    return ok({ rows, returned: rows.length, truncated: remapped.length > maxRows });
   }
 
   private async applyLookupSearch(

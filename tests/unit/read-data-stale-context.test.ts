@@ -67,7 +67,6 @@ describe('ReadDataOperation post-mutation context', () => {
     let scrollCalls = 0;
     const dataService = {
       readRows: () => ok(rowsForFormId(formId, 5)),
-      getRepeaterTotalRowCount: () => 30,
       getTabs: () => ok([]),
       scrollRepeater: async () => {
         scrollCalls += 1;
@@ -81,12 +80,13 @@ describe('ReadDataOperation post-mutation context', () => {
 
     const filterService = {
       applyFilters: async () => ok([]),
+      activeFilters: () => [],
     } as unknown as ConstructorParameters<typeof ReadDataOperation>[1];
 
     const op = new ReadDataOperation(
       dataService as never,
       filterService as never,
-      { applySort: async () => ok([]) } as never,
+      { applySort: async () => ok([]), currentSort: () => null } as never,
       repo,
     );
 
@@ -112,7 +112,6 @@ describe('ReadDataOperation post-mutation context', () => {
     let serviceCalls = 0;
     const dataService = {
       readRows: () => { serviceCalls += 1; return ok([]); },
-      getRepeaterTotalRowCount: () => { serviceCalls += 1; return null; },
       getTabs: () => { serviceCalls += 1; return ok([]); },
       scrollRepeater: async () => { serviceCalls += 1; return ok([]); },
     } as unknown as ConstructorParameters<typeof ReadDataOperation>[0];

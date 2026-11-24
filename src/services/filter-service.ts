@@ -68,9 +68,13 @@ function emptyValueAfter(events: readonly BCEvent[], path: string, formId: strin
   return !value;
 }
 
+const activeKey = (pageContextId: string, sectionId?: string) => `${pageContextId}|${sectionId ?? 'header'}`;
+
 export class FilterService {
   /** Page contexts this session added a filter to, so close_page can clear it first (#57). */
   private readonly filtered = new Set<string>();
+  /** Filters applied per page context + section, echoed by bc_read_data. */
+  private readonly active = new Map<string, Filter[]>();
 
   constructor(
     private readonly session: BCSession,
@@ -175,6 +179,8 @@ export class FilterService {
           return err(new ProtocolError(`BC did not take the filter value '${filter.value}' for '${filter.column}': the filter line stayed empty, so the rows are unfiltered.`));
         }
       }
+      const key = activeKey(pageContextId, sectionId);
+      this.active.set(key, [...(this.active.get(key) ?? []), { column: filter.column, value: filter.value }]);
     }
 
     const updatedCtx = this.repo.get(pageContextId);
@@ -186,6 +192,11 @@ export class FilterService {
   /** True when this session added a filter to the page context that clearFilters has not removed. */
   hasFilters(pageContextId: string): boolean {
     return this.filtered.has(pageContextId);
+  }
+
+  /** The filters this session applied to the section that clearFilters has not removed, in order. */
+  activeFilters(pageContextId: string, sectionId?: string): Filter[] {
+    return [...(this.active.get(activeKey(pageContextId, sectionId)) ?? [])];
   }
 
   async clearFilters(pageContextId: string, sectionId?: string): Promise<Result<PageContext, ProtocolError>> {
@@ -227,6 +238,7 @@ export class FilterService {
       this.repo.applyToPage(pageContextId, result.value);
     }
     this.filtered.delete(pageContextId);
+    this.active.delete(activeKey(pageContextId, sectionId));
 
     const updatedCtx = this.repo.get(pageContextId);
     if (!updatedCtx) return err(new ProtocolError('State lost after clear'));

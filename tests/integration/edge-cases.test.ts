@@ -146,20 +146,10 @@ describe('Edge Case & Stress Tests', () => {
     }
 
     const initialRows = state.repeater.rows.length;
-    const totalRowCount = state.repeater.totalRowCount;
+    // BC reports no total row count (LogicalControlObserver never serializes TotalRowCount);
+    // bc_read_data's range + hasMore pages through instead.
     console.error(`[EC4] Initial rows loaded: ${initialRows}`);
-    console.error(`[EC4] Total row count (from BC): ${totalRowCount}`);
     console.error(`[EC4] Columns: ${state.repeater.columns.length}`);
-
-    if (totalRowCount !== null && totalRowCount > initialRows) {
-      console.error(`[EC4] BC reports more rows (${totalRowCount}) than loaded (${initialRows})`);
-      console.error('[EC4] This means BC uses row virtualization / lazy loading');
-      console.error('[EC4] GAP CHECK: Do we have a way to request more rows (scroll)?');
-    } else if (totalRowCount === 0) {
-      console.error('[EC4] totalRowCount=0 -- BC may not report total, or data not available');
-    } else {
-      console.error(`[EC4] All rows loaded (initial=${initialRows}, total=${totalRowCount})`);
-    }
 
     if (initialRows > 0) {
       console.error(`[EC4] First row: ${JSON.stringify(state.repeater.rows[0]!.cells)}`);

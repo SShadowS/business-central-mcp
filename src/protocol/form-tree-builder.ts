@@ -302,7 +302,6 @@ function readProperties(obj: Record<string, unknown>): NodeProperties {
   if (typeof obj.MappingHint === 'string') p.mappingHint = obj.MappingHint;
   if (typeof obj.DesignName === 'string') p.designName = obj.DesignName;
   if (typeof obj.ControlIdentifier === 'string') p.controlIdentifier = obj.ControlIdentifier;
-  if (typeof obj.TotalRowCount === 'number') p.totalRowCount = obj.TotalRowCount;
   if (typeof obj.Bookmark === 'string') p.bookmark = obj.Bookmark;
   if (typeof obj.HasFiltersApplied === 'boolean') p.hasFiltersApplied = obj.HasFiltersApplied;
   // Record whether ExpressionProperties.Visible exists (wizard step detection).
